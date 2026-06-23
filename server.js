@@ -120,54 +120,71 @@ async function guardarConversacion(
 }
 
 /**
- * Analizar mensaje con OpenAI
+ * Analizar mensaje con OpenAI (con historial de conversación)
  */
-async function analizarConOpenAI(mensajeCliente) {
+async function analizarConOpenAI(mensajeCliente, historial = []) {
   try {
-    const prompt = `
-Analiza este mensaje de un cliente sobre racks de almacenamiento:
-"${mensajeCliente}"
+    const systemPrompt = `Eres TARA™, especialista virtual de Total Racks, empresa líder en racks industriales en Monterrey, NL, México.
 
-Responde SOLO en JSON (sin markdown, sin backticks) con esta estructura exacta:
+CONOCIMIENTO EXPERTO:
+- Rack Selectivo: el más versátil. Para tarimas/pallets de alta rotación, acceso individual a cada posición. Ideal para productos variados (SKUs mixtos). Capacidad por nivel: 500-2000 kg. Alturas de 3 a 12 metros.
+- Drive-In / Drive-Through: máxima densidad de almacenamiento. Para productos homogéneos de baja rotación (LIFO) o alta (FIFO en drive-through). Reduce pasillos al mínimo.
+- Cantilever: para material largo sin embalaje (tubos, perfiles, madera, rollos). Sin columnas frontales que obstruyan la carga.
+- Flow Rack (gravedad): para operaciones FIFO de alta rotación. Producto entra por atrás y sale por el frente. Ideal para perecederos y líneas de producción.
+- Entrepiso Industrial: aprovecha la altura del almacén creando un segundo piso. Para picking manual, oficinas o archivo.
+- Lockers Industriales: para equipo personal, herramientas o valuables.
+
+VENTAJA EXCLUSIVA TOTAL RACKS: único proveedor en el noreste que incluye sistema digital propio para visualizar capacidad e inventario en tiempo real, sin costo adicional de software.
+
+PROCESO DE VENTA:
+1. Saludar y preguntar qué necesitan almacenar
+2. Obtener: tipo de producto, peso por unidad, dimensiones del almacén, cantidad de posiciones, tipo de operación (FIFO/LIFO/mixto)
+3. Recomendar el rack específico con justificación técnica
+4. Ofrecer cotización y mencionar ventaja del sistema digital
+5. Capturar datos de contacto si el cliente muestra interés
+
+REGLAS:
+- Responde en español, máximo 120 palabras
+- Sé proactivo: si tienes suficiente información, HAZ la recomendación concreta (no sigas pidiendo datos)
+- Recuerda el contexto de mensajes anteriores de esta conversación
+- Si preguntan por precio, menciona que depende de dimensiones y cantidad pero que son competitivos e incluyen instalación y sistema digital
+- Nunca inventes precios específicos sin cotización formal
+
+Responde SOLO en JSON sin markdown:
 {
-  "tipo_rack": "Selectivo|Cantilever|Drive In|Sin clasificar",
-  "intenciones": ["precio", "consulta", "cotizacion", "comparacion"],
+  "tipo_rack": "Selectivo|Cantilever|Drive In|Flow Rack|Entrepiso|Sin clasificar",
+  "intenciones": ["precio", "consulta", "cotizacion", "recomendacion"],
   "sentimiento": "Positivo|Neutral|Negativo|Muy interesado",
-  "respuesta_tara": "Tu respuesta amable y profesional como especialista"
-}
+  "respuesta_tara": "tu respuesta experta aquí"
+}`;
 
-Reglas:
-- Selectivo: para cajas/paquetes pequeños y medianos
-- Cantilever: para tubos, vigas, materiales largos
-- Drive In: para máximo volumen
-- Intenciones: máximo 3 opciones
-- Respuesta: breve (máximo 100 palabras), profesional, amable
-    `;
+    const mensajes = [{ role: 'system', content: systemPrompt }];
+
+    for (const h of historial) {
+      mensajes.push({ role: 'user', content: h.mensaje_cliente });
+      mensajes.push({ role: 'assistant', content: h.respuesta_tara });
+    }
+
+    mensajes.push({ role: 'user', content: mensajeCliente });
 
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
-      messages: [{ role: 'user', content: prompt }],
+      messages: mensajes,
       temperature: 0.7,
-      max_tokens: 500,
+      max_tokens: 600,
     });
 
     let contenido = response.choices[0].message.content.trim();
-    if (contenido.startsWith('```json')) {
-      contenido = contenido.replace(/```json\n?/, '').replace(/```\n?$/, '');
-    }
-    if (contenido.startsWith('```')) {
-      contenido = contenido.replace(/```\n?/, '').replace(/```\n?$/, '');
-    }
+    contenido = contenido.replace(/```json\n?/g, '').replace(/```\n?/g, '');
 
-    const analisis = JSON.parse(contenido);
-    return analisis;
+    return JSON.parse(contenido);
   } catch (error) {
     console.error('Error en OpenAI:', error);
     return {
       tipo_rack: 'Sin clasificar',
       intenciones: ['consulta'],
       sentimiento: 'Neutral',
-      respuesta_tara: 'Gracias por tu mensaje. ¿Puedes decirnos más sobre qué necesitas almacenar?',
+      respuesta_tara: '¡Hola! Soy TARA™ de Total Racks. ¿En qué puedo ayudarte hoy con tu proyecto de almacenamiento?',
     };
   }
 }
@@ -224,10 +241,19 @@ async function procesarMensajeTwilio(telefono, mensajeCliente) {
       return 'Disculpa, tuve un problema procesando tu solicitud. Intenta de nuevo.';
     }
 
-    // 2. Analizar con OpenAI
-    const analisis = await analizarConOpenAI(mensajeCliente);
+    // 2. Obtener historial reciente
+    const { data: historial } = await supabase
+      .from('conversaciones')
+      .select('mensaje_cliente, respuesta_tara')
+      .eq('cliente_id', cliente.id)
+      .order('created_at', { ascending: false })
+      .limit(5);
+    const historialOrdenado = (historial || []).reverse();
 
-    // 3. Guardar conversación
+    // 3. Analizar con OpenAI
+    const analisis = await analizarConOpenAI(mensajeCliente, historialOrdenado);
+
+    // 4. Guardar conversación
     await guardarConversacion(
       cliente.id,
       mensajeCliente,
@@ -236,7 +262,7 @@ async function procesarMensajeTwilio(telefono, mensajeCliente) {
       analisis.intenciones
     );
 
-    // 4. Crear oportunidad si es necesario
+    // 5. Crear oportunidad si es necesario
     if (analisis.intenciones.includes('cotizacion')) {
       await crearOportunidadSiNecesario(
         cliente.id,
@@ -245,7 +271,7 @@ async function procesarMensajeTwilio(telefono, mensajeCliente) {
       );
     }
 
-    // 5. Actualizar score
+    // 6. Actualizar score
     const nuevoScore = (cliente.score_interes || 0) + 10;
     await supabase
       .from('clientes')
