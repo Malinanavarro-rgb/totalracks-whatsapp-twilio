@@ -1,0 +1,33 @@
+{
+  "name": "tara-totalracks",
+  "version": "1.0.0",
+  "description": "TARA - Bot inteligente para Total Racks con Supabase + Twilio + OpenAI",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "setup-db": "node setup-db.js",
+    "dev": "nodemon server.js"
+  },
+  "keywords": [
+    "tara",
+    "totalracks",
+    "supabase",
+    "twilio",
+    "whatsapp"
+  ],
+  "author": "Malina Navarro",
+  "license": "MIT",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.38.0",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "openai": "^4.24.0",
+    "twilio": "^4.10.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
