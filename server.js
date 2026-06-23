@@ -27,6 +27,7 @@ const supabase = createClient(
 // OpenAI
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
+  defaultHeaders: { 'Accept-Encoding': 'identity' },
 });
 
 // Twilio
