@@ -7,13 +7,13 @@
 require('dotenv').config();
 const express = require('express');
 
-const { supabase, COMPANY_SLUG }  = require('./modules/clients');
-const { obtenerConfigEmpresa }    = require('./modules/config');
-const { crearOrchestrator }       = require('./modules/orchestrator');
-const { TwilioWhatsAppAdapter }   = require('./adapters/channels/twilio-whatsapp');
+const { supabase, twilioClient, COMPANY_SLUG } = require('./modules/clients');
+const { obtenerConfigEmpresa }                 = require('./modules/config');
+const { crearOrchestrator }                    = require('./modules/orchestrator');
+const { TwilioWhatsAppAdapter }                = require('./adapters/channels/twilio-whatsapp');
 
 const app         = express();
-const adapter     = new TwilioWhatsAppAdapter();
+const adapter     = new TwilioWhatsAppAdapter(twilioClient);
 const orchestrator = crearOrchestrator();
 
 app.use(express.urlencoded({ extended: false }));
