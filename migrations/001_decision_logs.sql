@@ -30,26 +30,33 @@ CREATE INDEX IF NOT EXISTS idx_decision_logs_company_tipo
   ON decision_logs (company_id, tipo);
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- ROW LEVEL SECURITY (RLS)
--- Activar si se usa la anon key desde el frontend.
--- Si solo el backend escribe (service role key), RLS no es estrictamente
--- necesario pero se recomienda como defensa en profundidad.
+-- NOTA DE SEGURIDAD — Por qué NO usamos RLS aquí
+--
+-- decision_logs es una tabla de escritura exclusiva del backend (server-side).
+-- El SUPABASE_ANON_KEY vive en el servidor de Render, NUNCA en el navegador.
+--
+-- Si activamos RLS con policy de service_role, el AuditLogger (que usa la
+-- anon key de clients.js) fallaría silenciosamente en todos los inserts —
+-- el AuditLogger tiene fire-and-forget y no lanza excepciones, así que la
+-- tabla quedaría vacía en producción sin ninguna advertencia visible.
+--
+-- Para hardening adicional en producción con múltiples tenants:
+--   1. Crear un cliente Supabase separado con SUPABASE_SERVICE_ROLE_KEY
+--   2. Inyectarlo en AuditLogger en lugar del cliente anon
+--   3. Entonces sí activar RLS con policy de service_role
+--
+-- Por ahora: la seguridad la da el hecho de que la anon_key está en el
+-- servidor (variable de entorno en Render), nunca expuesta al cliente.
 -- ─────────────────────────────────────────────────────────────────────────────
 
--- Habilitar RLS
-ALTER TABLE decision_logs ENABLE ROW LEVEL SECURITY;
-
--- Política: solo el backend (service_role) puede leer y escribir
--- La anon key NO tiene acceso a esta tabla.
-CREATE POLICY "Backend solo" ON decision_logs
-  USING (auth.role() = 'service_role')
-  WITH CHECK (auth.role() = 'service_role');
-
 -- ─────────────────────────────────────────────────────────────────────────────
--- VERIFICACIÓN
--- Ejecuta esto para confirmar que la tabla se creó correctamente:
+-- VERIFICACIÓN — Ejecutar después de aplicar la migración:
 -- ─────────────────────────────────────────────────────────────────────────────
--- SELECT table_name, column_name, data_type
+-- SELECT column_name, data_type, is_nullable
 -- FROM information_schema.columns
 -- WHERE table_name = 'decision_logs'
 -- ORDER BY ordinal_position;
+--
+-- Resultado esperado: 11 columnas (id, company_id, created_at, tipo,
+-- canal, identificador, payload, latencia_ms, costo_usd, tokens_total,
+-- error, session_id)

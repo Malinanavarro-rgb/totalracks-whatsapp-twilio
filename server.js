@@ -101,14 +101,37 @@ app.get('/api/diagnostics', async (req, res) => {
     check('supabase_lectura', 'fallo', e.message);
   }
 
-  // ── 3. Supabase — tabla decision_logs ────────────────────────────────────
+  // ── 3. Supabase — tabla decision_logs (INSERT real de prueba) ───────────
+  // Un SELECT puede retornar { error: null } incluso si RLS bloquea inserts.
+  // Validamos con un INSERT + DELETE para confirmar que AuditLogger puede escribir.
   try {
-    const t = Date.now();
-    const { error } = await supabase.from('decision_logs').select('id').limit(1);
-    if (error) throw error;
-    check('supabase_decision_logs', 'ok', 'Tabla decision_logs accesible', { latencia_ms: Date.now() - t });
+    const t          = Date.now();
+    const testId     = '00000000-0000-0000-0000-000000000000'; // company_id ficticio
+    const { error: insertError } = await supabase
+      .from('decision_logs')
+      .insert([{
+        company_id:  testId,
+        tipo:        'channel_event',
+        canal:       'diagnostics',
+        identificador: 'test',
+        payload:     { subtipo: 'diagnostics_check' },
+      }]);
+
+    if (insertError) throw new Error(`INSERT falló: ${insertError.message}`);
+
+    // Limpiar la fila de prueba
+    await supabase
+      .from('decision_logs')
+      .delete()
+      .eq('company_id', testId)
+      .eq('canal', 'diagnostics');
+
+    check('supabase_decision_logs', 'ok', 'Tabla decision_logs operativa (INSERT confirmado)', {
+      latencia_ms: Date.now() - t,
+    });
   } catch (e) {
-    check('supabase_decision_logs', 'fallo', `Tabla no existe o sin acceso — ejecutar migrations/001_decision_logs.sql: ${e.message}`);
+    check('supabase_decision_logs', 'fallo',
+      `AuditLogger no puede escribir — ejecutar migrations/001_decision_logs.sql: ${e.message}`);
   }
 
   // ── 4. Config de empresa ──────────────────────────────────────────────────
@@ -125,17 +148,17 @@ app.get('/api/diagnostics', async (req, res) => {
   }
 
   // ── 5. Módulos del Core ───────────────────────────────────────────────────
+  // Usa el orchestrator ya instanciado — no crea una segunda instancia.
   try {
-    const { ContextBuilder }  = require('./modules/context-builder');
-    const { PromptBuilder }   = require('./modules/prompt-builder');
-    const { AIEngine }        = require('./modules/ai-engine');
-    const { AuditLogger }     = require('./modules/audit-logger');
-    const { Orchestrator }    = require('./modules/orchestrator');
+    require('./modules/context-builder');
+    require('./modules/prompt-builder');
+    require('./modules/ai-engine');
+    require('./modules/audit-logger');
+    require('./modules/orchestrator');
 
-    // AIEngine: listar proveedores registrados
-    const { crearOrchestrator: factory } = require('./modules/orchestrator');
-    const orch   = factory();
-    const proveedores = orch._ai.listarProveedores().map(p => p.nombre);
+    // listarProveedores() retorna { proveedor, modelos, es_fallback }
+    const proveedores = orchestrator._ai.listarProveedores()
+      .map(p => ({ nombre: p.proveedor, es_fallback: p.es_fallback, modelos: p.modelos }));
 
     check('modulos_core', 'ok', 'Todos los módulos FASE 2 cargados', { proveedores });
   } catch (e) {
@@ -183,7 +206,8 @@ app.get('/api/diagnostics', async (req, res) => {
     const bloques   = (prompt.match(/^## /gm) || []).length;
 
     check('pipeline_context_prompt', 'ok', `Context + Prompt generados — ${bloques} bloques`, {
-      tokens_estimados: ctx.meta?.tokens_estimados || 0,
+      tokens_estimados:  ctx.optimizacion?.tokens_estimados || 0,
+      nivel_compresion:  ctx.optimizacion?.nivel_compresion || 'ninguna',
       bloques_en_prompt: bloques,
       aiinput_completo:  tieneMsg,
     });
