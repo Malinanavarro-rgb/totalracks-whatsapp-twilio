@@ -6,30 +6,32 @@
 
 require('dotenv').config();
 const express = require('express');
-const twilio  = require('twilio');
 
 const { supabase, COMPANY_SLUG }  = require('./modules/clients');
 const { obtenerConfigEmpresa }    = require('./modules/config');
-const { procesarMensajeTwilio }   = require('./modules/service');
+const { crearOrchestrator }       = require('./modules/orchestrator');
+const { TwilioWhatsAppAdapter }   = require('./adapters/channels/twilio-whatsapp');
 
-const app = express();
+const app         = express();
+const adapter     = new TwilioWhatsAppAdapter();
+const orchestrator = crearOrchestrator();
+
 app.use(express.urlencoded({ extended: false }));
 
 // ── WEBHOOK TWILIO ────────────────────────────────────────────────────────────
 
 app.post('/webhook/twilio', async (req, res) => {
   try {
-    const telefono       = req.body.From.replace('whatsapp:', '');
-    const mensajeCliente = req.body.Body;
-    const respuesta      = await procesarMensajeTwilio(telefono, mensajeCliente);
-    const twiml          = new twilio.twiml.MessagingResponse();
-    twiml.message(respuesta);
-    res.type('text/xml').send(twiml.toString());
+    if (!adapter.validateSignature(req)) {
+      return res.status(403).type('text/plain').send('Firma inválida');
+    }
+
+    const message   = adapter.parseIncoming(req);
+    const resultado = await orchestrator.procesarMensaje(message);
+    res.type('text/xml').send(adapter.formatOutgoing(resultado.respuesta_texto, req.body));
   } catch (e) {
-    console.error('Error webhook:', e);
-    const twiml = new twilio.twiml.MessagingResponse();
-    twiml.message('Error técnico. Intenta de nuevo.');
-    res.type('text/xml').send(twiml.toString());
+    console.error('❌ Error en webhook:', e);
+    res.type('text/xml').send(adapter.formatOutgoing('Error técnico. Intenta de nuevo.', req.body));
   }
 });
 
@@ -68,11 +70,11 @@ app.get('/api/dashboard', async (req, res) => {
     );
 
     res.json({
-      empresa:              COMPANY_SLUG,
-      clientesTotales:      clientesCount || 0,
+      empresa:               COMPANY_SLUG,
+      clientesTotales:       clientesCount || 0,
       oportunidadesAbiertas: oportunidades?.length || 0,
-      pipelineEstimado:     Math.round(pipeline),
-      timestamp:            new Date().toISOString(),
+      pipelineEstimado:      Math.round(pipeline),
+      timestamp:             new Date().toISOString(),
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -83,7 +85,7 @@ app.get('/api/dashboard', async (req, res) => {
 
 app.get('/', (req, res) => res.json({
   sistema:   'TARA Matrix™',
-  version:   '1.1.0',
+  version:   '2.0.0',
   empresa:   COMPANY_SLUG,
   endpoints: {
     webhook:   'POST /webhook/twilio',
@@ -98,16 +100,22 @@ const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, async () => {
   console.log('\n============================================================');
-  console.log('🚀 TARA Matrix™ v1.1 — FASE 1 ACTIVA');
+  console.log('🚀 TARA Matrix™ v2.0 — FASE 2 ACTIVA');
   console.log('============================================================');
   console.log(`Puerto:  ${PORT}`);
   console.log(`Empresa: ${COMPANY_SLUG}`);
-  console.log(`Módulos: clients · config · crm · prompts · openai`);
-  console.log(`         service · decision · summary`);
+  console.log('Core:');
+  console.log('  M1  ChannelAdapter  — TwilioWhatsAppAdapter');
+  console.log('  M2  AI Providers    — OpenAIProvider + MockProvider');
+  console.log('  M3  AuditLogger     — fire-and-forget');
+  console.log('  M4  ContextBuilder  — sync, puro');
+  console.log('  M6  PromptBuilder   — 10 bloques');
+  console.log('  M7  Orchestrator    — coordinador único');
   console.log('============================================================\n');
 
   try {
     await obtenerConfigEmpresa();
+    console.log('✅ Config de empresa cargada correctamente\n');
   } catch (e) {
     console.error('⚠️  No se pudo cargar config de empresa:', e.message);
   }
