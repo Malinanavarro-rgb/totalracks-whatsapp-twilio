@@ -1,0 +1,46 @@
+services:
+  - type: web
+    name: tara-matrix
+    runtime: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+
+    envVars:
+      # ── Supabase ───────────────────────────────────────────
+      - key: SUPABASE_URL
+        sync: false        # valor se ingresa en el dashboard de Render
+
+      - key: SUPABASE_ANON_KEY
+        sync: false
+
+      # ── OpenAI ─────────────────────────────────────────────
+      - key: OPENAI_API_KEY
+        sync: false
+
+      # ── Twilio ─────────────────────────────────────────────
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+
+      - key: TWILIO_WHATSAPP_NUMBER
+        sync: false
+        # Formato: whatsapp:+14155238886
+
+      - key: WEBHOOK_URL_WHATSAPP
+        sync: false
+        # Formato: https://tara-matrix.onrender.com/webhook/twilio
+        # Debe coincidir EXACTAMENTE con la URL configurada en Twilio
+
+      # ── App ────────────────────────────────────────────────
+      - key: COMPANY_SLUG
+        value: totalracks   # cambiar por el slug real de la empresa
+
+      - key: NODE_ENV
+        value: production
+
+      - key: PORT
+        value: "3000"

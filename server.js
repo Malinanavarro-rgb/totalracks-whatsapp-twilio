@@ -51,6 +51,196 @@ app.get('/health', async (req, res) => {
   }
 });
 
+// ── DIAGNÓSTICOS — validación de producción ──────────────────────────────────
+// Verifica que todos los módulos del Core estén operativos.
+// Usar durante el deploy y ante cualquier incidencia.
+
+app.get('/api/diagnostics', async (req, res) => {
+  const resultado = {
+    timestamp: new Date().toISOString(),
+    version:   '2.0.0',
+    empresa:   COMPANY_SLUG,
+    checks:    {},
+    resumen:   { ok: 0, fallo: 0, advertencia: 0 },
+  };
+
+  function check(nombre, estado, detalle, extra = {}) {
+    resultado.checks[nombre] = { estado, detalle, ...extra };
+    resultado.resumen[estado === 'ok' ? 'ok' : estado === 'fallo' ? 'fallo' : 'advertencia']++;
+  }
+
+  // ── 1. Variables de entorno críticas ─────────────────────────────────────
+  const envVars = {
+    SUPABASE_URL:           !!process.env.SUPABASE_URL,
+    SUPABASE_ANON_KEY:      !!process.env.SUPABASE_ANON_KEY,
+    OPENAI_API_KEY:         !!process.env.OPENAI_API_KEY,
+    TWILIO_ACCOUNT_SID:     !!process.env.TWILIO_ACCOUNT_SID,
+    TWILIO_AUTH_TOKEN:      !!process.env.TWILIO_AUTH_TOKEN,
+    TWILIO_WHATSAPP_NUMBER: !!process.env.TWILIO_WHATSAPP_NUMBER,
+    WEBHOOK_URL_WHATSAPP:   !!process.env.WEBHOOK_URL_WHATSAPP,
+    COMPANY_SLUG:           !!process.env.COMPANY_SLUG,
+  };
+  const faltantes = Object.entries(envVars).filter(([, v]) => !v).map(([k]) => k);
+  const criticas  = faltantes.filter(k => !['TWILIO_WHATSAPP_NUMBER', 'WEBHOOK_URL_WHATSAPP'].includes(k));
+
+  if (criticas.length > 0) {
+    check('env_vars', 'fallo', `Faltan variables críticas: ${criticas.join(', ')}`, { faltantes });
+  } else if (faltantes.length > 0) {
+    check('env_vars', 'advertencia', `Opcionales no definidas: ${faltantes.join(', ')} (firma de Twilio no validada)`, { faltantes });
+  } else {
+    check('env_vars', 'ok', 'Todas las variables definidas');
+  }
+
+  // ── 2. Supabase — lectura ─────────────────────────────────────────────────
+  try {
+    const t = Date.now();
+    const { error } = await supabase.from('clientes').select('id').limit(1);
+    if (error) throw error;
+    check('supabase_lectura', 'ok', `Tabla clientes accesible`, { latencia_ms: Date.now() - t });
+  } catch (e) {
+    check('supabase_lectura', 'fallo', e.message);
+  }
+
+  // ── 3. Supabase — tabla decision_logs ────────────────────────────────────
+  try {
+    const t = Date.now();
+    const { error } = await supabase.from('decision_logs').select('id').limit(1);
+    if (error) throw error;
+    check('supabase_decision_logs', 'ok', 'Tabla decision_logs accesible', { latencia_ms: Date.now() - t });
+  } catch (e) {
+    check('supabase_decision_logs', 'fallo', `Tabla no existe o sin acceso — ejecutar migrations/001_decision_logs.sql: ${e.message}`);
+  }
+
+  // ── 4. Config de empresa ──────────────────────────────────────────────────
+  try {
+    const t = Date.now();
+    const { company, personality, knowledge } = await obtenerConfigEmpresa();
+    check('config_empresa', 'ok', `${company.nombre} — ${knowledge.length} secciones de knowledge`, {
+      latencia_ms:       Date.now() - t,
+      modelo_ia:         personality?.modelo || 'no definido',
+      knowledge_count:   knowledge.length,
+    });
+  } catch (e) {
+    check('config_empresa', 'fallo', e.message);
+  }
+
+  // ── 5. Módulos del Core ───────────────────────────────────────────────────
+  try {
+    const { ContextBuilder }  = require('./modules/context-builder');
+    const { PromptBuilder }   = require('./modules/prompt-builder');
+    const { AIEngine }        = require('./modules/ai-engine');
+    const { AuditLogger }     = require('./modules/audit-logger');
+    const { Orchestrator }    = require('./modules/orchestrator');
+
+    // AIEngine: listar proveedores registrados
+    const { crearOrchestrator: factory } = require('./modules/orchestrator');
+    const orch   = factory();
+    const proveedores = orch._ai.listarProveedores().map(p => p.nombre);
+
+    check('modulos_core', 'ok', 'Todos los módulos FASE 2 cargados', { proveedores });
+  } catch (e) {
+    check('modulos_core', 'fallo', e.message);
+  }
+
+  // ── 6. Pipeline ContextBuilder → PromptBuilder ───────────────────────────
+  try {
+    const { ContextBuilder } = require('./modules/context-builder');
+    const { PromptBuilder }  = require('./modules/prompt-builder');
+
+    const cb  = new ContextBuilder();
+    const pb  = new PromptBuilder();
+    const ctx = cb.construir({
+      company_id:            'test-diag',
+      canal:                 'whatsapp',
+      identificador_cliente: '+5210000000000',
+      mensaje_actual:        'prueba de diagnóstico',
+      empresa_config: {
+        company_id:           'test-diag',
+        nombre_empresa:       'Test',
+        personalidad:         'Asistente de diagnóstico.',
+        objetivo_principal:   'Validar pipeline.',
+        modelo:               'gpt-4o-mini',
+        temperatura:          0.5,
+        max_tokens:           300,
+        knowledge_base:       '[TEST]\nContenido de prueba.',
+        skills:               [],
+        campos_requeridos:    [],
+        reglas:               [],
+        ai_max_turnos_memoria: 4,
+        kb_max_secciones:     2,
+      },
+      datos_cliente:         null,
+      historia_conversacion: [],
+      resumen_cliente:       null,
+      workflow_state:        null,
+      capacidades:           ['crear_oportunidad'],
+    });
+
+    const prompt    = pb.construir(ctx);
+    const aiInput   = cb.prepararParaIA(ctx, prompt);
+    const tieneId   = !!aiInput.system_prompt;
+    const tieneMsg  = !!aiInput.mensaje_actual;
+    const bloques   = (prompt.match(/^## /gm) || []).length;
+
+    check('pipeline_context_prompt', 'ok', `Context + Prompt generados — ${bloques} bloques`, {
+      tokens_estimados: ctx.meta?.tokens_estimados || 0,
+      bloques_en_prompt: bloques,
+      aiinput_completo:  tieneMsg,
+    });
+  } catch (e) {
+    check('pipeline_context_prompt', 'fallo', e.message);
+  }
+
+  // ── 7. AI Engine con MockProvider ────────────────────────────────────────
+  try {
+    const { AIEngine }    = require('./modules/ai-engine');
+    const { MockProvider } = require('./adapters/ai/mock-provider');
+    const { ContextBuilder } = require('./modules/context-builder');
+    const { PromptBuilder }  = require('./modules/prompt-builder');
+
+    const cb      = new ContextBuilder();
+    const pb      = new PromptBuilder();
+    const mock    = new MockProvider({ latencia_ms: 0 });
+    const engine  = new AIEngine(mock);
+
+    const ctx = cb.construir({
+      company_id:            'test-diag',
+      canal:                 'whatsapp',
+      identificador_cliente: '+5210000000000',
+      mensaje_actual:        'diagnóstico',
+      empresa_config: {
+        company_id: 'test-diag', nombre_empresa: 'Test',
+        personalidad: 'Test.', objetivo_principal: 'Test.',
+        modelo: 'mock', temperatura: 0.5, max_tokens: 100,
+        knowledge_base: '', skills: [], campos_requeridos: [],
+        reglas: [], ai_max_turnos_memoria: 2, kb_max_secciones: 1,
+      },
+      datos_cliente: null, historia_conversacion: [],
+      resumen_cliente: null, workflow_state: null, capacidades: [],
+    });
+
+    const t = Date.now();
+    const aiInput  = cb.prepararParaIA(ctx, pb.construir(ctx));
+    const aiOutput = await engine.procesar(aiInput);
+    const latencia = Date.now() - t;
+
+    check('ai_engine_mock', 'ok', `MockProvider responde correctamente`, {
+      latencia_ms:         latencia,
+      modelo_utilizado:    aiOutput.modelo_utilizado,
+      confianza:           aiOutput.confianza,
+      respuesta_preview:   aiOutput.respuesta_texto?.substring(0, 60),
+    });
+  } catch (e) {
+    check('ai_engine_mock', 'fallo', e.message);
+  }
+
+  // ── Resumen final ─────────────────────────────────────────────────────────
+  const todoOk = resultado.resumen.fallo === 0;
+  resultado.estado_global = todoOk ? 'LISTO_PARA_PRODUCCION' : 'REQUIERE_ATENCION';
+
+  res.status(todoOk ? 200 : 503).json(resultado);
+});
+
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
 
 app.get('/api/dashboard', async (req, res) => {

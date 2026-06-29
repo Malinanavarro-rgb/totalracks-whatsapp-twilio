@@ -92,6 +92,27 @@ const tablas = [
     `
   },
   {
+    nombre: 'decision_logs',
+    sql: `
+      CREATE TABLE IF NOT EXISTS decision_logs (
+        id            uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+        company_id    uuid NOT NULL,
+        created_at    timestamptz DEFAULT now(),
+        tipo          text NOT NULL,
+        canal         text,
+        identificador text,
+        payload       jsonb NOT NULL DEFAULT '{}',
+        latencia_ms   integer,
+        costo_usd     numeric(10,6),
+        tokens_total  integer,
+        error         text,
+        session_id    uuid
+      );
+      CREATE INDEX IF NOT EXISTS idx_decision_logs_company_time ON decision_logs (company_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_decision_logs_company_tipo ON decision_logs (company_id, tipo);
+    `
+  },
+  {
     nombre: 'cotizaciones',
     sql: `
       CREATE TABLE IF NOT EXISTS cotizaciones (
