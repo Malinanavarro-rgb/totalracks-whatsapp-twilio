@@ -1,313 +1,181 @@
-# 🤖 TARA - Bot Inteligente para Total Racks
+# TARA Matrix™
+## Sistema Operativo para Asistentes Empresariales por WhatsApp
 
-**Tu especialista virtual disponible 24/7 para generar leads sin freno.**
-
----
-
-## 📋 Requisitos Previos
-
-- ✅ **Node.js** 18+ (descarga en nodejs.org)
-- ✅ **Git** instalado
-- ✅ **GitHub** con tu repo
-- ✅ **Render.com** cuenta (para deploy)
-- ✅ **Twilio** cuenta con WhatsApp Business
-- ✅ **Supabase** proyecto creado
-- ✅ **OpenAI** API key
+**v3.0 — STABLE · Multi-tenant · 29 de junio de 2026**
 
 ---
 
-## 🚀 SETUP EN 5 MINUTOS
+## Estado actual
 
-### **PASO 1: Clonar el repo o crear estructura local**
+| Item | Estado |
+|------|--------|
+| Versión | v3.0.0 |
+| FASE 3 | COMPLETA — multi-tenant activo |
+| Tests | 349/349 passing |
+| Producción | LIVE en Render |
+| Empresas activas | 5 validadas |
+| Vectores de contaminación | 8/8 PASS |
 
-```bash
-# Opción A: Si ya tienes repo en GitHub
-git clone https://github.com/tuusuario/tara-totalracks.git
-cd tara-totalracks
+---
 
-# Opción B: Crear desde cero
-mkdir tara-totalracks
-cd tara-totalracks
-git init
+## Qué es TARA Matrix™
+
+Una plataforma SaaS que permite a múltiples empresas operar sus propios asistentes de WhatsApp con personalidad, knowledge base y datos completamente aislados — todo desde un solo servidor.
+
+Cada empresa define:
+- El nombre de su asistente
+- Su tono y personalidad
+- Su knowledge base
+- Su número de WhatsApp receptor
+
+El sistema enruta automáticamente cada mensaje a la empresa correcta.
+
+---
+
+## Arquitectura — FASE 3
+
+```
+Twilio WhatsApp
+      │
+      ▼ POST /webhook/twilio
+TwilioWhatsAppAdapter      → extrae incoming_endpoint
+ChannelRouter              → endpoint → company_id (via channel_endpoints en Supabase)
+Orchestrator               → coordina con company_id
+  ├── obtenerConfigEmpresa(company_id)
+  ├── obtenerOCrearCliente(tel, company_id)
+  ├── guardarConversacion(..., company_id)
+  └── crearOportunidad(..., company_id)
 ```
 
-### **PASO 2: Copiar archivos**
+**Invariante:** `company_id` fluye desde el número receptor hasta cada escritura en DB. No existe punto donde se mezclen datos de dos empresas.
 
-Copia estos archivos a tu carpeta:
-- `package.json`
-- `server.js`
-- `setup-db.js`
-- `.env.example` → renombra a `.env`
+---
 
-### **PASO 3: Instalar dependencias**
+## Módulos activos
 
-```bash
-npm install
+| ID | Módulo | Estado |
+|----|--------|--------|
+| M1 | TwilioWhatsAppAdapter | Activo |
+| M2 | AIEngine (OpenAI + Mock) | Activo |
+| M3 | AuditLogger | Activo |
+| M4 | ContextBuilder | Activo |
+| M6 | PromptBuilder | Activo |
+| M7 | Orchestrator | Activo |
+| RT | ChannelRouter | Activo — nuevo en FASE 3 |
+| M5 | WorkflowEngine | Pendiente — FASE 4 |
+| M8 | ActionRunner | Pendiente — FASE 4 |
+
+---
+
+## Registrar una nueva empresa
+
+No se requiere cambio de código. Solo 4 inserts en Supabase:
+
+```sql
+-- 1. Empresa
+INSERT INTO companies (slug, nombre, descripcion, estado)
+VALUES ('mi-empresa', 'Mi Empresa', 'Descripción', 'activo');
+
+-- 2. Personalidad (nombre del asistente, tono, objetivo)
+INSERT INTO personalities (company_id, nombre_asistente, ...)
+VALUES ('<uuid>', 'NOMBRE_ASISTENTE', ...);
+
+-- 3. Knowledge base
+INSERT INTO knowledge_base (company_id, categoria, contenido)
+VALUES ('<uuid>', 'Categoría', 'Contenido...');
+
+-- 4. Número de WhatsApp
+INSERT INTO channel_endpoints (company_id, endpoint, canal, activo)
+VALUES ('<uuid>', 'whatsapp:+521XXXXXXXXXX', 'whatsapp', true);
 ```
 
-### **PASO 4: Configurar `.env`**
+---
 
-Abre `.env` y reemplaza con tus credenciales reales:
+## Endpoints
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| POST | `/webhook/twilio` | Entrada de mensajes WhatsApp |
+| GET | `/health` | Estado del servidor |
+| GET | `/api/diagnostics` | 8 checks detallados de salud |
+| GET | `/api/dashboard` | Métricas del pipeline |
+
+---
+
+## Variables de entorno requeridas
 
 ```env
-# SUPABASE
-SUPABASE_URL=https://zstfblqignwbxlcffmzn.supabase.co
-SUPABASE_ANON_KEY=eyJhbG... (copia completa)
-
-# TWILIO
-TWILIO_ACCOUNT_SID=ACxxxxxxxxxx
-TWILIO_AUTH_TOKEN=your_token
-
-# OPENAI
-OPENAI_API_KEY=sk-xxxxxxxxxx
-
-# SERVIDOR
+SUPABASE_URL=
+SUPABASE_ANON_KEY=
+OPENAI_API_KEY=
+TWILIO_ACCOUNT_SID=
+TWILIO_AUTH_TOKEN=
+TWILIO_WHATSAPP_NUMBER=
+WEBHOOK_URL_WHATSAPP=
+NODE_ENV=production
 PORT=3000
-NODE_ENV=development
 ```
 
-**¿Dónde conseguir cada credencial?**
+`COMPANY_SLUG` fue eliminado en FASE 3. El routing es dinámico desde `channel_endpoints`.
 
-- **SUPABASE**: https://supabase.com/dashboard/project/[ID]/settings/api
-- **TWILIO**: https://console.twilio.com/ (Settings > Account)
-- **OPENAI**: https://platform.openai.com/api-keys
+---
 
-### **PASO 5: Crear tablas en Supabase**
+## Setup local
 
 ```bash
-npm run setup-db
-```
-
-Verás:
-```
-🚀 Iniciando TARA Database Setup...
-⏳ Creando tabla: clientes...
-✅ clientes: OK
-...
-🎉 ¡TODO PERFECTO!
-```
-
-### **PASO 6: Probar localmente**
-
-```bash
+git clone https://github.com/Malinanavarro-rgb/totalracks-whatsapp-twilio
+cd totalracks-whatsapp-twilio
+npm install
+cp .env.example .env   # llenar con credenciales reales
 npm start
 ```
 
-Verás:
-```
-🚀 TARA INICIADO
-Servidor escuchando en puerto: 3000
-Webhook Twilio: http://localhost:3000/webhook/twilio
-```
+Ejecutar migraciones en Supabase (en orden):
+1. `migrations/001_schema_inicial.sql`
+2. `migrations/002_channel_endpoints.sql`
+3. `migrations/003_company_id_en_crm.sql`
 
-Abre otra terminal y prueba:
+---
+
+## Tests
 
 ```bash
-curl http://localhost:3000/health
+npm test
 ```
 
-Debe responder con estado OK.
+349 tests — unitarios e integración del Orchestrator, ContextBuilder, PromptBuilder y AIEngine.
 
 ---
 
-## 📱 Conectar Twilio WhatsApp
-
-### En Twilio Console:
-
-1. Ve a **Messaging > Whatsapp Business**
-2. Configura el webhook en **Sandbox Settings**:
-   - **URL**: `https://tu-servidor.onrender.com/webhook/twilio`
-   - **Método**: POST
-   - **Habilitar notificaciones**: ON
-
-3. Prueba enviando un mensaje a tu número de Twilio
-
----
-
-## 🚀 DEPLOY A RENDER
-
-### **1. Hacer commit en GitHub**
-
-```bash
-git add .
-git commit -m "feat: TARA setup inicial"
-git push origin main
-```
-
-### **2. Conectar con Render**
-
-1. Ve a https://render.com y login
-2. Click en **New +** > **Web Service**
-3. Conecta tu repositorio de GitHub
-4. Rellena:
-   - **Name**: `tara-totalracks`
-   - **Branch**: `main`
-   - **Build Command**: `npm install`
-   - **Start Command**: `npm start`
-
-### **3. Agregar variables de entorno**
-
-En Render > Environment:
+## Documentación técnica
 
 ```
-SUPABASE_URL=...
-SUPABASE_ANON_KEY=...
-TWILIO_ACCOUNT_SID=...
-TWILIO_AUTH_TOKEN=...
-OPENAI_API_KEY=...
-NODE_ENV=production
-```
-
-### **4. Deploy**
-
-Click en **Create Web Service** y espera a que termine. Render te dará una URL como:
-
-```
-https://tara-totalracks.onrender.com
-```
-
-### **5. Actualizar Twilio**
-
-En Twilio Sandbox Settings, reemplaza el webhook con:
-
-```
-https://tara-totalracks.onrender.com/webhook/twilio
+docs/
+├── releases/
+│   └── v3.0-fase3.md          ← release oficial FASE 3
+└── architecture/
+    └── phase-3/
+        ├── README.md           ← decisiones de arquitectura FASE 3
+        ├── T3.0-baseline.md
+        ├── T3.1-channel-endpoints.md
+        ├── ...
+        └── T3.12-validation.md
 ```
 
 ---
 
-## 📊 Ver tus datos
+## Roadmap
 
-### **Dashboard en tiempo real**
-
-```bash
-curl https://tara-totalracks.onrender.com/api/dashboard
-```
-
-Respuesta:
-```json
-{
-  "clientesTotales": 5,
-  "oportunidadesAbiertas": 2,
-  "pipelineEstimado": 12500,
-  "timestamp": "2024-01-15T10:30:00.000Z"
-}
-```
-
-### **Ver en Supabase**
-
-Ve a https://supabase.com/dashboard y:
-1. Selecciona tu proyecto
-2. **Editor de tablas** → Selecciona tabla
-3. Verás todos los registros en tiempo real
+| Fase | Estado | Alcance |
+|------|--------|---------|
+| FASE 1 | Completa | Bot single-tenant básico |
+| FASE 2 | Completa | Arquitectura hexagonal, AIEngine, Orchestrator |
+| FASE 3 | **Completa** | **Multi-tenant, routing dinámico, aislamiento validado** |
+| FASE 4 | Próxima | WorkflowEngine (M5) + ActionRunner (M8) |
 
 ---
 
-## 🛠️ Desarrollo local con auto-reload
+## Producción
 
-Instala nodemon (opcional):
-
-```bash
-npm install --save-dev nodemon
-npm run dev
-```
-
----
-
-## 🐛 Troubleshooting
-
-### **Error: "Cannot find module '@supabase/supabase-js'"**
-```bash
-npm install @supabase/supabase-js
-```
-
-### **Error: "SUPABASE_URL is not defined"**
-- Verifica que `.env` existe en la raíz
-- Reinicia el servidor después de cambiar `.env`
-- NO commitees `.env` a GitHub (ya está en `.gitignore`)
-
-### **Twilio no recibe mensajes**
-- Verifica URL webhook correcta en Twilio Console
-- Asegúrate que tu servidor está corriendo (`npm start`)
-- Revisa logs en Render: **Logs** tab
-
-### **OpenAI devuelve error 401**
-- Verifica API key correcta en `.env`
-- La key debe ser `sk-...` completa
-- Revisa que tienes saldo en tu cuenta OpenAI
-
----
-
-## 📈 Crecimiento sin freno
-
-Ahora que TARA está corriendo:
-
-### **Semana 1: Validar funcionamiento**
-- [ ] Envía mensaje de prueba a TARA
-- [ ] Verifica que se guarda en Supabase
-- [ ] Comprueba dashboard en `/api/dashboard`
-
-### **Semana 2: Optimizar mensajes**
-- [ ] Edita los prompts en `server.js`
-- [ ] Ajusta las preguntas de TARA
-- [ ] Entrena el sistema con tus productos
-
-### **Semana 3: Automatización**
-- [ ] Conecta Make.com para emails automáticos
-- [ ] Crea flujos de seguimiento
-- [ ] Integra con tu sistema de facturación
-
-### **Semana 4+: Escalabilidad**
-- [ ] Múltiples canales (Instagram, Facebook)
-- [ ] Integraciones adicionales
-- [ ] Analytics avanzado
-
----
-
-## 🎯 KPIs a monitorear
-
-**Diarios:**
-- Leads nuevos
-- Tiempo promedio respuesta
-- Mensajes procesados
-
-**Semanales:**
-- Conversión (leads → oportunidades)
-- Duración en pipeline
-- Cotizaciones enviadas
-
-**Mensuales:**
-- Ingresos cerrados
-- Ticket promedio
-- ROI de TARA
-
----
-
-## 📞 Support
-
-- **Supabase Docs**: https://supabase.com/docs
-- **Twilio Docs**: https://www.twilio.com/docs/whatsapp
-- **OpenAI Docs**: https://platform.openai.com/docs
-- **Render Docs**: https://render.com/docs
-
----
-
-## 📝 Roadmap
-
-- [ ] Dashboard visual en web
-- [ ] Integración con Stripe
-- [ ] SMS + WhatsApp simultáneo
-- [ ] ML para predicción de cierre
-- [ ] API pública para integraciones
-
----
-
-## 📄 Licencia
-
-MIT - Libre para usar y modificar
-
----
-
-**¿Preguntas?** Revisa los logs en Render o ejecuta `npm run setup-db` de nuevo.
-
-**¿Listo para crecer?** Haz tu primer commit y deployea ahora mismo. 🚀
+Desplegado en Render. Auto-deploy desde `main`.
+URL: `https://totalracks-whatsapp-twilio.onrender.com`
