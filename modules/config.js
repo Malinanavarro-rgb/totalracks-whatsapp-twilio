@@ -1,48 +1,60 @@
+'use strict';
+
 /**
  * TARA Matrix™ — config.js
  * Carga y cachea la configuración de empresa desde Supabase.
  * Fuente única de verdad para company, personality y knowledge_base.
+ *
+ * FASE 3: cache dinámico por companyId (Map) en lugar de valor único.
+ * Soporta N empresas simultáneas sin contaminación de caché.
  */
 
-const { supabase, COMPANY_SLUG } = require('./clients');
+const { supabase } = require('./clients');
 
-let _configCache = null;
-let _configCacheTime = 0;
+const _cache   = new Map(); // Map<companyId, { data, cachedAt }>
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutos
 
-async function obtenerConfigEmpresa() {
-  if (_configCache && (Date.now() - _configCacheTime) < CACHE_TTL) {
-    return _configCache;
+/**
+ * @param {string} companyId - UUID de la empresa en la tabla companies
+ * @returns {Promise<{ company, personality, knowledge }>}
+ */
+async function obtenerConfigEmpresa(companyId) {
+  if (!companyId) throw new Error('obtenerConfigEmpresa: companyId es requerido');
+
+  const cached = _cache.get(companyId);
+  if (cached && (Date.now() - cached.cachedAt) < CACHE_TTL) {
+    return cached.data;
   }
 
   const { data: company, error: errCompany } = await supabase
     .from('companies')
     .select('*')
-    .eq('slug', COMPANY_SLUG)
+    .eq('id', companyId)
     .eq('estado', 'activo')
     .maybeSingle();
 
   if (errCompany || !company) {
-    throw new Error(`Empresa no encontrada o inactiva: ${COMPANY_SLUG}`);
+    throw new Error(`Empresa no encontrada o inactiva: ${companyId}`);
   }
 
   const { data: personality } = await supabase
     .from('personalities')
     .select('*')
-    .eq('company_id', company.id)
+    .eq('company_id', companyId)
     .maybeSingle();
 
   const { data: knowledge } = await supabase
     .from('knowledge_base')
     .select('*')
-    .eq('company_id', company.id)
+    .eq('company_id', companyId)
     .order('categoria');
 
-  _configCache = { company, personality, knowledge: knowledge || [] };
-  _configCacheTime = Date.now();
+  const result = { company, personality, knowledge: knowledge || [] };
 
+  _cache.set(companyId, { data: result, cachedAt: Date.now() });
   console.log(`✅ Config cargada: ${company.nombre} | ${personality?.nombre_asistente}`);
-  return _configCache;
+
+  return result;
 }
 
 module.exports = { obtenerConfigEmpresa };

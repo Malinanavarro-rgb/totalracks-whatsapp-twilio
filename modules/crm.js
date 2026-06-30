@@ -8,24 +8,27 @@ const { supabase } = require('./clients');
 
 // ── CLIENTES ──────────────────────────────────────────────────────────────────
 
-async function obtenerOCrearCliente(telefono) {
+async function obtenerOCrearCliente(telefono, companyId) {
   try {
-    const { data: existente } = await supabase
+    const query = supabase
       .from('clientes')
       .select('*')
-      .eq('telefono', telefono)
-      .maybeSingle();
+      .eq('telefono', telefono);
 
+    if (companyId) query.eq('company_id', companyId);
+
+    const { data: existente } = await query.maybeSingle();
     if (existente) return existente;
 
     const { data: nuevo, error } = await supabase
       .from('clientes')
       .insert([{
         telefono,
-        nombre: 'Sin nombre',
-        ciudad: 'Monterrey',
-        fuente: 'WhatsApp',
-        estado: 'Nuevo',
+        company_id:    companyId || null,
+        nombre:        'Sin nombre',
+        ciudad:        'Monterrey',
+        fuente:        'WhatsApp',
+        estado:        'Nuevo',
         score_interes: 0,
       }])
       .select()
@@ -73,13 +76,14 @@ async function obtenerHistorial(clienteId) {
  * @param {string[]} intenciones
  * @param {string}   sentimiento         - extraído de OpenAI (no hardcodeado)
  */
-async function guardarConversacion(clienteId, mensajeCliente, respuestaTara, categoriaPrincipal, intenciones, sentimiento) {
+async function guardarConversacion(clienteId, companyId, mensajeCliente, respuestaTara, categoriaPrincipal, intenciones, sentimiento) {
   try {
     await supabase.from('conversaciones').insert([{
       cliente_id:           clienteId,
+      company_id:           companyId || null,
       mensaje_cliente:      mensajeCliente,
       respuesta_tara:       respuestaTara,
-      tipo_rack_detectado:  categoriaPrincipal,  // columna DB existente, valor ahora universal
+      tipo_rack_detectado:  categoriaPrincipal,
       intenciones:          intenciones,
       sentimiento:          sentimiento || 'Neutral',
     }]);
@@ -110,7 +114,7 @@ function requiereCrearOportunidad(mensajeCliente, intenciones) {
  * @param {string}   mensajeCliente
  * @param {string[]} intenciones
  */
-async function crearOportunidadSiCorresponde(clienteId, categoriaPrincipal, mensajeCliente, intenciones) {
+async function crearOportunidadSiCorresponde(clienteId, companyId, categoriaPrincipal, mensajeCliente, intenciones) {
   if (!requiereCrearOportunidad(mensajeCliente, intenciones)) return;
   try {
     const { data: existentes } = await supabase
@@ -122,11 +126,12 @@ async function crearOportunidadSiCorresponde(clienteId, categoriaPrincipal, mens
 
     if (!existentes || existentes.length === 0) {
       await supabase.from('oportunidades').insert([{
-        cliente_id:  clienteId,
-        tipo_rack:   categoriaPrincipal,  // columna DB existente, valor ahora universal
-        estado:      'Calificado',
+        cliente_id:   clienteId,
+        company_id:   companyId || null,
+        tipo_rack:    categoriaPrincipal,
+        estado:       'Calificado',
         probabilidad: 45,
-        descripcion: `Cliente interesado en ${categoriaPrincipal}`,
+        descripcion:  `Cliente interesado en ${categoriaPrincipal}`,
       }]);
       console.log(`✅ Oportunidad creada: ${categoriaPrincipal}`);
     }

@@ -72,13 +72,14 @@ function makeHistorial() {
 
 function makeMessage(overrides = {}) {
   return {
-    id:           'msg-uuid-001',
-    company_id:   null,
-    channel:      'whatsapp',
-    from:         '+5218112345678',
-    content:      '¿Cuánto cuesta el rack selectivo?',
-    timestamp:    new Date('2026-06-28T10:00:00Z'),
-    raw_metadata: { MessageSid: 'SM_test123', NumMedia: '0' },
+    id:                'msg-uuid-001',
+    company_id:        'company-uuid-001', // coincide con el mock de obtenerConfigEmpresa
+    channel:           'whatsapp',
+    from:              '+5218112345678',
+    incoming_endpoint: 'whatsapp:+14155238886',
+    content:           '¿Cuánto cuesta el rack selectivo?',
+    timestamp:         new Date('2026-06-28T10:00:00Z'),
+    raw_metadata:      { MessageSid: 'SM_test123', NumMedia: '0' },
     ...overrides,
   };
 }
@@ -202,7 +203,7 @@ describe('Orchestrator — camino feliz', () => {
   });
 
   it('llama a obtenerOCrearCliente con el número del mensaje', () => {
-    expect(deps.obtenerOCrearCliente).toHaveBeenCalledWith('+5218112345678');
+    expect(deps.obtenerOCrearCliente).toHaveBeenCalledWith('+5218112345678', 'company-uuid-001');
   });
 
   it('llama a obtenerHistorial con el id del cliente', () => {
@@ -211,7 +212,8 @@ describe('Orchestrator — camino feliz', () => {
 
   it('llama a guardarConversacion con los datos del turno', () => {
     expect(deps.guardarConversacion).toHaveBeenCalledWith(
-      42,                                // cliente.id
+      42,                                  // cliente.id
+      'company-uuid-001',                  // company_id del mensaje
       '¿Cuánto cuesta el rack selectivo?', // mensaje
       expect.any(String),                // respuesta del AI
       expect.any(String),                // categoria_principal
@@ -648,6 +650,7 @@ describe('Orchestrator — acciones propuestas (stub FASE 4)', () => {
 
     expect(deps.crearOportunidad).toHaveBeenCalledWith(
       42,                  // cliente.id
+      'company-uuid-001',  // company_id del mensaje
       'Rack Selectivo',    // aiOutput.categoria_principal (del mock de AI)
       expect.any(String),  // ctx.mensaje_actual
       expect.any(Array),   // aiOutput.intenciones

@@ -113,7 +113,7 @@ class Orchestrator {
 
     // ── 1. Config de empresa (sin esto no hay flujo) ───────────────────────
     const configResult = await this._paso('config', timings, () =>
-      this._obtenerConfig()
+      this._obtenerConfig(message.company_id)
     );
     if (!configResult.ok) {
       console.error('❌ Orchestrator: config no disponible —', configResult.error.message);
@@ -134,7 +134,7 @@ class Orchestrator {
 
     // ── 2. Cliente (fallo = continúa sin cliente) ──────────────────────────
     const clienteResult = await this._paso('crm', timings, () =>
-      this._obtenerCliente(message.from)
+      this._obtenerCliente(message.from, message.company_id)
     );
     if (!clienteResult.ok) {
       this._log.logError(ctxBase, 'crm.obtenerCliente', clienteResult.error, { session_id: sessionId });
@@ -219,6 +219,7 @@ class Orchestrator {
       const saveResult = await this._paso('save', timings, () =>
         this._guardarConv(
           clienteRaw.id,
+          message.company_id,
           message.content,
           aiOutput.respuesta_texto,
           aiOutput.categoria_principal,
@@ -342,6 +343,7 @@ class Orchestrator {
         try {
           await this._crearOportunidad(
             clienteRaw.id,
+            ctx.company_id,
             aiOutput.categoria_principal || null,
             ctx.mensaje_actual,
             aiOutput.intenciones || []
