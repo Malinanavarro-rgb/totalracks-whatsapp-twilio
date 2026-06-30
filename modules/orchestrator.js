@@ -84,7 +84,10 @@ class Orchestrator {
     this._obtenerHist    = deps.obtenerHistorial;
     this._guardarConv    = deps.guardarConversacion;
 
-    // Stubs FASE 4 (Action Runner — opcionales)
+    // FASE 4A — WorkflowEngine M5 (opcional: null-safe en todo el flujo)
+    this._workflow = deps.workflowEngine || null;
+
+    // FASE 4B — Action Runner (opcionales)
     this._actualizarScore  = deps.actualizarScore   || null;
     this._crearOportunidad = deps.crearOportunidad  || null;
   }
@@ -209,12 +212,22 @@ class Orchestrator {
       latencia_ms:         0,
     };
 
-    // ── 8. Acciones propuestas (stub FASE 4) ───────────────────────────────
+    // ── 8. WorkflowEngine M5 (FASE 4A) ────────────────────────────────────
+    if (this._workflow && clienteRaw?.id) {
+      const wfResult = await this._paso('workflow', timings, () =>
+        this._manejarWorkflow(message.content, clienteRaw, aiOutput, company_id)
+      );
+      if (wfResult.ok && wfResult.value !== null) {
+        aiOutput = { ...aiOutput, respuesta_texto: wfResult.value };
+      }
+    }
+
+    // ── 9. Acciones propuestas (stub FASE 4B) ──────────────────────────────
     await this._paso('acciones', timings, () =>
       this._ejecutarAcciones(aiOutput.acciones_propuestas, ctx, clienteRaw, aiOutput, sessionId)
     );
 
-    // ── 9. Guardar conversación ────────────────────────────────────────────
+    // ── 10. Guardar conversación ───────────────────────────────────────────
     if (clienteRaw?.id) {
       const saveResult = await this._paso('save', timings, () =>
         this._guardarConv(
@@ -232,7 +245,7 @@ class Orchestrator {
       }
     }
 
-    // ── 10. Auditoría ──────────────────────────────────────────────────────
+    // ── 11. Auditoría ─────────────────────────────────────────────────────
     timings.total_ms = Date.now() - t0;
     this._log.logAICall(ctx, aiInput, aiOutput, { session_id: sessionId });
     this._log.logChannelEvent(ctx, 'mensaje_enviado', {
@@ -326,7 +339,97 @@ class Orchestrator {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // ACCIONES (stub FASE 4 — Action Runner)
+  // WORKFLOW ENGINE — M5 (FASE 4A)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Decide si el turno pertenece a un workflow activo o activa uno nuevo.
+   * Retorna el texto final a enviar, o null si el flujo normal no cambia.
+   *
+   * @param {string} mensajeCliente
+   * @param {Object} clienteRaw
+   * @param {Object} aiOutput
+   * @param {string} company_id
+   * @returns {Promise<string|null>}
+   */
+  async _manejarWorkflow(mensajeCliente, clienteRaw, aiOutput, company_id) {
+    const intenciones = aiOutput.intenciones || [];
+
+    // ── Caso A: sesión de workflow activa ────────────────────────────────────
+    const sesion = await this._workflow.obtenerSesionActiva(company_id, clienteRaw.id);
+
+    if (sesion) {
+      // El cliente quiere cancelar el flujo
+      if (intenciones.includes('cancelar_flujo')) {
+        await this._workflow.abandonar(sesion.id, sesion.current_node);
+        console.log(`⬜ [workflow] sesión ${sesion.id.slice(0, 8)} abandonada en nodo "${sesion.current_node}"`);
+        return null; // el AI ya generó una respuesta apropiada
+      }
+
+      const nodo = await this._workflow.obtenerNodoActual(sesion);
+      if (!nodo) return null;
+
+      // Campo requerido pero respuesta vacía → re-preguntar
+      if (nodo.campo && !nodo.es_opcional && !mensajeCliente.trim()) {
+        return nodo.pregunta;
+      }
+
+      const resultado = await this._workflow.avanzar(sesion, nodo, mensajeCliente.trim());
+
+      if (resultado.completado) {
+        console.log(`✅ [workflow] sesión ${sesion.id.slice(0, 8)} completada`);
+        // T4B: ejecutar acciones del nodo final; por ahora mensaje de cierre
+        return '¡Perfecto! Ya tengo todo lo que necesito. En breve un asesor te contacta con tu cotización.';
+      }
+
+      console.log(`➡️  [workflow] sesión ${sesion.id.slice(0, 8)} avanzó a "${resultado.siguiente_nodo?.nombre}"`);
+      return resultado.siguiente_nodo?.pregunta || null;
+    }
+
+    // ── Caso B: sin sesión activa — ¿las intenciones activan un workflow? ─────
+    const workflow = await this._workflow.evaluar(company_id, intenciones);
+    if (!workflow) return null; // flujo conversacional normal, sin cambios
+
+    const nuevaSesion = await this._workflow.iniciarSesion(
+      company_id,
+      clienteRaw.id,
+      null, // conversation_id: se deja null (disponible post-save en FASE 5)
+      workflow.id
+    );
+
+    const nodoInicio = await this._workflow.obtenerNodoActual(nuevaSesion);
+    if (!nodoInicio) return null;
+
+    console.log(`🟢 [workflow] "${workflow.nombre}" iniciado — sesión ${nuevaSesion.id.slice(0, 8)}`);
+
+    if (nodoInicio.modo_respuesta === 'prepend_ai') {
+      const transicion = this._extraerTransicion(aiOutput.respuesta_texto);
+      return transicion
+        ? `${transicion} ${nodoInicio.pregunta}`
+        : nodoInicio.pregunta;
+    }
+
+    return nodoInicio.pregunta;
+  }
+
+  /**
+   * Extrae las primeras 2 oraciones de un texto para usarlas como transición.
+   * Usado en modo_respuesta 'prepend_ai'.
+   */
+  _extraerTransicion(texto) {
+    if (!texto) return '';
+    const delimiters = /[.!?]/g;
+    let match;
+    let count = 0;
+    while ((match = delimiters.exec(texto)) !== null) {
+      count++;
+      if (count === 2) return texto.substring(0, match.index + 1).trim();
+    }
+    return texto.trim(); // menos de 2 oraciones: usar todo
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ACCIONES (stub FASE 4B — Action Runner)
   // ═══════════════════════════════════════════════════════════════════════════
 
   /**
@@ -432,12 +535,13 @@ class Orchestrator {
  * @returns {Orchestrator}
  */
 function crearOrchestrator(overrides = {}) {
-  const { ContextBuilder } = require('./context-builder');
-  const { PromptBuilder }  = require('./prompt-builder');
-  const { AIEngine }       = require('./ai-engine');
-  const { AuditLogger }    = require('./audit-logger');
-  const { OpenAIProvider } = require('../adapters/ai/openai-provider');
-  const { MockProvider }   = require('../adapters/ai/mock-provider');
+  const { ContextBuilder }  = require('./context-builder');
+  const { PromptBuilder }   = require('./prompt-builder');
+  const { AIEngine }        = require('./ai-engine');
+  const { AuditLogger }     = require('./audit-logger');
+  const { WorkflowEngine }  = require('./workflow-engine');
+  const { OpenAIProvider }  = require('../adapters/ai/openai-provider');
+  const { MockProvider }    = require('../adapters/ai/mock-provider');
 
   const { supabase, openai: openaiClient } = require('./clients');
 
@@ -461,6 +565,7 @@ function crearOrchestrator(overrides = {}) {
     promptBuilder:        overrides.promptBuilder     || new PromptBuilder(),
     aiEngine:             overrides.aiEngine          || engine,
     auditLogger:          overrides.auditLogger       || new AuditLogger(supabase),
+    workflowEngine:       overrides.workflowEngine    || new WorkflowEngine(supabase),
     obtenerConfigEmpresa: overrides.obtenerConfigEmpresa || obtenerConfigEmpresa,
     obtenerOCrearCliente: overrides.obtenerOCrearCliente || obtenerOCrearCliente,
     obtenerHistorial:     overrides.obtenerHistorial     || obtenerHistorial,
