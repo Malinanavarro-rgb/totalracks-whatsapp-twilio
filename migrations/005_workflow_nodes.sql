@@ -18,6 +18,11 @@ CREATE TABLE IF NOT EXISTS workflow_nodes (
   acciones       jsonb       NOT NULL DEFAULT '[]',
   -- acciones a ejecutar al completar este nodo
   -- ej: [{"tipo": "crear_oportunidad"}]
+  modo_respuesta text        NOT NULL DEFAULT 'replace_ai',
+  -- valores: 'prepend_ai' | 'replace_ai' | 'silent'
+  -- prepend_ai: transición AI + pregunta (nodo de inicio)
+  -- replace_ai: solo la pregunta del nodo (nodos intermedios — default)
+  -- silent:     sin respuesta visible, solo ejecuta acciones (reservado FASE 4B+)
   orden          integer     NOT NULL DEFAULT 0,
   created_at     timestamptz DEFAULT now(),
 
