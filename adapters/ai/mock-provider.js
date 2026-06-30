@@ -65,10 +65,10 @@ class MockProvider extends AIProvider {
     const esNegativo     = PATRON_NEGATIVO.test(mensaje);
 
     const intenciones = quiereInteres
-      ? ['cotizacion', 'precio']
+      ? ['solicitud_cotizacion', 'interes_compra']
       : quiereAgenda
-        ? ['agenda', 'consulta']
-        : ['consulta'];
+        ? ['seguimiento']
+        : ['consulta_general'];
 
     const sentimiento = esNegativo
       ? 'Negativo'

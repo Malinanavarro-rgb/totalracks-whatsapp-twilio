@@ -173,11 +173,12 @@ Responde ÚNICAMENTE con JSON válido. Sin texto antes ni después. Sin markdown
   "respuesta_texto":     "tu respuesta al cliente (máximo 130 palabras, idioma: ${idioma})",
   "categoria_principal": "categoría universal del producto o servicio detectado, o 'Sin clasificar'",
   "datos_extraidos":     {},
-  "intenciones":         ["consulta", "cotizacion", "precio", "agenda", "soporte"],
+  "intenciones":         ["interes_compra" | "solicitud_cotizacion" | "soporte" | "seguimiento" | "cancelar_flujo" | "consulta_general"],
   "sentimiento":         "Positivo | Neutral | Negativo | Muy interesado",
   "etapa_sugerida":      "Nuevo | Calificacion | Negociacion | Cierre | Postventa",
   "acciones_propuestas": [{"tipo": ${tiposAccion}, "parametros": {}}]
-}`;
+}
+IMPORTANTE: el campo "intenciones" debe contener ÚNICAMENTE valores del catálogo anterior. Uno o más valores del arreglo, separados por coma. Ningún valor fuera de ese catálogo.`;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

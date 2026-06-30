@@ -18,6 +18,17 @@
 
 const { AIProvider, FALLBACK_OUTPUT } = require('./ai-provider');
 
+// Catálogo controlado de intenciones — FASE 4A
+// Cualquier valor fuera de este set se normaliza a 'consulta_general' con warning.
+const INTENCIONES_VALIDAS = new Set([
+  'interes_compra',
+  'solicitud_cotizacion',
+  'soporte',
+  'seguimiento',
+  'cancelar_flujo',
+  'consulta_general',
+]);
+
 // Precios por 1M tokens (USD) — actualizar cuando OpenAI cambie pricing
 const PRICING_PER_M = {
   'gpt-4o-mini':        { input: 0.15,  output: 0.60  },
@@ -68,6 +79,24 @@ function parsearRespuesta(raw) {
 }
 
 /**
+ * Filtra el array de intenciones contra el catálogo controlado.
+ * Valores inválidos → warning de auditoría + reemplazados por 'consulta_general'.
+ * La conversación nunca se interrumpe por una intención fuera del catálogo.
+ */
+function normalizarIntenciones(raw) {
+  if (!Array.isArray(raw) || raw.length === 0) return ['consulta_general'];
+
+  const resultado = raw.map(valor => {
+    if (INTENCIONES_VALIDAS.has(valor)) return valor;
+    console.warn(`⚠️  [intenciones] Valor fuera de catálogo: "${valor}" → normalizado a "consulta_general"`);
+    return 'consulta_general';
+  });
+
+  // Deduplicar preservando orden
+  return [...new Set(resultado)];
+}
+
+/**
  * Normaliza el objeto JSON del modelo al tipo AIOutput del Core.
  * Permite que el modelo use nombres alternativos sin romper el sistema.
  */
@@ -80,7 +109,7 @@ function normalizarOutput(data, confianza, meta) {
     respuesta_texto:     respuesta,
     categoria_principal: data.categoria_principal || 'Sin clasificar',
     datos_extraidos:     data.datos_extraidos      || {},
-    intenciones:         Array.isArray(data.intenciones) ? data.intenciones : ['consulta'],
+    intenciones:         normalizarIntenciones(data.intenciones),
     sentimiento:         data.sentimiento          || 'Neutral',
     etapa_sugerida:      data.etapa_sugerida       || null,
     acciones_propuestas: Array.isArray(data.acciones_propuestas) ? data.acciones_propuestas : [],
@@ -174,4 +203,4 @@ class OpenAIProvider extends AIProvider {
   }
 }
 
-module.exports = { OpenAIProvider };
+module.exports = { OpenAIProvider, INTENCIONES_VALIDAS };

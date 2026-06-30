@@ -47,7 +47,7 @@ const VALID_JSON_RESPONSE = JSON.stringify({
   respuesta_tara:      'Con gusto te ayudo con una cotización.',
   categoria_principal: 'Rack Selectivo',
   datos_extraidos:     { tipo: 'selectivo' },
-  intenciones:         ['cotizacion', 'precio'],
+  intenciones:         ['solicitud_cotizacion', 'interes_compra'],
   sentimiento:         'Muy interesado',
   etapa_sugerida:      'Calificacion',
   acciones_propuestas: [{ tipo: 'crear_oportunidad', parametros: {} }],
@@ -221,7 +221,7 @@ describe('OpenAIProvider', () => {
       const conRespuestaTexto = JSON.stringify({
         respuesta_texto:     'Respuesta directa.',
         categoria_principal: 'General',
-        intenciones:         ['consulta'],
+        intenciones:         ['consulta_general'],
         sentimiento:         'Neutral',
       });
       mockCreate.mockResolvedValue(makeOpenAIResponse(conRespuestaTexto));
@@ -236,7 +236,7 @@ describe('OpenAIProvider', () => {
 
       expect(output.categoria_principal).toBe('Sin clasificar');
       expect(output.datos_extraidos).toEqual({});
-      expect(output.intenciones).toEqual(['consulta']);
+      expect(output.intenciones).toEqual(['consulta_general']);
       expect(output.sentimiento).toBe('Neutral');
       expect(output.acciones_propuestas).toEqual([]);
     });
@@ -310,13 +310,13 @@ describe('MockProvider', () => {
 
   test('detecta intención cotizacion cuando el mensaje pide precio', async () => {
     const output = await mock.procesar(makeAIInput({ mensaje_actual: 'cuánto cuesta el rack?' }));
-    expect(output.intenciones).toContain('cotizacion');
+    expect(output.intenciones).toContain('solicitud_cotizacion');
     expect(output.sentimiento).toBe('Muy interesado');
   });
 
   test('detecta intención agenda cuando el mensaje menciona cita', async () => {
     const output = await mock.procesar(makeAIInput({ mensaje_actual: 'quiero agendar una visita' }));
-    expect(output.intenciones).toContain('agenda');
+    expect(output.intenciones).toContain('seguimiento');
   });
 
   test('detecta sentimiento negativo', async () => {
@@ -326,7 +326,7 @@ describe('MockProvider', () => {
 
   test('defaultea a intención consulta para mensajes genéricos', async () => {
     const output = await mock.procesar(makeAIInput({ mensaje_actual: 'Hola' }));
-    expect(output.intenciones).toContain('consulta');
+    expect(output.intenciones).toContain('consulta_general');
   });
 
   test('shouldFail: lanza error cuando se configura', async () => {
