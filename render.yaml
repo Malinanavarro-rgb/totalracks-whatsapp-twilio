@@ -36,8 +36,9 @@ services:
         # Debe coincidir EXACTAMENTE con la URL configurada en Twilio
 
       # ── App ────────────────────────────────────────────────
-      - key: COMPANY_SLUG
-        value: totalracks   # cambiar por el slug real de la empresa
+      # COMPANY_SLUG eliminado en FASE 3.
+      # El routing ahora es dinámico via tabla channel_endpoints en Supabase.
+      # Para agregar una empresa: INSERT en channel_endpoints apuntando a su company_id.
 
       - key: NODE_ENV
         value: production
