@@ -683,3 +683,318 @@ describe('Orchestrator — acciones propuestas (stub FASE 4)', () => {
     expect(deps.crearOportunidad).not.toHaveBeenCalled();
   });
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 8. WORKFLOW ENGINE — Integración con Orchestrator (FASE 4A)
+// ═════════════════════════════════════════════════════════════════════════════
+
+// ── Helpers de integración ────────────────────────────────────────────────────
+
+/** WorkflowEngine mock con todos los métodos en null-safe por defecto. */
+function makeWorkflowEngine(overrides = {}) {
+  return {
+    evaluar:             jest.fn().mockResolvedValue(null),
+    obtenerSesionActiva: jest.fn().mockResolvedValue(null),
+    obtenerNodoActual:   jest.fn().mockResolvedValue(null),
+    iniciarSesion:       jest.fn().mockResolvedValue(null),
+    avanzar:             jest.fn().mockResolvedValue(null),
+    abandonar:           jest.fn().mockResolvedValue(null),
+    ...overrides,
+  };
+}
+
+/** AI Engine que devuelve intenciones controladas sin llamar a OpenAI. */
+function makeAIConIntenciones(intenciones, respuesta = 'Respuesta de prueba.') {
+  return {
+    procesar: jest.fn().mockResolvedValue({
+      respuesta_texto:     respuesta,
+      categoria_principal: 'Test',
+      datos_extraidos:     {},
+      intenciones,
+      sentimiento:         'Neutral',
+      etapa_sugerida:      null,
+      acciones_propuestas: [],
+      confianza:           0.8,
+      tokens_entrada:      50,
+      tokens_salida:       30,
+      modelo_utilizado:    'mock-test',
+      proveedor_utilizado: 'mock-test',
+      latencia_ms:         0,
+    }),
+  };
+}
+
+const sesionEnProceso = {
+  id:              'ses-integracion-01',
+  company_id:      'company-uuid-001',
+  cliente_id:      42,
+  workflow_id:     'wf-test-001',
+  current_node:    'empresa',
+  status:          'activo',
+  captured_fields: { nombre_contacto: 'Luis' },
+  total_turnos:    1,
+};
+
+const nodoIntermedio = {
+  nombre:         'empresa',
+  es_inicio:      false,
+  es_fin:         false,
+  pregunta:       '¿A qué empresa perteneces?',
+  campo:          'empresa',
+  tipo_campo:     'text',
+  es_opcional:    false,
+  siguiente_nodo: 'tipo_proyecto',
+  modo_respuesta: 'replace_ai',
+};
+
+const nodoSiguiente = {
+  nombre:   'tipo_proyecto',
+  pregunta: '¿Qué tipo de proyecto tienes en mente?',
+  es_fin:   false,
+  modo_respuesta: 'replace_ai',
+};
+
+const nodoInicio = {
+  nombre:         'nombre_contacto',
+  es_inicio:      true,
+  es_fin:         false,
+  pregunta:       '¿Cuál es tu nombre?',
+  campo:          'nombre_contacto',
+  tipo_campo:     'text',
+  es_opcional:    false,
+  siguiente_nodo: 'empresa',
+  modo_respuesta: 'prepend_ai',
+};
+
+const workflowDescubrimiento = {
+  id:            'wf-test-001',
+  nombre:        'Descubrimiento Comercial',
+  trigger:       'intent',
+  trigger_value: 'solicitud_cotizacion',
+  prioridad:     1,
+};
+
+// ── Tests de los 4 caminos del WorkflowEngine ─────────────────────────────────
+
+describe('Orchestrator + WorkflowEngine — 4 caminos de _manejarWorkflow', () => {
+
+  test('Caso A: sesión activa + cancelar_flujo → abandona y conserva respuesta AI', async () => {
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+      abandonar:           jest.fn().mockResolvedValue({ ...sesionEnProceso, status: 'abandonado' }),
+    });
+    const aiEngine = makeAIConIntenciones(['cancelar_flujo'], 'Entendido, quedamos en contacto.');
+    const deps = makeDeps({ workflowEngine: wfEngine, aiEngine });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage({ content: 'ya no me interesa' }));
+
+    expect(wfEngine.abandonar).toHaveBeenCalledWith('ses-integracion-01', 'empresa');
+    expect(resultado.respuesta_texto).toBe('Entendido, quedamos en contacto.');
+    expect(wfEngine.iniciarSesion).not.toHaveBeenCalled();
+    expect(wfEngine.evaluar).not.toHaveBeenCalled();
+  });
+
+  test('Caso B: sesión activa + respuesta normal → avanza al siguiente nodo', async () => {
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoIntermedio),
+      avanzar:             jest.fn().mockResolvedValue({
+        sesion:         { ...sesionEnProceso, current_node: 'tipo_proyecto', total_turnos: 2 },
+        completado:     false,
+        siguiente_nodo: nodoSiguiente,
+      }),
+    });
+    const aiEngine = makeAIConIntenciones(['consulta_general'], 'Respuesta AI ignorada.');
+    const deps = makeDeps({ workflowEngine: wfEngine, aiEngine });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage({ content: 'ACME Construcciones' }));
+
+    expect(wfEngine.avanzar).toHaveBeenCalled();
+    expect(resultado.respuesta_texto).toBe('¿Qué tipo de proyecto tienes en mente?');
+    expect(wfEngine.iniciarSesion).not.toHaveBeenCalled();
+    expect(wfEngine.evaluar).not.toHaveBeenCalled();
+  });
+
+  test('Caso C: sin sesión + intent match → activa workflow con transición AI + primera pregunta', async () => {
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(null),
+      evaluar:             jest.fn().mockResolvedValue(workflowDescubrimiento),
+      iniciarSesion:       jest.fn().mockResolvedValue({ ...sesionEnProceso, current_node: 'nombre_contacto' }),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoInicio),
+    });
+    // 2 oraciones → la transición las toma ambas, luego añade la pregunta
+    const aiEngine = makeAIConIntenciones(
+      ['solicitud_cotizacion'],
+      'Con gusto te ayudaré con tu cotización. Iniciemos el proceso.'
+    );
+    const deps = makeDeps({ workflowEngine: wfEngine, aiEngine });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage({ content: 'quiero una cotización' }));
+
+    expect(wfEngine.iniciarSesion).toHaveBeenCalledWith(
+      'company-uuid-001', 42, null, 'wf-test-001'
+    );
+    expect(resultado.respuesta_texto).toContain('Con gusto te ayudaré con tu cotización.');
+    expect(resultado.respuesta_texto).toContain('¿Cuál es tu nombre?');
+  });
+
+  test('Caso D: sin sesión + sin match de intención → flujo conversacional normal', async () => {
+    const respuestaAI = 'Disponemos de rack selectivo desde $45,000 MXN.';
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(null),
+      evaluar:             jest.fn().mockResolvedValue(null),
+    });
+    const aiEngine = makeAIConIntenciones(['consulta_general'], respuestaAI);
+    const deps = makeDeps({ workflowEngine: wfEngine, aiEngine });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage());
+
+    expect(resultado.respuesta_texto).toBe(respuestaAI);
+    expect(wfEngine.iniciarSesion).not.toHaveBeenCalled();
+    expect(wfEngine.avanzar).not.toHaveBeenCalled();
+  });
+});
+
+// ── Resiliencia ───────────────────────────────────────────────────────────────
+
+describe('Orchestrator + WorkflowEngine — resiliencia', () => {
+
+  test('WorkflowEngine lanza excepción inesperada → conversación no se interrumpe', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockRejectedValue(new Error('Supabase timeout en workflow')),
+    });
+    const respuestaAI = 'Aquí están los precios.';
+    const aiEngine = makeAIConIntenciones(['consulta_general'], respuestaAI);
+    const deps = makeDeps({ workflowEngine: wfEngine, aiEngine });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage());
+
+    // El error queda registrado en el log del proceso
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Orchestrator[workflow]'),
+      expect.any(String)
+    );
+    // La conversación continúa y el usuario recibe la respuesta del AI
+    expect(resultado.respuesta_texto).toBe(respuestaAI);
+    expect(resultado.session_id).toBeTruthy();
+    consoleSpy.mockRestore();
+  });
+
+  test('sin WorkflowEngine inyectado → comportamiento idéntico a FASE 3', async () => {
+    const respuestaAI = 'Respuesta sin ningún workflow activo.';
+    const aiEngine = makeAIConIntenciones(['consulta_general'], respuestaAI);
+    const deps = makeDeps({ aiEngine });
+    // workflowEngine no está en deps → this._workflow = null
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage());
+
+    expect(resultado.respuesta_texto).toBe(respuestaAI);
+    expect(resultado.timings.workflow_ms).toBeUndefined(); // paso workflow nunca corrió
+    expect(deps.guardarConversacion).toHaveBeenCalledTimes(1);
+  });
+
+  test('sesión activa existente → el Orchestrator no intenta iniciar un segundo workflow', async () => {
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoIntermedio),
+      avanzar:             jest.fn().mockResolvedValue({
+        sesion: sesionEnProceso, completado: false, siguiente_nodo: nodoSiguiente,
+      }),
+    });
+    const aiEngine = makeAIConIntenciones(['solicitud_cotizacion']); // intent que activaría otro workflow
+    const deps = makeDeps({ workflowEngine: wfEngine, aiEngine });
+    const orch = new Orchestrator(deps);
+
+    await orch.procesarMensaje(makeMessage({ content: 'ACME' }));
+
+    expect(wfEngine.evaluar).not.toHaveBeenCalled();       // no busca workflow nuevo
+    expect(wfEngine.iniciarSesion).not.toHaveBeenCalled(); // no crea segunda sesión
+    expect(wfEngine.avanzar).toHaveBeenCalledTimes(1);     // solo avanza la sesión activa
+  });
+});
+
+// ── Consistencia de identificadores ──────────────────────────────────────────
+
+describe('Orchestrator + WorkflowEngine — consistencia de IDs', () => {
+
+  test('company_id, cliente_id y conversation_id son consistentes en la activación', async () => {
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(null),
+      evaluar:             jest.fn().mockResolvedValue(workflowDescubrimiento),
+      iniciarSesion:       jest.fn().mockResolvedValue({ ...sesionEnProceso, current_node: 'nombre_contacto' }),
+      obtenerNodoActual:   jest.fn().mockResolvedValue({ ...nodoInicio, modo_respuesta: 'replace_ai' }),
+    });
+    const aiEngine = makeAIConIntenciones(['solicitud_cotizacion']);
+    const deps = makeDeps({ workflowEngine: wfEngine, aiEngine });
+    const orch = new Orchestrator(deps);
+
+    await orch.procesarMensaje(makeMessage());
+
+    const [companyId, clienteId, conversationId] = wfEngine.iniciarSesion.mock.calls[0];
+    expect(companyId).toBe('company-uuid-001'); // igual que message.company_id
+    expect(clienteId).toBe(42);                 // igual que cliente.id de makeCliente()
+    expect(conversationId).toBeNull();           // null documentado en FASE 4A
+  });
+
+  test('evaluar() recibe el company_id correcto del mensaje', async () => {
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(null),
+      evaluar:             jest.fn().mockResolvedValue(null),
+    });
+    const aiEngine = makeAIConIntenciones(['solicitud_cotizacion']);
+    const deps = makeDeps({ workflowEngine: wfEngine, aiEngine });
+    const orch = new Orchestrator(deps);
+
+    await orch.procesarMensaje(makeMessage());
+
+    expect(wfEngine.evaluar).toHaveBeenCalledWith(
+      'company-uuid-001',
+      expect.arrayContaining(['solicitud_cotizacion'])
+    );
+  });
+});
+
+// ── Regresión: conversaciones libres sin workflow ─────────────────────────────
+
+describe('Regresión — conversación libre sin workflow (igual que FASE 3)', () => {
+
+  test('respuesta AI llega intacta al usuario cuando no hay workflow', async () => {
+    const respuestaAI = 'El rack selectivo tiene capacidad de 1,500 kg por nivel.';
+    const wfEngine = makeWorkflowEngine(); // todo null-safe por defecto
+    const aiEngine = makeAIConIntenciones(['consulta_general'], respuestaAI);
+    const deps = makeDeps({ workflowEngine: wfEngine, aiEngine });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage());
+
+    expect(resultado.respuesta_texto).toBe(respuestaAI);
+    expect(resultado.ai_output.intenciones).toContain('consulta_general');
+    expect(deps.guardarConversacion).toHaveBeenCalledTimes(1);
+    expect(deps.auditLogger.logAICall).toHaveBeenCalledTimes(1);
+    expect(wfEngine.iniciarSesion).not.toHaveBeenCalled();
+    expect(wfEngine.avanzar).not.toHaveBeenCalled();
+    expect(wfEngine.abandonar).not.toHaveBeenCalled();
+  });
+
+  test('múltiples turnos libres consecutivos no acumulan estado de workflow', async () => {
+    const wfEngine = makeWorkflowEngine();
+    const deps = makeDeps({ workflowEngine: wfEngine });
+    const orch = new Orchestrator(deps);
+
+    await orch.procesarMensaje(makeMessage({ content: '¿Qué productos tienen?' }));
+    await orch.procesarMensaje(makeMessage({ content: '¿Cuánto cuesta el rack?' }));
+    await orch.procesarMensaje(makeMessage({ content: '¿Tienen servicio de instalación?' }));
+
+    // obtenerSesionActiva se llama una vez por turno, pero siempre devuelve null
+    expect(wfEngine.obtenerSesionActiva).toHaveBeenCalledTimes(3);
+    expect(wfEngine.iniciarSesion).not.toHaveBeenCalled();
+    expect(wfEngine.avanzar).not.toHaveBeenCalled();
+  });
+});

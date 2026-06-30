@@ -197,7 +197,8 @@ class Orchestrator {
       this._ai.procesar(aiInput)
     );
     // AIEngine nunca lanza — si falló igual devuelve FALLBACK_OUTPUT
-    const aiOutput = aiResult.ok ? aiResult.value : {
+    // let porque WorkflowEngine puede reemplazar respuesta_texto en el paso 8
+    let aiOutput = aiResult.ok ? aiResult.value : {
       respuesta_texto:     RESPUESTA_EMERGENCIA,
       categoria_principal: 'Sin clasificar',
       intenciones:         ['consulta'],
