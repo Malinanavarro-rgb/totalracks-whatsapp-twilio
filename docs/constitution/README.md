@@ -18,7 +18,9 @@ El documento de la Constitución de TARA Matrix™ v3 fue definido por la fundad
 - El modelo de multi-tenancy
 - El roadmap de módulos M1–M9
 
-> El documento completo de la Constitución v3 se encuentra en el historial de la conversación de inicio de FASE 3 (junio 2026) y debe ser transcrito aquí como `v3-constitution.md` en la próxima sesión de documentación.
+**El documento completo está en [v3-constitution.md](v3-constitution.md).**
+
+18 artículos. Aprobado el 29 de junio de 2026. Referencia principal para cualquier decisión de arquitectura futura.
 
 ---
 
