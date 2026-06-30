@@ -50,12 +50,13 @@ class TwilioWhatsAppAdapter extends ChannelAdapter {
     const from = rawFrom.replace('whatsapp:', '').trim();
 
     return {
-      id:           randomUUID(),
-      company_id:   null,              // el Orchestrator lo asigna
-      channel:      this.canal,
+      id:                randomUUID(),
+      company_id:        null,              // el Channel Router lo asigna en server.js
+      channel:           this.canal,
       from,
-      content:      (req.body.Body || '').trim(),
-      timestamp:    new Date(),
+      incoming_endpoint: req.body.To || null, // número receptor — identifica la empresa
+      content:           (req.body.Body || '').trim(),
+      timestamp:         new Date(),
       raw_metadata: {
         MessageSid:  req.body.MessageSid  || null,
         NumMedia:    req.body.NumMedia    || '0',
