@@ -26,26 +26,33 @@ app.use(express.urlencoded({ extended: false }));
 // ── WEBHOOK TWILIO ────────────────────────────────────────────────────────────
 
 app.post('/webhook/twilio', async (req, res) => {
+  if (!adapter.validateSignature(req)) {
+    return res.status(403).type('text/plain').send('Firma inválida');
+  }
+
+  const message = adapter.parseIncoming(req);
+
+  // Responder a Twilio de inmediato — evita timeout y error 63038 en Sandbox
+  res.type('text/xml').send('<Response></Response>');
+
+  // Procesar y enviar respuesta via REST API (outbound-api — entrega garantizada)
   try {
-    if (!adapter.validateSignature(req)) {
-      return res.status(403).type('text/plain').send('Firma inválida');
-    }
-
-    const message = adapter.parseIncoming(req);
-
-    // FASE 3 — routing dinámico: resolver empresa por número receptor
     const routeResult = await channelRouter.enrutar(message.incoming_endpoint);
     if (!routeResult) {
       console.warn('⚠️  Endpoint sin empresa registrada:', message.incoming_endpoint);
-      return res.type('text/xml').send('<Response></Response>');
+      return;
     }
     message.company_id = routeResult.company_id;
 
     const resultado = await orchestrator.procesarMensaje(message);
-    res.type('text/xml').send(adapter.formatOutgoing(resultado.respuesta_texto, req.body));
+    await adapter.sendProactive(resultado.respuesta_texto, message.from);
   } catch (e) {
     console.error('❌ Error en webhook:', e);
-    res.type('text/xml').send(adapter.formatOutgoing('Error técnico. Intenta de nuevo.', req.body));
+    try {
+      await adapter.sendProactive('Error técnico. Intenta de nuevo.', message.from);
+    } catch (e2) {
+      console.error('❌ Error enviando respuesta de error:', e2);
+    }
   }
 });
 
