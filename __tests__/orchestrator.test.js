@@ -841,6 +841,36 @@ describe('Orchestrator + WorkflowEngine — 4 caminos de _manejarWorkflow', () =
     expect(resultado.respuesta_texto).toContain('¿Cuál es tu nombre?');
   });
 
+  test('Caso B-prepend: sesión activa + siguiente nodo prepend_ai → transición AI + pregunta', async () => {
+    const nodoSiguientePrepend = {
+      nombre:         'tipo_proyecto',
+      pregunta:       '¿Qué van a almacenar?',
+      es_fin:         false,
+      modo_respuesta: 'prepend_ai',
+    };
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoIntermedio),
+      avanzar:             jest.fn().mockResolvedValue({
+        sesion:         { ...sesionEnProceso, current_node: 'tipo_proyecto', total_turnos: 2 },
+        completado:     false,
+        siguiente_nodo: nodoSiguientePrepend,
+      }),
+    });
+    // 2 oraciones: extracción tomará ambas como transición
+    const aiEngine = makeAIConIntenciones(
+      ['consulta_general'],
+      'Perfecto, ACME Construcciones. Es un proyecto interesante.'
+    );
+    const deps = makeDeps({ workflowEngine: wfEngine, aiEngine });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage({ content: 'ACME Construcciones' }));
+
+    expect(resultado.respuesta_texto).toContain('Perfecto, ACME Construcciones.');
+    expect(resultado.respuesta_texto).toContain('¿Qué van a almacenar?');
+  });
+
   test('Caso D: sin sesión + sin match de intención → flujo conversacional normal', async () => {
     const respuestaAI = 'Disponemos de rack selectivo desde $45,000 MXN.';
     const wfEngine = makeWorkflowEngine({

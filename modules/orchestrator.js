@@ -384,7 +384,13 @@ class Orchestrator {
       }
 
       console.log(`➡️  [workflow] sesión ${sesion.id.slice(0, 8)} avanzó a "${resultado.siguiente_nodo?.nombre}"`);
-      return resultado.siguiente_nodo?.pregunta || null;
+      const nextNode = resultado.siguiente_nodo;
+      if (!nextNode) return null;
+      if (nextNode.modo_respuesta === 'prepend_ai') {
+        const transicion = this._extraerTransicion(aiOutput.respuesta_texto);
+        return transicion ? `${transicion} ${nextNode.pregunta}` : nextNode.pregunta;
+      }
+      return nextNode.pregunta;
     }
 
     // ── Caso B: sin sesión activa — ¿las intenciones activan un workflow? ─────
