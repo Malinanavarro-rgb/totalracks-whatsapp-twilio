@@ -871,6 +871,111 @@ describe('Orchestrator + WorkflowEngine — 4 caminos de _manejarWorkflow', () =
     expect(resultado.respuesta_texto).toContain('¿Qué van a almacenar?');
   });
 
+  test('Auto-advance Caso B: datos ya detectados en mensaje inicial → salta nodos respondidos', async () => {
+    const nodoTipoProyecto = {
+      nombre:         'tipo_proyecto',
+      pregunta:       '¿Qué van a almacenar? Cuéntame sobre la mercancía.',
+      campo:          'tipo_proyecto',
+      es_fin:         false,
+      modo_respuesta: 'prepend_ai',
+    };
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(null),
+      evaluar:             jest.fn().mockResolvedValue(workflowDescubrimiento),
+      iniciarSesion:       jest.fn().mockResolvedValue({ ...sesionEnProceso, current_node: 'nombre_contacto', captured_fields: {} }),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoInicio),
+      avanzar: jest.fn()
+        .mockResolvedValueOnce({  // avanza nombre_contacto → empresa
+          sesion:         { ...sesionEnProceso, current_node: 'empresa', captured_fields: { nombre_contacto: 'Carlos' } },
+          completado:     false,
+          siguiente_nodo: nodoIntermedio,
+        })
+        .mockResolvedValueOnce({  // avanza empresa → tipo_proyecto
+          sesion:         { ...sesionEnProceso, current_node: 'tipo_proyecto', captured_fields: { nombre_contacto: 'Carlos', empresa: 'Distribuidora Norte' } },
+          completado:     false,
+          siguiente_nodo: nodoTipoProyecto,
+        }),
+    });
+    const aiEngine = {
+      procesar: jest.fn().mockResolvedValue({
+        respuesta_texto:     'Carlos, para tarimas de 800 kg te recomiendo rack selectivo.',
+        categoria_principal: 'Test',
+        datos_extraidos:     { nombre_contacto: 'Carlos', empresa: 'Distribuidora Norte' },
+        intenciones:         ['solicitud_cotizacion'],
+        sentimiento:         'Neutral',
+        etapa_sugerida:      null,
+        acciones_propuestas: [],
+        confianza:           0.9,
+        tokens_entrada:      80,
+        tokens_salida:       40,
+        modelo_utilizado:    'mock-test',
+        proveedor_utilizado: 'mock-test',
+        latencia_ms:         0,
+      }),
+    };
+    const deps = makeDeps({ workflowEngine: wfEngine, aiEngine });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage({
+      content: 'Soy Carlos de Distribuidora Norte, necesito racks para tarimas de 800 kg, unas 300 posiciones',
+    }));
+
+    // avanzar llamado 2 veces: auto-skip nombre_contacto y empresa
+    expect(wfEngine.avanzar).toHaveBeenCalledTimes(2);
+    expect(wfEngine.avanzar).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ current_node: 'nombre_contacto' }),
+      nodoInicio,
+      'Carlos'
+    );
+    expect(wfEngine.avanzar).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ current_node: 'empresa' }),
+      nodoIntermedio,
+      'Distribuidora Norte'
+    );
+    // No repite preguntas ya respondidas
+    expect(resultado.respuesta_texto).not.toContain('¿Con quién tengo el gusto?');
+    expect(resultado.respuesta_texto).not.toContain('¿Para qué empresa');
+    // Pregunta el primer campo no respondido
+    expect(resultado.respuesta_texto).toContain('¿Qué van a almacenar?');
+  });
+
+  test('_extraerTransicion filtra preguntas de la IA — solo pasa oraciones declarativas', async () => {
+    const nodoEmpresaPrepend = {
+      nombre:         'empresa',
+      pregunta:       '¿Para qué empresa o proyecto es?',
+      campo:          'empresa',
+      es_fin:         false,
+      modo_respuesta: 'prepend_ai',
+    };
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoIntermedio),
+      avanzar:             jest.fn().mockResolvedValue({
+        sesion:         { ...sesionEnProceso, current_node: 'empresa', total_turnos: 2 },
+        completado:     false,
+        siguiente_nodo: nodoEmpresaPrepend,
+      }),
+    });
+    // La IA genera una pregunta propia — no debe colarse en la transición
+    const aiEngine = makeAIConIntenciones(
+      ['consulta_general'],
+      'Entendido, Carlos. ¿Cuál es el nombre de tu empresa?'
+    );
+    const deps = makeDeps({ workflowEngine: wfEngine, aiEngine });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage({ content: 'Carlos' }));
+
+    // La pregunta propia de la IA queda filtrada
+    expect(resultado.respuesta_texto).not.toContain('¿Cuál es el nombre de tu empresa?');
+    // Solo aparece la pregunta del nodo workflow
+    expect(resultado.respuesta_texto).toContain('¿Para qué empresa o proyecto es?');
+    // La transición declarativa sí llega
+    expect(resultado.respuesta_texto).toContain('Entendido, Carlos.');
+  });
+
   test('Caso D: sin sesión + sin match de intención → flujo conversacional normal', async () => {
     const respuestaAI = 'Disponemos de rack selectivo desde $45,000 MXN.';
     const wfEngine = makeWorkflowEngine({

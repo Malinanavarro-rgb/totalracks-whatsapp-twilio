@@ -379,12 +379,18 @@ class Orchestrator {
 
       if (resultado.completado) {
         console.log(`✅ [workflow] sesión ${sesion.id.slice(0, 8)} completada`);
-        // T4B: ejecutar acciones del nodo final; por ahora mensaje de cierre
         return '¡Perfecto! Ya tengo todo lo que necesito. En breve un asesor te contacta con tu cotización.';
       }
 
       console.log(`➡️  [workflow] sesión ${sesion.id.slice(0, 8)} avanzó a "${resultado.siguiente_nodo?.nombre}"`);
-      const nextNode = resultado.siguiente_nodo;
+
+      const { completado: autoCompletadoA, siguiente_nodo: nextNode } =
+        await this._avanzarSaltandoRespondidos(resultado.sesion, resultado.siguiente_nodo, aiOutput.datos_extraidos || {});
+
+      if (autoCompletadoA) {
+        console.log(`✅ [workflow] sesión ${sesion.id.slice(0, 8)} completada (auto-advance)`);
+        return '¡Perfecto! Ya tengo todo lo que necesito. En breve un asesor te contacta con tu cotización.';
+      }
       if (!nextNode) return null;
       if (nextNode.modo_respuesta === 'prepend_ai') {
         const transicion = this._extraerTransicion(aiOutput.respuesta_texto);
@@ -409,30 +415,65 @@ class Orchestrator {
 
     console.log(`🟢 [workflow] "${workflow.nombre}" iniciado — sesión ${nuevaSesion.id.slice(0, 8)}`);
 
-    if (nodoInicio.modo_respuesta === 'prepend_ai') {
-      const transicion = this._extraerTransicion(aiOutput.respuesta_texto);
-      return transicion
-        ? `${transicion} ${nodoInicio.pregunta}`
-        : nodoInicio.pregunta;
-    }
+    // Auto-advance past nodes whose campo the client already provided in this message
+    const { completado: autoCompletadoB, siguiente_nodo: nodoReal } =
+      await this._avanzarSaltandoRespondidos(nuevaSesion, nodoInicio, aiOutput.datos_extraidos || {});
 
-    return nodoInicio.pregunta;
+    if (autoCompletadoB) {
+      return '¡Perfecto! Ya tengo todo lo que necesito. En breve un asesor te contacta con tu cotización.';
+    }
+    if (!nodoReal) return null;
+
+    if (nodoReal.modo_respuesta === 'prepend_ai') {
+      const transicion = this._extraerTransicion(aiOutput.respuesta_texto);
+      return transicion ? `${transicion} ${nodoReal.pregunta}` : nodoReal.pregunta;
+    }
+    return nodoReal.pregunta;
   }
 
   /**
-   * Extrae las primeras 2 oraciones de un texto para usarlas como transición.
+   * Extrae hasta 2 oraciones declarativas de un texto para usarlas como transición.
+   * Descarta oraciones interrogativas — la siguiente pregunta viene del nodo workflow.
    * Usado en modo_respuesta 'prepend_ai'.
    */
   _extraerTransicion(texto) {
     if (!texto) return '';
-    const delimiters = /[.!?]/g;
-    let match;
-    let count = 0;
-    while ((match = delimiters.exec(texto)) !== null) {
-      count++;
-      if (count === 2) return texto.substring(0, match.index + 1).trim();
+    const oraciones    = texto.match(/[^.!?]+[.!?]+/g) || [];
+    const declarativas = oraciones.filter(o => !o.trimEnd().endsWith('?'));
+    return declarativas.slice(0, 2).join(' ').trim();
+  }
+
+  /**
+   * Avanza automáticamente por nodos cuyo campo ya fue extraído por la IA del mensaje.
+   * Llama a avanzar() por cada nodo omitible; se detiene en el primero sin dato.
+   *
+   * @param {Object} sesion   - sesión workflow actual
+   * @param {Object|null} nodo - nodo a evaluar
+   * @param {Object} datos    - aiOutput.datos_extraidos
+   * @returns {Promise<{completado: boolean, sesion: Object, siguiente_nodo: Object|null}>}
+   */
+  async _avanzarSaltandoRespondidos(sesion, nodo, datos) {
+    let currentSesion = sesion;
+    let currentNodo   = nodo;
+
+    while (currentNodo) {
+      const { campo } = currentNodo;
+      if (!campo) break;
+      const valor = datos[campo] != null ? String(datos[campo]).trim() : '';
+      if (!valor) break;
+
+      const resultado = await this._workflow.avanzar(currentSesion, currentNodo, valor);
+      console.log(`⏭️  [workflow] auto-avanzó "${currentNodo.nombre}" → "${valor}"`);
+
+      if (resultado.completado) {
+        return { completado: true, sesion: resultado.sesion, siguiente_nodo: null };
+      }
+
+      currentSesion = resultado.sesion;
+      currentNodo   = resultado.siguiente_nodo;
     }
-    return texto.trim(); // menos de 2 oraciones: usar todo
+
+    return { completado: false, sesion: currentSesion, siguiente_nodo: currentNodo };
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
