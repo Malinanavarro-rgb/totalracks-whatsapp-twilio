@@ -456,10 +456,13 @@ class Orchestrator {
     let currentSesion = sesion;
     let currentNodo   = nodo;
 
+    console.log(`🔍 [auto-advance] datos_extraidos keys: ${JSON.stringify(Object.keys(datos))}`);
+
     while (currentNodo) {
       const { campo } = currentNodo;
       if (!campo) break;
       const valor = datos[campo] != null ? String(datos[campo]).trim() : '';
+      console.log(`🔍 [auto-advance] nodo="${currentNodo.nombre}" campo="${campo}" → "${valor || '(sin valor)'}"`);
       if (!valor) break;
 
       const resultado = await this._workflow.avanzar(currentSesion, currentNodo, valor);
