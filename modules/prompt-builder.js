@@ -160,25 +160,32 @@ function bloque_capacidades(ctx) {
  * El OpenAIProvider también acepta "respuesta_tara" por compatibilidad con FASE 1.
  */
 function bloque_schema_json(ctx) {
-  const caps    = ctx.knowledge?.capacidades || [];
-  const idioma  = ctx.empresa?.idioma        || 'es';
+  const caps   = ctx.knowledge?.capacidades        || [];
+  const idioma = ctx.empresa?.idioma               || 'es';
+  const campos = ctx.cliente?.campos_faltantes     || [];
 
   const tiposAccion = caps.length > 0
     ? caps.map(c => `"${c}"`).join(' | ')
     : '"nombre_accion"';
+
+  // Incluir claves exactas para que el AI no invente nombres propios
+  const datosSchema = campos.length > 0
+    ? `{${campos.map(c => `"${c}": null`).join(', ')}}`
+    : '{}';
 
   return `## FORMATO DE RESPUESTA
 Responde ÚNICAMENTE con JSON válido. Sin texto antes ni después. Sin markdown. Sin backticks.
 {
   "respuesta_texto":     "tu respuesta al cliente (máximo 130 palabras, idioma: ${idioma})",
   "categoria_principal": "categoría universal del producto o servicio detectado, o 'Sin clasificar'",
-  "datos_extraidos":     {},
+  "datos_extraidos":     ${datosSchema},
   "intenciones":         ["interes_compra" | "solicitud_cotizacion" | "soporte" | "seguimiento" | "cancelar_flujo" | "consulta_general"],
   "sentimiento":         "Positivo | Neutral | Negativo | Muy interesado",
   "etapa_sugerida":      "Nuevo | Calificacion | Negociacion | Cierre | Postventa",
   "acciones_propuestas": [{"tipo": ${tiposAccion}, "parametros": {}}]
 }
-IMPORTANTE: el campo "intenciones" debe contener ÚNICAMENTE valores del catálogo anterior. Uno o más valores del arreglo, separados por coma. Ningún valor fuera de ese catálogo.`;
+IMPORTANTE: el campo "intenciones" debe contener ÚNICAMENTE valores del catálogo anterior. Uno o más valores del arreglo, separados por coma. Ningún valor fuera de ese catálogo.
+IMPORTANTE: en "datos_extraidos" usa EXACTAMENTE las claves del schema. Si el dato no fue mencionado, deja null. No inventes claves nuevas.`;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
