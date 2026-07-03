@@ -392,6 +392,7 @@ class Orchestrator {
         return '¡Perfecto! Ya tengo todo lo que necesito. En breve un asesor te contacta con tu cotización.';
       }
       if (!nextNode) return null;
+      if (nextNode.modo_respuesta === 'full_ai')    return aiOutput.respuesta_texto;
       if (nextNode.modo_respuesta === 'prepend_ai') {
         const transicion = this._extraerTransicion(aiOutput.respuesta_texto);
         return transicion ? `${transicion} ${nextNode.pregunta}` : nextNode.pregunta;
@@ -424,6 +425,7 @@ class Orchestrator {
     }
     if (!nodoReal) return null;
 
+    if (nodoReal.modo_respuesta === 'full_ai')    return aiOutput.respuesta_texto;
     if (nodoReal.modo_respuesta === 'prepend_ai') {
       const transicion = this._extraerTransicion(aiOutput.respuesta_texto);
       return transicion ? `${transicion} ${nodoReal.pregunta}` : nodoReal.pregunta;
@@ -456,13 +458,10 @@ class Orchestrator {
     let currentSesion = sesion;
     let currentNodo   = nodo;
 
-    console.log(`🔍 [auto-advance] datos_extraidos keys: ${JSON.stringify(Object.keys(datos))}`);
-
     while (currentNodo) {
       const { campo } = currentNodo;
       if (!campo) break;
       const valor = datos[campo] != null ? String(datos[campo]).trim() : '';
-      console.log(`🔍 [auto-advance] nodo="${currentNodo.nombre}" campo="${campo}" → "${valor || '(sin valor)'}"`);
       if (!valor) break;
 
       const resultado = await this._workflow.avanzar(currentSesion, currentNodo, valor);
