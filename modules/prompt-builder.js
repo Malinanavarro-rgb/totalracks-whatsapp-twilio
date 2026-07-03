@@ -185,7 +185,7 @@ Responde ÚNICAMENTE con JSON válido. Sin texto antes ni después. Sin markdown
   "acciones_propuestas": [{"tipo": ${tiposAccion}, "parametros": {}}]
 }
 IMPORTANTE: el campo "intenciones" debe contener ÚNICAMENTE valores del catálogo anterior. Uno o más valores del arreglo, separados por coma. Ningún valor fuera de ese catálogo.
-IMPORTANTE: en "datos_extraidos" usa EXACTAMENTE las claves del schema. Si el dato no fue mencionado, deja null. No inventes claves nuevas.`;
+IMPORTANTE: en "datos_extraidos" usa EXACTAMENTE las claves del schema. SOLO incluye el valor si el cliente lo mencionó EXPLÍCITAMENTE en su mensaje. Si no lo dijo con palabras claras, el valor DEBE ser null. No inferir, no asumir, no adivinar.`;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
