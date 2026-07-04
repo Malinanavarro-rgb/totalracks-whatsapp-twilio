@@ -379,7 +379,7 @@ class Orchestrator {
 
       if (resultado.completado) {
         console.log(`✅ [workflow] sesión ${sesion.id.slice(0, 8)} completada`);
-        return '¡Perfecto! Ya tengo todo lo que necesito. En breve un asesor te contacta con tu cotización.';
+        return aiOutput.respuesta_texto;
       }
 
       console.log(`➡️  [workflow] sesión ${sesion.id.slice(0, 8)} avanzó a "${resultado.siguiente_nodo?.nombre}"`);
