@@ -693,12 +693,14 @@ describe('Orchestrator — acciones propuestas (stub FASE 4)', () => {
 /** WorkflowEngine mock con todos los métodos en null-safe por defecto. */
 function makeWorkflowEngine(overrides = {}) {
   return {
-    evaluar:             jest.fn().mockResolvedValue(null),
-    obtenerSesionActiva: jest.fn().mockResolvedValue(null),
-    obtenerNodoActual:   jest.fn().mockResolvedValue(null),
-    iniciarSesion:       jest.fn().mockResolvedValue(null),
-    avanzar:             jest.fn().mockResolvedValue(null),
-    abandonar:           jest.fn().mockResolvedValue(null),
+    evaluar:                       jest.fn().mockResolvedValue(null),
+    obtenerSesionActiva:           jest.fn().mockResolvedValue(null),
+    obtenerNodoActual:             jest.fn().mockResolvedValue(null),
+    iniciarSesion:                 jest.fn().mockResolvedValue(null),
+    avanzar:                       jest.fn().mockResolvedValue(null),
+    abandonar:                     jest.fn().mockResolvedValue(null),
+    tieneSesionCompletadaReciente: jest.fn().mockResolvedValue(false),   // Bug #1
+    preSalvarDatosExtraidos:       jest.fn().mockResolvedValue(undefined), // Bug #4
     ...overrides,
   };
 }
@@ -824,7 +826,7 @@ describe('Orchestrator + WorkflowEngine — 4 caminos de _manejarWorkflow', () =
       iniciarSesion:       jest.fn().mockResolvedValue({ ...sesionEnProceso, current_node: 'nombre_contacto' }),
       obtenerNodoActual:   jest.fn().mockResolvedValue(nodoInicio),
     });
-    // 2 oraciones → la transición las toma ambas, luego añade la pregunta
+    // 1 oración: la transición toma solo la primera declarativa, luego la pregunta del nodo
     const aiEngine = makeAIConIntenciones(
       ['solicitud_cotizacion'],
       'Con gusto te ayudaré con tu cotización. Iniciemos el proceso.'
@@ -857,7 +859,7 @@ describe('Orchestrator + WorkflowEngine — 4 caminos de _manejarWorkflow', () =
         siguiente_nodo: nodoSiguientePrepend,
       }),
     });
-    // 2 oraciones: extracción tomará ambas como transición
+    // 1 oración: solo la primera declarativa llega al cliente
     const aiEngine = makeAIConIntenciones(
       ['consulta_general'],
       'Perfecto, ACME Construcciones. Es un proyecto interesante.'
@@ -1131,5 +1133,177 @@ describe('Regresión — conversación libre sin workflow (igual que FASE 3)', (
     expect(wfEngine.obtenerSesionActiva).toHaveBeenCalledTimes(3);
     expect(wfEngine.iniciarSesion).not.toHaveBeenCalled();
     expect(wfEngine.avanzar).not.toHaveBeenCalled();
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 9. BUGS T4B.4+ — Correcciones de producción
+// ═════════════════════════════════════════════════════════════════════════════
+
+describe('Orchestrator — Bug #1: no reactivar workflow completado', () => {
+
+  test('sesión completada en últimas 24h → Caso B no evalúa ni activa nuevo workflow', async () => {
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva:           jest.fn().mockResolvedValue(null),
+      tieneSesionCompletadaReciente: jest.fn().mockResolvedValue(true), // completada reciente
+      evaluar:                       jest.fn().mockResolvedValue(workflowDescubrimiento),
+    });
+    const respuestaAI = 'Claro, ¿en qué más puedo ayudarte?';
+    const aiEngine = makeAIConIntenciones(['solicitud_cotizacion'], respuestaAI);
+    const deps = makeDeps({ workflowEngine: wfEngine, aiEngine });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage({ content: 'quiero otra cotización' }));
+
+    expect(wfEngine.tieneSesionCompletadaReciente).toHaveBeenCalledWith('company-uuid-001', 42, 24);
+    // El workflow NO se activa — evaluar ni iniciarSesion deben llamarse
+    expect(wfEngine.evaluar).not.toHaveBeenCalled();
+    expect(wfEngine.iniciarSesion).not.toHaveBeenCalled();
+    // La respuesta AI pasa intacta al cliente
+    expect(resultado.respuesta_texto).toBe(respuestaAI);
+  });
+
+  test('sesión completada hace más de 24h → Caso B puede activar nuevo workflow', async () => {
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva:           jest.fn().mockResolvedValue(null),
+      tieneSesionCompletadaReciente: jest.fn().mockResolvedValue(false), // fuera de ventana
+      evaluar:                       jest.fn().mockResolvedValue(workflowDescubrimiento),
+      iniciarSesion:                 jest.fn().mockResolvedValue({ ...sesionEnProceso, current_node: 'nombre_contacto' }),
+      obtenerNodoActual:             jest.fn().mockResolvedValue({ ...nodoInicio, modo_respuesta: 'replace_ai' }),
+    });
+    const aiEngine = makeAIConIntenciones(['solicitud_cotizacion'], 'Entendido.');
+    const deps = makeDeps({ workflowEngine: wfEngine, aiEngine });
+    const orch = new Orchestrator(deps);
+
+    await orch.procesarMensaje(makeMessage({ content: 'necesito nueva cotización' }));
+
+    expect(wfEngine.evaluar).toHaveBeenCalled();
+    expect(wfEngine.iniciarSesion).toHaveBeenCalled();
+  });
+});
+
+describe('Orchestrator — Bug #4: datos de turnos anteriores (captured_fields)', () => {
+
+  test('campo pre-guardado en captured_fields → auto-advance lo usa aunque no esté en datos_extraidos del turno', async () => {
+    // Escenario: sesión en nodo 'empresa'. En un turno anterior, tipo_proyecto
+    // fue mencionado y pre-guardado en captured_fields. Este turno solo provee 'empresa'.
+    const nodoTipoProyecto = {
+      nombre:         'tipo_proyecto',
+      pregunta:       '¿Qué van a almacenar?',
+      campo:          'tipo_proyecto',
+      es_fin:         false,
+      modo_respuesta: 'replace_ai',
+    };
+    const nodoVolumen = {
+      nombre:         'volumen_estimado',
+      pregunta:       '¿Cuántas posiciones necesitas?',
+      campo:          'volumen_estimado',
+      es_fin:         false,
+      modo_respuesta: 'replace_ai',
+    };
+
+    const sesionConPreSave = {
+      ...sesionEnProceso,
+      current_node:    'empresa',
+      captured_fields: { nombre_contacto: 'Carlos', tipo_proyecto: 'papel' }, // pre-saved de turno anterior
+    };
+
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionConPreSave),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoIntermedio), // nodo 'empresa', campo: 'empresa'
+      avanzar: jest.fn()
+        .mockResolvedValueOnce({  // avanza empresa → tipo_proyecto
+          sesion: {
+            ...sesionConPreSave,
+            current_node:    'tipo_proyecto',
+            captured_fields: { nombre_contacto: 'Carlos', tipo_proyecto: 'papel', empresa: 'Norte SA' },
+          },
+          completado:     false,
+          siguiente_nodo: nodoTipoProyecto,
+        })
+        .mockResolvedValueOnce({  // auto-advance tipo_proyecto (vía captured_fields) → volumen_estimado
+          sesion: {
+            ...sesionConPreSave,
+            current_node:    'volumen_estimado',
+            captured_fields: { nombre_contacto: 'Carlos', tipo_proyecto: 'papel', empresa: 'Norte SA' },
+          },
+          completado:     false,
+          siguiente_nodo: nodoVolumen,
+        }),
+    });
+
+    // El mensaje actual solo menciona empresa — tipo_proyecto NO está en datos_extraidos
+    const aiEngine = {
+      procesar: jest.fn().mockResolvedValue({
+        respuesta_texto:     'Norte SA, perfecto.',
+        categoria_principal: 'Test',
+        datos_extraidos:     { empresa: 'Norte SA' }, // solo empresa
+        intenciones:         ['consulta_general'],
+        sentimiento:         'Neutral',
+        etapa_sugerida:      null,
+        acciones_propuestas: [],
+        confianza:           0.8,
+        tokens_entrada:      50,
+        tokens_salida:       30,
+        modelo_utilizado:    'mock',
+        proveedor_utilizado: 'mock',
+        latencia_ms:         0,
+      }),
+    };
+
+    const deps = makeDeps({ workflowEngine: wfEngine, aiEngine });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage({ content: 'Norte SA' }));
+
+    // 2 llamadas: empresa (turno actual) + tipo_proyecto (auto-advance con captured_fields)
+    expect(wfEngine.avanzar).toHaveBeenCalledTimes(2);
+    // La segunda llamada usa el valor pre-guardado de tipo_proyecto
+    expect(wfEngine.avanzar).toHaveBeenNthCalledWith(2, expect.anything(), nodoTipoProyecto, 'papel');
+    // Pregunta el primer campo no pre-guardado
+    expect(resultado.respuesta_texto).toBe('¿Cuántas posiciones necesitas?');
+    // pre-save fue llamado con los datos del turno actual
+    expect(wfEngine.preSalvarDatosExtraidos).toHaveBeenCalledWith(
+      expect.any(String),
+      { empresa: 'Norte SA' }
+    );
+  });
+});
+
+describe('Orchestrator — Bug #5: _extraerTransicion retorna máximo 1 oración', () => {
+
+  test('texto con 3 oraciones declarativas → solo la primera llega al cliente', async () => {
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoIntermedio),
+      avanzar:             jest.fn().mockResolvedValue({
+        sesion:         { ...sesionEnProceso, current_node: 'tipo_proyecto', total_turnos: 2 },
+        completado:     false,
+        siguiente_nodo: {
+          nombre:         'tipo_proyecto',
+          pregunta:       '¿Qué van a almacenar?',
+          campo:          'tipo_proyecto',
+          es_fin:         false,
+          modo_respuesta: 'prepend_ai',
+        },
+      }),
+    });
+    // 3 oraciones declarativas: solo la primera debe aparecer
+    const aiEngine = makeAIConIntenciones(
+      ['consulta_general'],
+      'Excelente empresa. Tienen gran trayectoria. Será un placer ayudarles.'
+    );
+    const deps = makeDeps({ workflowEngine: wfEngine, aiEngine });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage({ content: 'ACME Construcciones' }));
+
+    // Solo la primera oración
+    expect(resultado.respuesta_texto).toContain('Excelente empresa.');
+    // La segunda y tercera NO aparecen
+    expect(resultado.respuesta_texto).not.toContain('Tienen gran trayectoria.');
+    expect(resultado.respuesta_texto).not.toContain('Será un placer ayudarles.');
+    // La pregunta del nodo workflow sí llega
+    expect(resultado.respuesta_texto).toContain('¿Qué van a almacenar?');
   });
 });

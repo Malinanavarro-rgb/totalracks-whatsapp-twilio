@@ -384,12 +384,21 @@ class Orchestrator {
 
       console.log(`➡️  [workflow] sesión ${sesion.id.slice(0, 8)} avanzó a "${resultado.siguiente_nodo?.nombre}"`);
 
+      // Bug #4: merge datos del turno actual con historial de captured_fields
+      const datosMergeados = this._mergeDatosAutoAvance(
+        aiOutput.datos_extraidos || {},
+        resultado.sesion.captured_fields || {}
+      );
+      // Pre-save para turnos futuros (fire-and-forget, no bloquea el flujo)
+      this._workflow.preSalvarDatosExtraidos(resultado.sesion.id, aiOutput.datos_extraidos || {})
+        .catch(e => console.warn(`⚠️  preSalvarDatosExtraidos: ${e.message}`));
+
       const { completado: autoCompletadoA, siguiente_nodo: nextNode } =
-        await this._avanzarSaltandoRespondidos(resultado.sesion, resultado.siguiente_nodo, aiOutput.datos_extraidos || {});
+        await this._avanzarSaltandoRespondidos(resultado.sesion, resultado.siguiente_nodo, datosMergeados);
 
       if (autoCompletadoA) {
         console.log(`✅ [workflow] sesión ${sesion.id.slice(0, 8)} completada (auto-advance)`);
-        return '¡Perfecto! Ya tengo todo lo que necesito. En breve un asesor te contacta con tu cotización.';
+        return aiOutput.respuesta_texto;
       }
       if (!nextNode) return null;
       if (nextNode.modo_respuesta === 'full_ai')    return aiOutput.respuesta_texto;
@@ -401,6 +410,11 @@ class Orchestrator {
     }
 
     // ── Caso B: sin sesión activa — ¿las intenciones activan un workflow? ─────
+
+    // Bug #1: no reactivar si hay sesión completada en las últimas 24 horas
+    const completadaReciente = await this._workflow.tieneSesionCompletadaReciente(company_id, clienteRaw.id, 24);
+    if (completadaReciente) return null;
+
     const workflow = await this._workflow.evaluar(company_id, intenciones);
     if (!workflow) return null; // flujo conversacional normal, sin cambios
 
@@ -417,12 +431,17 @@ class Orchestrator {
     console.log(`🟢 [workflow] "${workflow.nombre}" iniciado — sesión ${nuevaSesion.id.slice(0, 8)}`);
 
     // Auto-advance past nodes whose campo the client already provided in this message
-    const { completado: autoCompletadoB, siguiente_nodo: nodoReal } =
+    const { completado: autoCompletadoB, sesion: sesionFinalB, siguiente_nodo: nodoReal } =
       await this._avanzarSaltandoRespondidos(nuevaSesion, nodoInicio, aiOutput.datos_extraidos || {});
 
     if (autoCompletadoB) {
-      return '¡Perfecto! Ya tengo todo lo que necesito. En breve un asesor te contacta con tu cotización.';
+      return aiOutput.respuesta_texto;
     }
+
+    // Bug #4: pre-save datos extraídos para nodos no alcanzados aún
+    this._workflow.preSalvarDatosExtraidos(sesionFinalB.id, aiOutput.datos_extraidos || {})
+      .catch(e => console.warn(`⚠️  preSalvarDatosExtraidos: ${e.message}`));
+
     if (!nodoReal) return null;
 
     if (nodoReal.modo_respuesta === 'full_ai')    return aiOutput.respuesta_texto;
@@ -442,7 +461,7 @@ class Orchestrator {
     if (!texto) return '';
     const oraciones    = texto.match(/[^.!?]+[.!?]+/g) || [];
     const declarativas = oraciones.filter(o => !o.trimEnd().endsWith('?'));
-    return declarativas.slice(0, 2).join(' ').trim();
+    return declarativas.slice(0, 1).join(' ').trim();
   }
 
   /**
@@ -476,6 +495,23 @@ class Orchestrator {
     }
 
     return { completado: false, sesion: currentSesion, siguiente_nodo: currentNodo };
+  }
+
+  /**
+   * Bug #4 — Combina datos del turno actual con datos acumulados en captured_fields.
+   * Los valores explícitos del turno actual tienen precedencia sobre el historial;
+   * el historial (captured_fields) llena los huecos que el turno actual dejó vacíos.
+   *
+   * @param {Object} datosExtraidos  — aiOutput.datos_extraidos del mensaje actual
+   * @param {Object} capturedFields  — sesion.captured_fields (historial acumulado)
+   * @returns {Object}
+   */
+  _mergeDatosAutoAvance(datosExtraidos, capturedFields) {
+    const merged = { ...capturedFields };
+    for (const [k, v] of Object.entries(datosExtraidos)) {
+      if (v != null && String(v).trim() !== '') merged[k] = v;
+    }
+    return merged;
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

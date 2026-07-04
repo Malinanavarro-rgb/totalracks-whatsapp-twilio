@@ -254,6 +254,82 @@ class WorkflowEngine {
 
     return data;
   }
+
+  /**
+   * Bug #1 — Verifica si el cliente tiene una sesión completada dentro de
+   * la ventana de tiempo indicada. Evita reactivar el workflow accidentalmente
+   * tras el mensaje de cierre.
+   *
+   * Fail-safe: si hay error de DB devuelve false (no bloquea al cliente).
+   *
+   * @param {string} company_id
+   * @param {number} cliente_id
+   * @param {number} [horas=24]
+   * @returns {Promise<boolean>}
+   */
+  async tieneSesionCompletadaReciente(company_id, cliente_id, horas = 24) {
+    if (!company_id || !cliente_id) return false;
+
+    const desde = new Date(Date.now() - horas * 3600 * 1000).toISOString();
+
+    const { data, error } = await this._db
+      .from('workflow_sessions')
+      .select('id')
+      .eq('company_id', company_id)
+      .eq('cliente_id', cliente_id)
+      .eq('status', 'completado')
+      .gte('updated_at', desde)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.warn('⚠️  WorkflowEngine.tieneSesionCompletadaReciente error:', error.message);
+      return false;
+    }
+
+    return !!data;
+  }
+
+  /**
+   * Bug #4 — Persiste en captured_fields los datos extraídos de un turno para
+   * que estén disponibles en turnos futuros durante auto-advance.
+   * Solo guarda campos que aún no existen en captured_fields (no sobrescribe
+   * datos ya confirmados por avanzar()).
+   *
+   * @param {string} sesionId
+   * @param {Object} datos  — aiOutput.datos_extraidos (puede tener nulls)
+   * @returns {Promise<void>}
+   */
+  async preSalvarDatosExtraidos(sesionId, datos) {
+    if (!sesionId || !datos) return;
+
+    const datosNoNulos = Object.fromEntries(
+      Object.entries(datos).filter(([, v]) => v != null && String(v).trim() !== '')
+    );
+    if (Object.keys(datosNoNulos).length === 0) return;
+
+    const { data: sesion, error } = await this._db
+      .from('workflow_sessions')
+      .select('captured_fields')
+      .eq('id', sesionId)
+      .single();
+
+    if (error || !sesion) return;
+
+    const existentes = sesion.captured_fields || {};
+    const nuevos = Object.fromEntries(
+      Object.entries(datosNoNulos).filter(([k]) => existentes[k] == null)
+    );
+    if (Object.keys(nuevos).length === 0) return;
+
+    await this._db
+      .from('workflow_sessions')
+      .update({
+        captured_fields: { ...existentes, ...nuevos },
+        updated_at:      new Date().toISOString(),
+      })
+      .eq('id', sesionId);
+  }
 }
 
 module.exports = { WorkflowEngine };
