@@ -375,7 +375,14 @@ class Orchestrator {
         return nodo.pregunta;
       }
 
-      const resultado = await this._workflow.avanzar(sesion, nodo, mensajeCliente.trim());
+      // Punto 2: usar el valor extraído por la IA cuando el campo fue capturado explícitamente;
+      // fallback al mensaje crudo si no hay valor extraído o es null.
+      const valorExtraido = nodo.campo ? (aiOutput.datos_extraidos || {})[nodo.campo] : undefined;
+      const valorParaNodo = (valorExtraido != null && String(valorExtraido).trim() !== '')
+        ? String(valorExtraido).trim()
+        : mensajeCliente.trim();
+
+      const resultado = await this._workflow.avanzar(sesion, nodo, valorParaNodo);
 
       if (resultado.completado) {
         console.log(`✅ [workflow] sesión ${sesion.id.slice(0, 8)} completada`);

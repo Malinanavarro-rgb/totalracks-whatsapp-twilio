@@ -1307,3 +1307,94 @@ describe('Orchestrator — Bug #5: _extraerTransicion retorna máximo 1 oración
     expect(resultado.respuesta_texto).toContain('¿Qué van a almacenar?');
   });
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 10. Punto 2 — Calidad de datos: valor extraído vs. mensaje crudo
+// ═════════════════════════════════════════════════════════════════════════════
+
+describe('Orchestrator — Punto 2: Case A usa valor extraído para avanzar()', () => {
+
+  test('AI extrajo campo del nodo → avanzar recibe el valor limpio, no el mensaje crudo', async () => {
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoIntermedio), // campo: 'empresa'
+      avanzar:             jest.fn().mockResolvedValue({
+        sesion:         { ...sesionEnProceso, current_node: 'tipo_proyecto', total_turnos: 2 },
+        completado:     false,
+        siguiente_nodo: nodoSiguiente,
+      }),
+    });
+    // El mensaje crudo es largo; el AI extrajo el valor limpio de empresa
+    const aiEngine = {
+      procesar: jest.fn().mockResolvedValue({
+        respuesta_texto:     'Perfecto, Norte SA.',
+        categoria_principal: 'Test',
+        datos_extraidos:     { empresa: 'Norte SA' },
+        intenciones:         ['consulta_general'],
+        sentimiento:         'Neutral',
+        etapa_sugerida:      null,
+        acciones_propuestas: [],
+        confianza:           0.8,
+        tokens_entrada:      50,
+        tokens_salida:       30,
+        modelo_utilizado:    'mock',
+        proveedor_utilizado: 'mock',
+        latencia_ms:         0,
+      }),
+    };
+    const deps = makeDeps({ workflowEngine: wfEngine, aiEngine });
+    const orch = new Orchestrator(deps);
+
+    await orch.procesarMensaje(makeMessage({
+      content: 'soy de Norte SA, quedamos en Monterrey, quiero saber más sobre los racks',
+    }));
+
+    // avanzar debe recibir el valor extraído limpio, no el mensaje completo
+    expect(wfEngine.avanzar).toHaveBeenCalledWith(
+      expect.anything(),
+      nodoIntermedio,
+      'Norte SA'
+    );
+  });
+
+  test('AI no extrajo el campo del nodo (null) → avanzar usa el mensaje crudo como fallback', async () => {
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoIntermedio), // campo: 'empresa'
+      avanzar:             jest.fn().mockResolvedValue({
+        sesion:         { ...sesionEnProceso, current_node: 'tipo_proyecto', total_turnos: 2 },
+        completado:     false,
+        siguiente_nodo: nodoSiguiente,
+      }),
+    });
+    // AI no pudo extraer empresa explícita
+    const aiEngine = {
+      procesar: jest.fn().mockResolvedValue({
+        respuesta_texto:     'Entendido.',
+        categoria_principal: 'Test',
+        datos_extraidos:     { empresa: null },
+        intenciones:         ['consulta_general'],
+        sentimiento:         'Neutral',
+        etapa_sugerida:      null,
+        acciones_propuestas: [],
+        confianza:           0.8,
+        tokens_entrada:      50,
+        tokens_salida:       30,
+        modelo_utilizado:    'mock',
+        proveedor_utilizado: 'mock',
+        latencia_ms:         0,
+      }),
+    };
+    const deps = makeDeps({ workflowEngine: wfEngine, aiEngine });
+    const orch = new Orchestrator(deps);
+
+    await orch.procesarMensaje(makeMessage({ content: 'no sé el nombre exacto todavía' }));
+
+    // avanzar usa el mensaje crudo como fallback
+    expect(wfEngine.avanzar).toHaveBeenCalledWith(
+      expect.anything(),
+      nodoIntermedio,
+      'no sé el nombre exacto todavía'
+    );
+  });
+});
