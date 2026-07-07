@@ -13,17 +13,20 @@ SET contenido = REGEXP_REPLACE(
 WHERE company_id = '8b5fb3b8-68be-446d-a925-78bc868ca8e4'
   AND contenido ~* 'visita.*técnica.*gratuita';
 
--- ── Bug #3: Reglas (jsonb) — reemplazar regla débil por versión imperativa ────
+-- ── Bug #3: Reglas (jsonb objetos) — reemplazar regla débil de preguntas ──────
 UPDATE personalities
 SET reglas = (
   SELECT jsonb_agg(
     CASE
-      WHEN r ILIKE '%pregunta%' OR r ILIKE '%preguntas%'
-      THEN 'OBLIGATORIO: Haz UNA SOLA pregunta por mensaje. Nunca hagas dos o más preguntas en la misma respuesta. Si necesitas varios datos, prioriza el más importante y espera la respuesta antes de pedir el siguiente.'
+      WHEN (r->>'texto') ILIKE '%pregunta%' OR (r->>'texto') ILIKE '%preguntas%'
+      THEN jsonb_build_object(
+        'texto', 'OBLIGATORIO: Haz UNA SOLA pregunta por mensaje. Nunca hagas dos o más preguntas en la misma respuesta. Si necesitas varios datos, prioriza el más importante y espera la respuesta antes de pedir el siguiente.',
+        'etapas', '[]'::jsonb
+      )
       ELSE r
     END
   )
-  FROM jsonb_array_elements_text(reglas) AS r
+  FROM jsonb_array_elements(reglas) AS r
 )
 WHERE company_id = '8b5fb3b8-68be-446d-a925-78bc868ca8e4';
 
@@ -33,6 +36,6 @@ FROM knowledge_base
 WHERE company_id = '8b5fb3b8-68be-446d-a925-78bc868ca8e4'
 ORDER BY categoria;
 
-SELECT value AS regla
-FROM personalities, jsonb_array_elements_text(reglas)
-WHERE company_id = '8b5fb3b8-68be-446d-a925-78bc868ca8e4';
+SELECT r->>'texto' AS regla
+FROM personalities p, jsonb_array_elements(p.reglas) AS r
+WHERE p.company_id = '8b5fb3b8-68be-446d-a925-78bc868ca8e4';
