@@ -23,6 +23,23 @@ const channelRouter = new ChannelRouter(supabase);
 
 app.use(express.urlencoded({ extended: false }));
 
+// ── Cola por conversación ─────────────────────────────────────────────────────
+// Serializa mensajes del mismo número para evitar race conditions cuando el
+// cliente envía dos mensajes consecutivos antes de recibir respuesta al primero.
+
+const processingQueue = new Map();
+
+function enqueueForPhone(phone, fn) {
+  const prev = processingQueue.get(phone) ?? Promise.resolve();
+  const task = prev.catch(() => {}).then(fn);
+  let marker;
+  marker = task.finally(() => {
+    if (processingQueue.get(phone) === marker) processingQueue.delete(phone);
+  });
+  processingQueue.set(phone, marker);
+  return task;
+}
+
 // ── WEBHOOK TWILIO ────────────────────────────────────────────────────────────
 
 app.post('/webhook/twilio', async (req, res) => {
@@ -41,7 +58,10 @@ app.post('/webhook/twilio', async (req, res) => {
     }
     message.company_id = routeResult.company_id;
 
-    const resultado = await orchestrator.procesarMensaje(message);
+    const resultado = await enqueueForPhone(
+      message.from,
+      () => orchestrator.procesarMensaje(message)
+    );
     res.type('text/xml').send(adapter.formatOutgoing(resultado.respuesta_texto, req.body));
   } catch (e) {
     console.error('❌ Error en webhook:', e);
