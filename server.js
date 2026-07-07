@@ -26,6 +26,14 @@ app.use(express.urlencoded({ extended: false }));
 // ── Cola por conversación ─────────────────────────────────────────────────────
 // Serializa mensajes del mismo número para evitar race conditions cuando el
 // cliente envía dos mensajes consecutivos antes de recibir respuesta al primero.
+//
+// MEJORA FUTURA: buffer/debounce de mensajes consecutivos
+// Si el cliente envía varios mensajes rápidos (ej. "es para tubos" + "y son 30 piezas"),
+// la cola actual los procesa en orden pero genera una respuesta por cada uno.
+// Un buffer de ~1.5s que concatene mensajes del mismo número antes de enviarlos
+// al Orchestrator reduciría el número de respuestas y daría contexto más completo al AI.
+// Pendiente evaluar trade-off: +1.5s de latencia en todos los mensajes vs. mejor UX
+// en conversaciones fragmentadas. Prioridad: post-piloto.
 
 const processingQueue = new Map();
 
