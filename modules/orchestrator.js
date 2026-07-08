@@ -240,7 +240,7 @@ class Orchestrator {
     // ── 8. WorkflowEngine M5 (FASE 4A) ────────────────────────────────────
     if (this._workflow && clienteRaw?.id) {
       const wfResult = await this._paso('workflow', timings, () =>
-        this._manejarWorkflow(message.content, clienteRaw, aiOutput, company_id)
+        this._manejarWorkflow(message.content, clienteRaw, aiOutput, company_id, ctx, sessionId)
       );
       if (wfResult.ok && wfResult.value !== null) {
         aiOutput = { ...aiOutput, respuesta_texto: wfResult.value };
@@ -375,9 +375,11 @@ class Orchestrator {
    * @param {Object} clienteRaw
    * @param {Object} aiOutput
    * @param {string} company_id
+   * @param {Object} ctx        - contexto de auditoría (para _ejecutarAcciones)
+   * @param {string} sessionId
    * @returns {Promise<string|null>}
    */
-  async _manejarWorkflow(mensajeCliente, clienteRaw, aiOutput, company_id) {
+  async _manejarWorkflow(mensajeCliente, clienteRaw, aiOutput, company_id, ctx, sessionId) {
     const intenciones = aiOutput.intenciones || [];
 
     // ── Caso A: sesión de workflow activa ────────────────────────────────────
@@ -410,6 +412,9 @@ class Orchestrator {
 
       if (resultado.completado) {
         console.log(`✅ [workflow] sesión ${sesion.id.slice(0, 8)} completada`);
+        if (nodo.acciones?.length) {
+          await this._ejecutarAcciones(nodo.acciones, ctx, clienteRaw, aiOutput, sessionId);
+        }
         return aiOutput.respuesta_texto;
       }
 
@@ -424,11 +429,14 @@ class Orchestrator {
       this._workflow.preSalvarDatosExtraidos(resultado.sesion.id, aiOutput.datos_extraidos || {})
         .catch(e => console.warn(`⚠️  preSalvarDatosExtraidos: ${e.message}`));
 
-      const { completado: autoCompletadoA, siguiente_nodo: nextNode } =
+      const { completado: autoCompletadoA, siguiente_nodo: nextNode, nodo_completado: nodoCompletadoA } =
         await this._avanzarSaltandoRespondidos(resultado.sesion, resultado.siguiente_nodo, datosMergeados);
 
       if (autoCompletadoA) {
         console.log(`✅ [workflow] sesión ${sesion.id.slice(0, 8)} completada (auto-advance)`);
+        if (nodoCompletadoA?.acciones?.length) {
+          await this._ejecutarAcciones(nodoCompletadoA.acciones, ctx, clienteRaw, aiOutput, sessionId);
+        }
         return aiOutput.respuesta_texto;
       }
       if (!nextNode) return null;
@@ -462,10 +470,13 @@ class Orchestrator {
     console.log(`🟢 [workflow] "${workflow.nombre}" iniciado — sesión ${nuevaSesion.id.slice(0, 8)}`);
 
     // Auto-advance past nodes whose campo the client already provided in this message
-    const { completado: autoCompletadoB, sesion: sesionFinalB, siguiente_nodo: nodoReal } =
+    const { completado: autoCompletadoB, sesion: sesionFinalB, siguiente_nodo: nodoReal, nodo_completado: nodoCompletadoB } =
       await this._avanzarSaltandoRespondidos(nuevaSesion, nodoInicio, aiOutput.datos_extraidos || {});
 
     if (autoCompletadoB) {
+      if (nodoCompletadoB?.acciones?.length) {
+        await this._ejecutarAcciones(nodoCompletadoB.acciones, ctx, clienteRaw, aiOutput, sessionId);
+      }
       return aiOutput.respuesta_texto;
     }
 
@@ -502,7 +513,7 @@ class Orchestrator {
    * @param {Object} sesion   - sesión workflow actual
    * @param {Object|null} nodo - nodo a evaluar
    * @param {Object} datos    - aiOutput.datos_extraidos
-   * @returns {Promise<{completado: boolean, sesion: Object, siguiente_nodo: Object|null}>}
+   * @returns {Promise<{completado: boolean, sesion: Object, siguiente_nodo: Object|null, nodo_completado: Object|null}>}
    */
   async _avanzarSaltandoRespondidos(sesion, nodo, datos) {
     let currentSesion = sesion;
@@ -518,7 +529,7 @@ class Orchestrator {
       console.log(`⏭️  [workflow] auto-avanzó "${currentNodo.nombre}" → "${valor}"`);
 
       if (resultado.completado) {
-        return { completado: true, sesion: resultado.sesion, siguiente_nodo: null };
+        return { completado: true, sesion: resultado.sesion, siguiente_nodo: null, nodo_completado: currentNodo };
       }
 
       currentSesion = resultado.sesion;
@@ -656,6 +667,9 @@ function crearOrchestrator(overrides = {}) {
   const { WorkflowEngine }  = require('./workflow-engine');
   const { OpenAIProvider }  = require('../adapters/ai/openai-provider');
   const { MockProvider }    = require('../adapters/ai/mock-provider');
+  const { SchedulingEngine }       = require('./scheduling-engine');
+  const { obtenerProviderParaEmpresa } = require('./google-auth');
+  const { MockCalendarProvider }   = require('../adapters/calendar/mock-calendar-provider');
 
   const { supabase, openai: openaiClient } = require('./clients');
 
@@ -675,11 +689,23 @@ function crearOrchestrator(overrides = {}) {
   engine.registerProvider(new OpenAIProvider(openaiClient));
 
   // ANEXO A (TA.4) — 'crear_oportunidad' migra al mecanismo genérico de
-  // ActionRunner. Los tipos de acción de agenda (agendar_cita, etc.) se
-  // registran aquí mismo en TA.6, una vez exista SchedulingEngine cableado.
+  // ActionRunner.
+  // ANEXO A (TA.6) — acciones de agenda, resolviendo un SchedulingEngine por
+  // empresa (cada empresa tiene su propia cuenta de Google — no hay un solo
+  // CalendarProvider global como sí lo hay para AIProvider). Si la empresa
+  // no ha conectado Google todavía, se usa MockCalendarProvider como
+  // fallback seguro — la agenda interna sigue funcionando, solo sin sync
+  // externo, en vez de romper el turno completo.
   const crearOportunidad = overrides.crearOportunidad || crearOportunidadSiCorresponde;
+
+  async function schedulingEngineParaEmpresa(company_id) {
+    const provider = (await obtenerProviderParaEmpresa(supabase, company_id)) || new MockCalendarProvider();
+    return new SchedulingEngine(supabase, provider);
+  }
+
   const actionRunner = overrides.actionRunner || (() => {
     const runner = new ActionRunner();
+
     runner.registrar('crear_oportunidad', (parametros, ctx) =>
       crearOportunidad(
         ctx.clienteRaw.id,
@@ -689,6 +715,41 @@ function crearOrchestrator(overrides = {}) {
         ctx.aiOutput.intenciones || []
       )
     );
+
+    runner.registrar('consultar_disponibilidad', async (parametros, ctx) => {
+      const scheduling = await schedulingEngineParaEmpresa(ctx.company_id);
+      return scheduling.consultarDisponibilidad(ctx.company_id, {
+        asesorId:        parametros.asesorId,
+        fecha:           new Date(parametros.fecha),
+        duracionMinutos: parametros.duracionMinutos,
+      });
+    });
+
+    runner.registrar('agendar_cita', async (parametros, ctx) => {
+      const scheduling = await schedulingEngineParaEmpresa(ctx.company_id);
+      return scheduling.agendarCita(ctx.company_id, {
+        clienteId:        ctx.clienteRaw.id,
+        asesorId:         parametros.asesorId,
+        inicio:           new Date(parametros.inicio),
+        fin:              new Date(parametros.fin),
+        origenWorkflowId: parametros.origenWorkflowId,
+      });
+    });
+
+    runner.registrar('reagendar_cita', async (parametros, ctx) => {
+      const scheduling = await schedulingEngineParaEmpresa(ctx.company_id);
+      return scheduling.reagendarCita(
+        { id: parametros.citaId },
+        new Date(parametros.nuevoInicio),
+        new Date(parametros.nuevoFin)
+      );
+    });
+
+    runner.registrar('cancelar_cita', async (parametros, ctx) => {
+      const scheduling = await schedulingEngineParaEmpresa(ctx.company_id);
+      return scheduling.cancelarCita({ id: parametros.citaId });
+    });
+
     return runner;
   })();
 

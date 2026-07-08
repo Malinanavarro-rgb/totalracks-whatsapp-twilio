@@ -996,6 +996,135 @@ describe('Orchestrator + WorkflowEngine — 4 caminos de _manejarWorkflow', () =
   });
 });
 
+// ── Acciones de agenda al completar un workflow (ANEXO A, TA.6) ───────────────
+
+describe('Orchestrator + WorkflowEngine — acciones al completar (TA.6)', () => {
+  const nodoFinalConAccion = {
+    nombre:         'confirmar_cita',
+    es_fin:         true,
+    campo:          'confirmacion',
+    pregunta:       '¿Confirmas tu cita?',
+    modo_respuesta: 'replace_ai',
+    acciones:       [{ tipo: 'agendar_cita', parametros: { inicio: '2026-08-01T10:00:00Z', fin: '2026-08-01T10:30:00Z' } }],
+  };
+
+  test('nodo final con acciones, completado directo → ActionRunner.ejecutar recibe la acción', async () => {
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoFinalConAccion),
+      avanzar:             jest.fn().mockResolvedValue({
+        sesion:         { ...sesionEnProceso, status: 'completado' },
+        completado:     true,
+        siguiente_nodo: null,
+      }),
+    });
+    const actionRunner = { ejecutar: jest.fn().mockResolvedValue({ id: 'cita-1' }) };
+    const deps = makeDeps({ workflowEngine: wfEngine, actionRunner });
+    const orch = new Orchestrator(deps);
+
+    await orch.procesarMensaje(makeMessage({ content: 'sí' }));
+
+    expect(actionRunner.ejecutar).toHaveBeenCalledWith(
+      nodoFinalConAccion.acciones[0],
+      expect.objectContaining({ company_id: 'company-uuid-001' })
+    );
+  });
+
+  test('nodo final SIN acciones → ActionRunner.ejecutar no se llama (sin regresión)', async () => {
+    const nodoFinalSinAcciones = { ...nodoFinalConAccion, acciones: undefined };
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoFinalSinAcciones),
+      avanzar:             jest.fn().mockResolvedValue({
+        sesion:         { ...sesionEnProceso, status: 'completado' },
+        completado:     true,
+        siguiente_nodo: null,
+      }),
+    });
+    const actionRunner = { ejecutar: jest.fn() };
+    const deps = makeDeps({ workflowEngine: wfEngine, actionRunner });
+    const orch = new Orchestrator(deps);
+
+    await orch.procesarMensaje(makeMessage({ content: 'sí' }));
+
+    expect(actionRunner.ejecutar).not.toHaveBeenCalled();
+  });
+
+  test('acción desconocida en un nodo → no lanza, se registra como error en logAccion', async () => {
+    const nodoConAccionDesconocida = {
+      ...nodoFinalConAccion,
+      acciones: [{ tipo: 'tipo_no_registrado', parametros: {} }],
+    };
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoConAccionDesconocida),
+      avanzar:             jest.fn().mockResolvedValue({
+        sesion:         { ...sesionEnProceso, status: 'completado' },
+        completado:     true,
+        siguiente_nodo: null,
+      }),
+    });
+    // Sin actionRunner inyectado → usa el default (solo 'crear_oportunidad' registrado)
+    const deps = makeDeps({ workflowEngine: wfEngine });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage({ content: 'sí' }));
+
+    expect(resultado.respuesta_texto).toBeDefined(); // no se interrumpe la conversación
+    expect(deps.auditLogger.logAccion).toHaveBeenCalledWith(
+      expect.anything(), 'tipo_no_registrado', {},
+      expect.objectContaining({ error: expect.stringContaining('Acción desconocida') }),
+      expect.anything()
+    );
+  });
+
+  test('completado vía auto-advance también ejecuta las acciones del nodo final', async () => {
+    let llamadasAvanzar = 0;
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoIntermedio),
+      avanzar: jest.fn().mockImplementation(async () => {
+        llamadasAvanzar++;
+        if (llamadasAvanzar === 1) {
+          return {
+            sesion:         { ...sesionEnProceso, current_node: 'confirmar_cita' },
+            completado:     false,
+            siguiente_nodo: nodoFinalConAccion,
+          };
+        }
+        return { sesion: { ...sesionEnProceso, status: 'completado' }, completado: true, siguiente_nodo: null };
+      }),
+    });
+    const actionRunner = { ejecutar: jest.fn().mockResolvedValue({ id: 'cita-2' }) };
+    const aiEngineConDatos = {
+      procesar: jest.fn().mockResolvedValue({
+        respuesta_texto:     'Listo, tu cita quedó confirmada.',
+        categoria_principal: 'Test',
+        datos_extraidos:     { confirmacion: 'sí' },
+        intenciones:         ['consulta_general'],
+        sentimiento:         'Neutral',
+        etapa_sugerida:      null,
+        acciones_propuestas: [],
+        confianza:           0.8,
+        tokens_entrada:      50,
+        tokens_salida:       30,
+        modelo_utilizado:    'mock-test',
+        proveedor_utilizado: 'mock-test',
+        latencia_ms:         0,
+      }),
+    };
+    const deps = makeDeps({ workflowEngine: wfEngine, actionRunner, aiEngine: aiEngineConDatos });
+    const orch = new Orchestrator(deps);
+
+    await orch.procesarMensaje(makeMessage({ content: 'sí, confirmo' }));
+
+    expect(actionRunner.ejecutar).toHaveBeenCalledWith(
+      nodoFinalConAccion.acciones[0],
+      expect.objectContaining({ company_id: 'company-uuid-001' })
+    );
+  });
+});
+
 // ── Resiliencia ───────────────────────────────────────────────────────────────
 
 describe('Orchestrator + WorkflowEngine — resiliencia', () => {
