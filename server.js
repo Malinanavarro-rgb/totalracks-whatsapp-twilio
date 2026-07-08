@@ -16,6 +16,7 @@ const { obtenerConfigEmpresa }          = require('./modules/config');
 const { crearOrchestrator }             = require('./modules/orchestrator');
 const { TwilioWhatsAppAdapter }         = require('./adapters/channels/twilio-whatsapp');
 const { ChannelRouter }                 = require('./modules/channel-router');
+const { generarUrlAutorizacion, manejarCallback } = require('./modules/google-auth');
 
 const app           = express();
 const adapter       = new TwilioWhatsAppAdapter(twilioClient);
@@ -336,6 +337,28 @@ app.get('/api/dashboard', async (req, res) => {
 app.get('/privacidad', (req, res) => res.sendFile(path.join(__dirname, 'legal', 'privacidad.html')));
 app.get('/terminos',   (req, res) => res.sendFile(path.join(__dirname, 'legal', 'terminos.html')));
 
+// ── OAUTH GOOGLE CALENDAR (ANEXO A, TA.5) ─────────────────────────────────────
+// Rutas delgadas — la lógica vive en modules/google-auth.js.
+
+app.get('/oauth/google/iniciar', (req, res) => {
+  try {
+    const url = generarUrlAutorizacion(req.query.company_id);
+    res.redirect(url);
+  } catch (e) {
+    res.status(400).send(`No se pudo iniciar la conexión con Google: ${e.message}`);
+  }
+});
+
+app.get('/oauth/google/callback', async (req, res) => {
+  try {
+    await manejarCallback(supabase, req.query.code, req.query.state);
+    res.send('Cuenta de Google conectada correctamente. Puedes cerrar esta ventana.');
+  } catch (e) {
+    console.error('❌ Error en /oauth/google/callback:', e);
+    res.status(500).send(`No se pudo completar la conexión con Google: ${e.message}`);
+  }
+});
+
 // ── ROOT ──────────────────────────────────────────────────────────────────────
 
 app.get('/', (req, res) => res.json({
@@ -349,6 +372,8 @@ app.get('/', (req, res) => res.json({
     dashboard:   'GET  /api/dashboard',
     privacidad:  'GET  /privacidad',
     terminos:    'GET  /terminos',
+    google_oauth_iniciar: 'GET  /oauth/google/iniciar?company_id=...',
+    google_oauth_callback: 'GET  /oauth/google/callback',
   },
 }));
 

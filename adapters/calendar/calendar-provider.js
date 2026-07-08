@@ -77,7 +77,9 @@ class CalendarProvider {
   /**
    * Actualiza un evento existente.
    * @param {string} eventoId
-   * @param {Partial<EventoParams>} params
+   * @param {Partial<EventoParams> & {calendarioId: string}} params - calendarioId
+   *        es obligatorio: proveedores reales (Google) requieren calendarId + eventId
+   *        para editar un evento, no basta con el id del evento.
    * @returns {Promise<EventoCreado>}
    */
   async actualizarEvento(eventoId, params) {
@@ -87,9 +89,10 @@ class CalendarProvider {
   /**
    * Cancela (elimina) un evento existente.
    * @param {string} eventoId
+   * @param {string} calendarioId - obligatorio, mismo motivo que en actualizarEvento()
    * @returns {Promise<void>}
    */
-  async cancelarEvento(eventoId) {
+  async cancelarEvento(eventoId, calendarioId) {
     throw new Error(`${this.constructor.name} debe implementar cancelarEvento()`);
   }
 }

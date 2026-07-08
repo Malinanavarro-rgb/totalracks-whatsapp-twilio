@@ -315,7 +315,10 @@ class SchedulingEngine {
 
     if (cancelada.calendar_event_id) {
       try {
-        await this._calendar.cancelarEvento(cancelada.calendar_event_id);
+        const asesor = await this._obtenerAsesor(cancelada.asesor_id);
+        if (asesor?.calendario_id) {
+          await this._calendar.cancelarEvento(cancelada.calendar_event_id, asesor.calendario_id);
+        }
       } catch (err) {
         console.warn('⚠️  SchedulingEngine.cancelarCita — fallo sincronizando calendario:', err.message);
       }
@@ -345,8 +348,9 @@ class SchedulingEngine {
 
       if (modo === 'actualizar' && cita.calendar_event_id) {
         await this._calendar.actualizarEvento(cita.calendar_event_id, {
-          inicio: new Date(cita.inicio),
-          fin:    new Date(cita.fin),
+          calendarioId: asesor.calendario_id,
+          inicio:       new Date(cita.inicio),
+          fin:          new Date(cita.fin),
         });
       }
     } catch (err) {

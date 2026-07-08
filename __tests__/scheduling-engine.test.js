@@ -271,7 +271,7 @@ describe('SchedulingEngine', () => {
       );
 
       expect(resultado.estado).toBe('reagendada');
-      expect(calendar.actualizarEvento).toHaveBeenCalledWith('evt-1', expect.any(Object));
+      expect(calendar.actualizarEvento).toHaveBeenCalledWith('evt-1', expect.objectContaining({ calendarioId: 'cal-ext-1' }));
     });
 
     test('traduce el error de índice único de DB a un mensaje legible', async () => {
@@ -293,17 +293,17 @@ describe('SchedulingEngine', () => {
 
   describe('cancelarCita()', () => {
     test('actualiza estado a cancelada y cancela el evento en el calendario si existe calendar_event_id', async () => {
-      const db = crearMockDb({
-        data: { id: 'cita-1', estado: 'cancelada', calendar_event_id: 'evt-1' },
-        error: null,
-      });
+      const db = crearMockDb(
+        { data: { id: 'cita-1', asesor_id: ASESOR_1, estado: 'cancelada', calendar_event_id: 'evt-1' }, error: null }, // update
+        { data: { id: ASESOR_1, calendario_id: 'cal-ext-1' }, error: null },                                          // asesor
+      );
       const calendar = crearMockCalendar();
       const engine = new SchedulingEngine(db, calendar);
 
       const resultado = await engine.cancelarCita({ id: 'cita-1' });
 
       expect(resultado.estado).toBe('cancelada');
-      expect(calendar.cancelarEvento).toHaveBeenCalledWith('evt-1');
+      expect(calendar.cancelarEvento).toHaveBeenCalledWith('evt-1', 'cal-ext-1');
     });
 
     test('no llama al calendario si la cita no tiene calendar_event_id', async () => {

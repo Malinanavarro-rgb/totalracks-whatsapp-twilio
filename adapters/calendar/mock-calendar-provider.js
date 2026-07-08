@@ -76,7 +76,7 @@ class MockCalendarProvider extends CalendarProvider {
 
   /**
    * @param {string} eventoId
-   * @param {Partial<import('./calendar-provider').EventoParams>} params
+   * @param {Partial<import('./calendar-provider').EventoParams> & {calendarioId?: string}} params
    * @returns {Promise<import('./calendar-provider').EventoCreado>}
    */
   async actualizarEvento(eventoId, params) {
@@ -92,9 +92,10 @@ class MockCalendarProvider extends CalendarProvider {
 
   /**
    * @param {string} eventoId
+   * @param {string} [calendarioId] - no usado por el mock (resuelve por id en memoria)
    * @returns {Promise<void>}
    */
-  async cancelarEvento(eventoId) {
+  async cancelarEvento(eventoId, calendarioId) {
     await this._simular();
 
     if (!this._eventos.has(eventoId)) {
