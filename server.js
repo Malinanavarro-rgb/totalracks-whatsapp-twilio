@@ -9,6 +9,7 @@
 
 require('dotenv').config();
 const express = require('express');
+const path    = require('path');
 
 const { supabase, twilioClient }        = require('./modules/clients');
 const { obtenerConfigEmpresa }          = require('./modules/config');
@@ -330,6 +331,11 @@ app.get('/api/dashboard', async (req, res) => {
   }
 });
 
+// ── LEGAL (requerido por verificación OAuth de Google — Anexo A, TA.0.1) ──────
+
+app.get('/privacidad', (req, res) => res.sendFile(path.join(__dirname, 'legal', 'privacidad.html')));
+app.get('/terminos',   (req, res) => res.sendFile(path.join(__dirname, 'legal', 'terminos.html')));
+
 // ── ROOT ──────────────────────────────────────────────────────────────────────
 
 app.get('/', (req, res) => res.json({
@@ -341,6 +347,8 @@ app.get('/', (req, res) => res.json({
     health:      'GET  /health',
     diagnostics: 'GET  /api/diagnostics',
     dashboard:   'GET  /api/dashboard',
+    privacidad:  'GET  /privacidad',
+    terminos:    'GET  /terminos',
   },
 }));
 
