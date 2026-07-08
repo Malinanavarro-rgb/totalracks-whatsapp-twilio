@@ -412,10 +412,7 @@ class Orchestrator {
 
       if (resultado.completado) {
         console.log(`✅ [workflow] sesión ${sesion.id.slice(0, 8)} completada`);
-        if (nodo.acciones?.length) {
-          await this._ejecutarAcciones(nodo.acciones, ctx, clienteRaw, aiOutput, sessionId);
-        }
-        return aiOutput.respuesta_texto;
+        return this._finalizarWorkflow(nodo, resultado.sesion, sesion.workflow_id, ctx, clienteRaw, aiOutput, company_id, sessionId);
       }
 
       console.log(`➡️  [workflow] sesión ${sesion.id.slice(0, 8)} avanzó a "${resultado.siguiente_nodo?.nombre}"`);
@@ -429,15 +426,12 @@ class Orchestrator {
       this._workflow.preSalvarDatosExtraidos(resultado.sesion.id, aiOutput.datos_extraidos || {})
         .catch(e => console.warn(`⚠️  preSalvarDatosExtraidos: ${e.message}`));
 
-      const { completado: autoCompletadoA, siguiente_nodo: nextNode, nodo_completado: nodoCompletadoA } =
+      const { completado: autoCompletadoA, siguiente_nodo: nextNode, nodo_completado: nodoCompletadoA, sesion: sesionCompletadaA } =
         await this._avanzarSaltandoRespondidos(resultado.sesion, resultado.siguiente_nodo, datosMergeados);
 
       if (autoCompletadoA) {
         console.log(`✅ [workflow] sesión ${sesion.id.slice(0, 8)} completada (auto-advance)`);
-        if (nodoCompletadoA?.acciones?.length) {
-          await this._ejecutarAcciones(nodoCompletadoA.acciones, ctx, clienteRaw, aiOutput, sessionId);
-        }
-        return aiOutput.respuesta_texto;
+        return this._finalizarWorkflow(nodoCompletadoA, sesionCompletadaA, sesion.workflow_id, ctx, clienteRaw, aiOutput, company_id, sessionId);
       }
       if (!nextNode) return null;
       if (nextNode.modo_respuesta === 'full_ai')    return aiOutput.respuesta_texto;
@@ -474,10 +468,7 @@ class Orchestrator {
       await this._avanzarSaltandoRespondidos(nuevaSesion, nodoInicio, aiOutput.datos_extraidos || {});
 
     if (autoCompletadoB) {
-      if (nodoCompletadoB?.acciones?.length) {
-        await this._ejecutarAcciones(nodoCompletadoB.acciones, ctx, clienteRaw, aiOutput, sessionId);
-      }
-      return aiOutput.respuesta_texto;
+      return this._finalizarWorkflow(nodoCompletadoB, sesionFinalB, workflow.id, ctx, clienteRaw, aiOutput, company_id, sessionId);
     }
 
     // Bug #4: pre-save datos extraídos para nodos no alcanzados aún
@@ -561,24 +552,68 @@ class Orchestrator {
   // ═══════════════════════════════════════════════════════════════════════════
 
   /**
-   * Ejecuta las acciones propuestas por el AI Engine, despachando cada una
-   * por su `tipo` a través del ActionRunner (M8).
+   * Ejecuta las acciones de un nodo que acaba de completar un workflow, y
+   * decide qué responder. Comportamiento por defecto (sin acciones, o todas
+   * exitosas): responde aiOutput.respuesta_texto — idéntico a antes de TA.9 v2.
+   * Si alguna acción devuelve {tipo: 'sin_disponibilidad', alternativas},
+   * reabre una sesión nueva en el nodo inicial del mismo workflow (para que
+   * el cliente pueda reintentar) y responde con las alternativas en su lugar.
+   *
+   * @returns {Promise<string>}
    */
-  async _ejecutarAcciones(acciones, ctx, clienteRaw, aiOutput, sessionId) {
-    if (!Array.isArray(acciones) || acciones.length === 0) return;
-    if (!clienteRaw?.id) return;
+  async _finalizarWorkflow(nodo, sesionCompletada, workflowId, ctx, clienteRaw, aiOutput, company_id, sessionId) {
+    if (!nodo?.acciones?.length) return aiOutput.respuesta_texto;
 
-    const handlerCtx = { ...ctx, clienteRaw, aiOutput };
+    const resultados = await this._ejecutarAcciones(
+      nodo.acciones, ctx, clienteRaw, aiOutput, sessionId, sesionCompletada?.captured_fields
+    );
+
+    const sinDisponibilidad = resultados.find(r => r?.tipo === 'sin_disponibilidad');
+    if (!sinDisponibilidad) return aiOutput.respuesta_texto;
+
+    try {
+      await this._workflow.iniciarSesion(company_id, clienteRaw.id, null, workflowId);
+    } catch (err) {
+      console.warn(`⚠️  no se pudo reabrir sesión tras sin_disponibilidad: ${err.message}`);
+    }
+
+    const opciones = (sinDisponibilidad.alternativas || [])
+      .map(a => a.inicio.toLocaleString('es-MX', { timeZone: 'America/Monterrey', hour: '2-digit', minute: '2-digit' }))
+      .join(', ');
+    return opciones
+      ? `Esa hora ya no está disponible. Opciones libres: ${opciones}. ¿Cuál prefieres?`
+      : 'Esa hora ya no está disponible y no encontramos otro horario libre pronto. ¿Quieres intentar con otro día?';
+  }
+
+  /**
+   * Ejecuta las acciones propuestas por el AI Engine (o por un nodo de
+   * workflow completado), despachando cada una por su `tipo` a través del
+   * ActionRunner (M8). Devuelve los resultados en el mismo orden — permite
+   * que el llamador (ej. _manejarWorkflow) reaccione al resultado de una
+   * acción (ANEXO A, TA.9 v2: ofrecer horarios alternativos).
+   *
+   * @param {Object} [capturedFields] — sesion.captured_fields, disponible
+   *   para el handler vía ctx.capturedFields (ej. la hora que pidió el cliente).
+   * @returns {Promise<Array>} resultados de cada acción, en orden
+   */
+  async _ejecutarAcciones(acciones, ctx, clienteRaw, aiOutput, sessionId, capturedFields) {
+    if (!Array.isArray(acciones) || acciones.length === 0) return [];
+    if (!clienteRaw?.id) return [];
+
+    const handlerCtx = { ...ctx, clienteRaw, aiOutput, capturedFields: capturedFields || {} };
+    const resultados = [];
 
     for (const accion of acciones) {
       try {
         const resultado = await this._actionRunner.ejecutar(accion, handlerCtx);
+        resultados.push(resultado);
         if (resultado?.error) {
           this._log.logAccion(ctx, accion.tipo, accion.parametros, { error: resultado.error }, { session_id: sessionId });
         } else {
           this._log.logAccion(ctx, accion.tipo, accion.parametros, { exito: true }, { session_id: sessionId });
         }
       } catch (err) {
+        resultados.push({ error: err.message });
         this._log.logAccion(ctx, accion.tipo, accion.parametros, { error: err.message }, { session_id: sessionId });
       }
     }
@@ -591,6 +626,8 @@ class Orchestrator {
         this._log.logError(ctx, 'crm.actualizarScore', err, { session_id: sessionId });
       }
     }
+
+    return resultados;
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -646,6 +683,31 @@ class Orchestrator {
       if (!deps[dep]) throw new Error(`Orchestrator: dependencia requerida faltante — "${dep}"`);
     }
   }
+}
+
+/**
+ * ANEXO A (TA.9 v2) — parseo simple de "hora_preferida" (ej. "10:00", "16:30")
+ * para la validación manual de agenda. No es un parser de lenguaje natural —
+ * si no matchea HH:MM, usa una hora por defecto (10:00) para no romper el
+ * flujo de prueba. `fecha`/`duracionMinutos` en `parametros` son opcionales.
+ *
+ * Reutiliza horaLocalAUTC (SchedulingEngine, TA.9 fix de zona horaria) para
+ * no reintroducir el mismo bug: "10:00" es hora de pared en America/Monterrey,
+ * no UTC.
+ */
+function _parsearHoraPreferida(texto, parametros = {}) {
+  const { horaLocalAUTC } = require('./scheduling-engine');
+  const match = String(texto || '').match(/(\d{1,2}):(\d{2})/);
+  const horaHHMM = match ? `${match[1].padStart(2, '0')}:${match[2]}:00` : '10:00:00';
+  const duracion = parametros.duracionMinutos || 30;
+  const zona = parametros.zonaHoraria || 'America/Monterrey';
+
+  const base = parametros.fecha ? new Date(parametros.fecha) : new Date();
+  if (!parametros.fecha) base.setUTCDate(base.getUTCDate() + 1); // mañana, por defecto
+
+  const inicio = horaLocalAUTC(base, horaHHMM, zona);
+  const fin    = new Date(inicio.getTime() + duracion * 60000);
+  return { inicio, fin };
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -748,6 +810,28 @@ function crearOrchestrator(overrides = {}) {
     runner.registrar('cancelar_cita', async (parametros, ctx) => {
       const scheduling = await schedulingEngineParaEmpresa(ctx.company_id);
       return scheduling.cancelarCita({ id: parametros.citaId });
+    });
+
+    // ANEXO A (TA.9 v2) — handler EXCLUSIVO de la validación manual de agenda,
+    // no lo dispara ningún workflow real. Parsea la hora que el cliente
+    // escribió (formato simple HH:MM — no es un parser de lenguaje natural,
+    // suficiente para la prueba controlada) y intenta agendar; si no hay
+    // disponibilidad, ofrece hasta 3 alternativas en vez de fallar en silencio.
+    runner.registrar('ta9_agendar_con_horario', async (parametros, ctx) => {
+      const scheduling = await schedulingEngineParaEmpresa(ctx.company_id);
+      const { inicio, fin } = _parsearHoraPreferida(ctx.capturedFields?.hora_preferida, parametros);
+
+      try {
+        const cita = await scheduling.agendarCita(ctx.company_id, {
+          clienteId: ctx.clienteRaw.id, inicio, fin,
+        });
+        return { tipo: 'agendada', cita };
+      } catch (err) {
+        const alternativas = await scheduling.consultarDisponibilidad(ctx.company_id, {
+          fecha: inicio, duracionMinutos: parametros.duracionMinutos || 30,
+        });
+        return { tipo: 'sin_disponibilidad', alternativas: alternativas.slice(0, 3), motivo: err.message };
+      }
     });
 
     return runner;

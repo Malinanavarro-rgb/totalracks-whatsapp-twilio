@@ -1125,6 +1125,90 @@ describe('Orchestrator + WorkflowEngine — acciones al completar (TA.6)', () =>
   });
 });
 
+// ── TA.9 v2: sin_disponibilidad reabre sesión y ofrece alternativas ───────────
+
+describe('Orchestrator + WorkflowEngine — sin_disponibilidad reabre sesión (TA.9 v2)', () => {
+  const nodoFinalConAccion = {
+    nombre:         'confirmar_cita',
+    es_fin:         true,
+    campo:          'hora_preferida',
+    pregunta:       '¿A qué hora te gustaría tu cita?',
+    modo_respuesta: 'replace_ai',
+    acciones:       [{ tipo: 'ta9_agendar_con_horario', parametros: {} }],
+  };
+
+  test('resultado {tipo: sin_disponibilidad} reabre una sesión y responde con las alternativas, no con el texto de la IA', async () => {
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoFinalConAccion),
+      avanzar:             jest.fn().mockResolvedValue({
+        sesion:         { ...sesionEnProceso, status: 'completado', captured_fields: { hora_preferida: '10:00' } },
+        completado:     true,
+        siguiente_nodo: null,
+      }),
+    });
+    const actionRunner = {
+      ejecutar: jest.fn().mockResolvedValue({
+        tipo: 'sin_disponibilidad',
+        alternativas: [
+          { inicio: new Date('2026-08-01T16:00:00.000Z') },
+          { inicio: new Date('2026-08-01T17:00:00.000Z') },
+        ],
+      }),
+    };
+    const deps = makeDeps({ workflowEngine: wfEngine, actionRunner });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage({ content: '10:00' }));
+
+    expect(resultado.respuesta_texto).toContain('Opciones libres');
+    expect(resultado.respuesta_texto).not.toBe('Perfecto, genero su cotización.');
+    expect(wfEngine.iniciarSesion).toHaveBeenCalledWith('company-uuid-001', 42, null, 'wf-test-001');
+  });
+
+  test('resultado exitoso (sin tipo sin_disponibilidad) no reabre sesión y conserva el texto de la IA', async () => {
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoFinalConAccion),
+      avanzar:             jest.fn().mockResolvedValue({
+        sesion:         { ...sesionEnProceso, status: 'completado' },
+        completado:     true,
+        siguiente_nodo: null,
+      }),
+    });
+    const actionRunner = { ejecutar: jest.fn().mockResolvedValue({ tipo: 'agendada', cita: { id: 'cita-1' } }) };
+    const deps = makeDeps({ workflowEngine: wfEngine, actionRunner });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage({ content: '10:00' }));
+
+    expect(wfEngine.iniciarSesion).not.toHaveBeenCalled();
+    expect(resultado.respuesta_texto).not.toContain('Opciones libres');
+  });
+
+  test('captured_fields de la sesión completada llega al handler vía ctx.capturedFields', async () => {
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoFinalConAccion),
+      avanzar:             jest.fn().mockResolvedValue({
+        sesion:         { ...sesionEnProceso, status: 'completado', captured_fields: { hora_preferida: '11:00' } },
+        completado:     true,
+        siguiente_nodo: null,
+      }),
+    });
+    const actionRunner = { ejecutar: jest.fn().mockResolvedValue({ tipo: 'agendada' }) };
+    const deps = makeDeps({ workflowEngine: wfEngine, actionRunner });
+    const orch = new Orchestrator(deps);
+
+    await orch.procesarMensaje(makeMessage({ content: '11:00' }));
+
+    expect(actionRunner.ejecutar).toHaveBeenCalledWith(
+      nodoFinalConAccion.acciones[0],
+      expect.objectContaining({ capturedFields: { hora_preferida: '11:00' } })
+    );
+  });
+});
+
 // ── Resiliencia ───────────────────────────────────────────────────────────────
 
 describe('Orchestrator + WorkflowEngine — resiliencia', () => {
