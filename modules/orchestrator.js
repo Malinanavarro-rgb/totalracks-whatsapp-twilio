@@ -35,7 +35,8 @@
 
 'use strict';
 
-const { randomUUID } = require('crypto');
+const { randomUUID }  = require('crypto');
+const { ActionRunner } = require('./action-runner');
 
 // ═════════════════════════════════════════════════════════════════════════════
 // CONSTANTES
@@ -87,9 +88,32 @@ class Orchestrator {
     // FASE 4A — WorkflowEngine M5 (opcional: null-safe en todo el flujo)
     this._workflow = deps.workflowEngine || null;
 
-    // FASE 4B — Action Runner (opcionales)
+    // FASE 4B / ANEXO A (TA.4) — Action Runner (M8)
     this._actualizarScore  = deps.actualizarScore   || null;
     this._crearOportunidad = deps.crearOportunidad  || null;
+    this._actionRunner     = deps.actionRunner      || this._crearActionRunnerPorDefecto();
+  }
+
+  /**
+   * Cuando no se inyecta un ActionRunner explícito (caso de la mayoría de los
+   * tests y de código previo a TA.4), se arma uno mínimo que registra
+   * 'crear_oportunidad' usando la función inyectada — mismo comportamiento
+   * observable que el stub anterior, ahora enrutado por el mecanismo genérico.
+   */
+  _crearActionRunnerPorDefecto() {
+    const runner = new ActionRunner();
+    if (this._crearOportunidad) {
+      runner.registrar('crear_oportunidad', (parametros, ctx) =>
+        this._crearOportunidad(
+          ctx.clienteRaw.id,
+          ctx.company_id,
+          ctx.aiOutput.categoria_principal || null,
+          ctx.mensaje_actual,
+          ctx.aiOutput.intenciones || []
+        )
+      );
+    }
+    return runner;
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -522,32 +546,29 @@ class Orchestrator {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // ACCIONES (stub FASE 4B — Action Runner)
+  // ACCIONES — ActionRunner (M8, ANEXO A TA.4)
   // ═══════════════════════════════════════════════════════════════════════════
 
   /**
-   * Ejecuta las acciones propuestas por el AI Engine.
-   * FASE 2: implementación mínima de compatibilidad con FASE 1.
-   * FASE 4: el Action Runner completo reemplazará este método.
+   * Ejecuta las acciones propuestas por el AI Engine, despachando cada una
+   * por su `tipo` a través del ActionRunner (M8).
    */
   async _ejecutarAcciones(acciones, ctx, clienteRaw, aiOutput, sessionId) {
     if (!Array.isArray(acciones) || acciones.length === 0) return;
     if (!clienteRaw?.id) return;
 
+    const handlerCtx = { ...ctx, clienteRaw, aiOutput };
+
     for (const accion of acciones) {
-      if (accion.tipo === 'crear_oportunidad' && this._crearOportunidad) {
-        try {
-          await this._crearOportunidad(
-            clienteRaw.id,
-            ctx.company_id,
-            aiOutput.categoria_principal || null,
-            ctx.mensaje_actual,
-            aiOutput.intenciones || []
-          );
+      try {
+        const resultado = await this._actionRunner.ejecutar(accion, handlerCtx);
+        if (resultado?.error) {
+          this._log.logAccion(ctx, accion.tipo, accion.parametros, { error: resultado.error }, { session_id: sessionId });
+        } else {
           this._log.logAccion(ctx, accion.tipo, accion.parametros, { exito: true }, { session_id: sessionId });
-        } catch (err) {
-          this._log.logAccion(ctx, accion.tipo, accion.parametros, { error: err.message }, { session_id: sessionId });
         }
+      } catch (err) {
+        this._log.logAccion(ctx, accion.tipo, accion.parametros, { error: err.message }, { session_id: sessionId });
       }
     }
 
@@ -653,6 +674,24 @@ function crearOrchestrator(overrides = {}) {
   const engine = new AIEngine(mock);
   engine.registerProvider(new OpenAIProvider(openaiClient));
 
+  // ANEXO A (TA.4) — 'crear_oportunidad' migra al mecanismo genérico de
+  // ActionRunner. Los tipos de acción de agenda (agendar_cita, etc.) se
+  // registran aquí mismo en TA.6, una vez exista SchedulingEngine cableado.
+  const crearOportunidad = overrides.crearOportunidad || crearOportunidadSiCorresponde;
+  const actionRunner = overrides.actionRunner || (() => {
+    const runner = new ActionRunner();
+    runner.registrar('crear_oportunidad', (parametros, ctx) =>
+      crearOportunidad(
+        ctx.clienteRaw.id,
+        ctx.company_id,
+        ctx.aiOutput.categoria_principal || null,
+        ctx.mensaje_actual,
+        ctx.aiOutput.intenciones || []
+      )
+    );
+    return runner;
+  })();
+
   return new Orchestrator({
     contextBuilder:       overrides.contextBuilder    || new ContextBuilder(),
     promptBuilder:        overrides.promptBuilder     || new PromptBuilder(),
@@ -663,7 +702,7 @@ function crearOrchestrator(overrides = {}) {
     obtenerOCrearCliente: overrides.obtenerOCrearCliente || obtenerOCrearCliente,
     obtenerHistorial:     overrides.obtenerHistorial     || obtenerHistorial,
     guardarConversacion:  overrides.guardarConversacion  || guardarConversacion,
-    crearOportunidad:     overrides.crearOportunidad     || crearOportunidadSiCorresponde,
+    actionRunner,
     actualizarScore:      overrides.actualizarScore      || actualizarScoreInteres,
   });
 }
