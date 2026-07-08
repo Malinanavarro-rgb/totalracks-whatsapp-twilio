@@ -17,9 +17,14 @@
  *      la última línea de defensa contra condiciones de carrera entre
  *      dos clientes pidiendo el mismo asesor casi al mismo tiempo.
  *
+ * Conversión de zona horaria: horarios_laborales.hora_inicio/hora_fin son
+ * horas de pared en horario.zona_horaria (ej. '09:00:00' en 'America/Monterrey'),
+ * convertidas al instante UTC real vía Intl.DateTimeFormat (_horaLocalAUTC) —
+ * sin depender de ninguna librería de fechas, ninguna existe en el proyecto.
+ * Confirmado necesario en producción: TA.9 generó una cita real desplazada
+ * 6 horas hasta que se corrigió esto.
+ *
  * No implementado en esta versión (documentado, no improvisado):
- *   - Conversión de zona horaria: horarios_laborales.zona_horaria se
- *     transporta como metadata en los slots devueltos, sin convertir horas.
  *   - "Menor carga" real (conteo de citas por asesor): la asignación
  *     automática usa "primero disponible" en el orden que devuelve la DB.
  *     Ver Anexo A 2.4.1/8 para el criterio completo de asignación futura.
@@ -30,6 +35,38 @@
 'use strict';
 
 const CITAS_ACTIVAS = ['agendada', 'confirmada', 'reagendada'];
+
+/**
+ * Offset (en minutos) entre una zona IANA y UTC, en un instante dado.
+ * Usa Intl.DateTimeFormat — ya conoce las reglas de DST reales de cada zona,
+ * sin necesidad de una librería de fechas.
+ */
+function _offsetMinutos(fechaUTC, zonaIANA) {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone: zonaIANA, hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+  const partes = dtf.formatToParts(fechaUTC).reduce((acc, p) => { acc[p.type] = p.value; return acc; }, {});
+  const comoSiFueraUTC = Date.UTC(
+    Number(partes.year), Number(partes.month) - 1, Number(partes.day),
+    Number(partes.hour), Number(partes.minute), Number(partes.second)
+  );
+  return (comoSiFueraUTC - fechaUTC.getTime()) / 60000;
+}
+
+/**
+ * Convierte una hora de pared (ej. '09:00:00') en una zona IANA, para una
+ * fecha calendario dada, al instante UTC real que representa.
+ */
+function _horaLocalAUTC(fechaBase, horaHHMMSS, zonaIANA) {
+  const [h, m] = horaHHMMSS.split(':').map(Number);
+  const intento = new Date(Date.UTC(
+    fechaBase.getUTCFullYear(), fechaBase.getUTCMonth(), fechaBase.getUTCDate(), h, m, 0
+  ));
+  const offsetMin = _offsetMinutos(intento, zonaIANA);
+  return new Date(intento.getTime() - offsetMin * 60000);
+}
 
 class SchedulingEngine {
   /**
@@ -143,11 +180,8 @@ class SchedulingEngine {
   _calcularSlotsLibres(horario, ocupadas, fecha, duracionMinutos) {
     const base = new Date(Date.UTC(fecha.getUTCFullYear(), fecha.getUTCMonth(), fecha.getUTCDate()));
 
-    const [hIni, mIni] = horario.hora_inicio.split(':').map(Number);
-    const [hFin, mFin] = horario.hora_fin.split(':').map(Number);
-
-    const inicioJornada = new Date(base); inicioJornada.setUTCHours(hIni, mIni, 0, 0);
-    const finJornada    = new Date(base); finJornada.setUTCHours(hFin, mFin, 0, 0);
+    const inicioJornada = _horaLocalAUTC(base, horario.hora_inicio, horario.zona_horaria);
+    const finJornada    = _horaLocalAUTC(base, horario.hora_fin, horario.zona_horaria);
 
     const slots = [];
     const pasoMs = duracionMinutos * 60 * 1000;
@@ -376,4 +410,4 @@ class SchedulingEngine {
   }
 }
 
-module.exports = { SchedulingEngine };
+module.exports = { SchedulingEngine, horaLocalAUTC: _horaLocalAUTC };

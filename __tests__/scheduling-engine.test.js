@@ -92,10 +92,11 @@ describe('SchedulingEngine', () => {
     });
 
     test('excluye slots que chocan con una cita ya ocupada', async () => {
+      // horario 09:00-10:00 America/Monterrey (UTC-6) = 15:00-16:00 UTC
       const db = crearMockDb(
         { data: horario, error: null },
         {
-          data: [{ inicio: '2026-07-06T09:00:00.000Z', fin: '2026-07-06T09:30:00.000Z' }],
+          data: [{ inicio: '2026-07-06T15:00:00.000Z', fin: '2026-07-06T15:30:00.000Z' }],
           error: null,
         }
       );
@@ -106,7 +107,37 @@ describe('SchedulingEngine', () => {
       });
 
       expect(slots).toHaveLength(1);
-      expect(slots[0].inicio.toISOString()).toBe('2026-07-06T09:30:00.000Z');
+      expect(slots[0].inicio.toISOString()).toBe('2026-07-06T15:30:00.000Z');
+    });
+
+    test('convierte la hora de pared a UTC según zona_horaria (America/Monterrey, UTC-6)', async () => {
+      const db = crearMockDb(
+        { data: horario, error: null }, // hora_inicio 09:00:00, zona_horaria America/Monterrey
+        { data: [], error: null },
+      );
+      const engine = new SchedulingEngine(db, crearMockCalendar());
+
+      const slots = await engine.consultarDisponibilidad(COMPANY_A, {
+        asesorId: ASESOR_1, fecha: FECHA, duracionMinutos: 60,
+      });
+
+      // 09:00 America/Monterrey === 15:00 UTC (offset fijo -6, sin DST)
+      expect(slots[0].inicio.toISOString()).toBe('2026-07-06T15:00:00.000Z');
+    });
+
+    test('con zona_horaria UTC, la hora de pared no se desplaza (caso base, offset cero)', async () => {
+      const horarioUTC = { ...horario, zona_horaria: 'UTC' };
+      const db = crearMockDb(
+        { data: horarioUTC, error: null },
+        { data: [], error: null },
+      );
+      const engine = new SchedulingEngine(db, crearMockCalendar());
+
+      const slots = await engine.consultarDisponibilidad(COMPANY_A, {
+        asesorId: ASESOR_1, fecha: FECHA, duracionMinutos: 60,
+      });
+
+      expect(slots[0].inicio.toISOString()).toBe('2026-07-06T09:00:00.000Z');
     });
 
     test('devuelve arreglo vacío si no hay horario laboral ese día (ni propio ni general)', async () => {
