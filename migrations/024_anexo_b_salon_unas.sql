@@ -44,7 +44,7 @@ VALUES (
   0.7,
   500,
   '[]'::jsonb,
-  '[]'::jsonb,
+  ARRAY[]::text[],
   '[]'::jsonb,
   6,
   2
