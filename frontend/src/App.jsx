@@ -6,6 +6,7 @@ import Login from './pages/Login';
 import Operaciones from './pages/Operaciones';
 import Conversaciones from './pages/Conversaciones';
 import ConversacionDetalle from './pages/ConversacionDetalle';
+import Agenda from './pages/Agenda';
 import './App.css';
 
 export default function App() {
@@ -25,6 +26,7 @@ export default function App() {
             <Route path="/operaciones" element={<Operaciones />} />
             <Route path="/conversaciones" element={<Conversaciones />} />
             <Route path="/conversaciones/:clienteId" element={<ConversacionDetalle />} />
+            <Route path="/agenda" element={<Agenda />} />
           </Route>
 
           <Route path="/" element={<Navigate to="/operaciones" replace />} />

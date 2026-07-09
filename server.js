@@ -26,6 +26,10 @@ const {
   regresarATara, enviarMensajeHumano, registrarMensajeEntranteHumano,
 }                                        = require('./modules/conversaciones');
 const { obtenerOCrearCliente }           = require('./modules/crm');
+const {
+  listarAsesores, listarCitas, consultarDisponibilidad, obtenerOCrearClienteManual,
+  crearCita, reagendarCita, cancelarCita, vincularUsuarioAAsesor,
+}                                        = require('./modules/agenda');
 
 const app           = express();
 const adapter       = new TwilioWhatsAppAdapter(twilioClient);
@@ -388,6 +392,99 @@ app.post('/api/conversaciones/:clienteId/mensajes', requireAuth, async (req, res
       supabase, adapter, req.usuario.company_id, req.params.clienteId, req.usuario.id, texto.trim()
     );
     res.status(201).json({ ok: true });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// ── AGENDA (Plataforma SaaS, Fase 4) ──────────────────────────────────────────
+// Lógica real en modules/agenda.js. Un solo camino de escritura para citas:
+// reusa SchedulingEngine.agendarCita()/reagendarCita()/cancelarCita() — el
+// mismo que usa el motor conversacional. Cero cambios al Core (ADR-005).
+
+app.get('/api/agenda/asesores', requireAuth, async (req, res) => {
+  try {
+    const asesores = await listarAsesores(supabase, req.usuario.company_id);
+    res.json(asesores);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/agenda/citas', requireAuth, async (req, res) => {
+  try {
+    const { desde, hasta } = req.query;
+    const citas = await listarCitas(supabase, req.usuario.company_id, req.usuario, { desde, hasta });
+    res.json(citas);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/agenda/disponibilidad', requireAuth, async (req, res) => {
+  try {
+    const { asesorId, fecha, duracionMinutos } = req.query;
+    const slots = await consultarDisponibilidad(supabase, req.usuario.company_id, {
+      asesorId,
+      fecha: new Date(fecha),
+      duracionMinutos: duracionMinutos ? Number(duracionMinutos) : undefined,
+    });
+    res.json(slots);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/agenda/clientes', requireAuth, async (req, res) => {
+  try {
+    const { telefono, nombre, empresa, notas } = req.body;
+    if (!telefono) return res.status(400).json({ error: 'telefono requerido' });
+
+    const cliente = await obtenerOCrearClienteManual(supabase, req.usuario.company_id, { telefono, nombre, empresa, notas });
+    res.status(201).json(cliente);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/agenda/citas', requireAuth, async (req, res) => {
+  try {
+    const { clienteId, asesorId, inicio, fin } = req.body;
+    const cita = await crearCita(supabase, req.usuario.company_id, req.usuario, {
+      clienteId, asesorId, inicio: new Date(inicio), fin: new Date(fin),
+    });
+    res.status(201).json(cita);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/agenda/citas/:id', requireAuth, async (req, res) => {
+  try {
+    const { inicio, fin } = req.body;
+    const cita = await reagendarCita(supabase, req.usuario.company_id, req.usuario, req.params.id, new Date(inicio), new Date(fin));
+    res.json(cita);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/agenda/citas/:id/cancelar', requireAuth, async (req, res) => {
+  try {
+    const cita = await cancelarCita(supabase, req.usuario.company_id, req.usuario, req.params.id);
+    res.json(cita);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/agenda/asesores/:id/vincular', requireAuth, async (req, res) => {
+  try {
+    if (!['owner', 'administrador'].includes(req.usuario.rol)) {
+      return res.status(403).json({ error: 'No autorizado' });
+    }
+    const asesor = await vincularUsuarioAAsesor(supabase, req.usuario.company_id, req.params.id, req.body.usuario_id);
+    res.json(asesor);
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
   }
