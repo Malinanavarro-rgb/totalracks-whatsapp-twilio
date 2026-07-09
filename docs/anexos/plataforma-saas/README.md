@@ -303,13 +303,85 @@ Este esqueleto usa `workflows`/`workflow_nodes` sin ninguna columna nueva — co
 
 ### 3.6 Tareas incrementales (ANEXO B)
 
-| ID | Tarea | Tipo |
+| ID | Tarea | Tipo | Estado |
+|---|---|---|---|
+| TB.0 | ~~Confirmar si es cliente real o validación interna~~ — **Confirmado: validación interna/sintética.** No hay cliente real de salón de uñas todavía; se construye como prueba de arquitectura con datos de ejemplo | Decisión de negocio — resuelta | ✅ Completo |
+| TB.1 | Diseñar workflow completo (nodos, catálogo de intenciones, reglas comerciales del giro) — con datos y reglas sintéticas pero realistas | Diseño | ✅ Completo |
+| TB.2 | Seed de datos: empresa, personalidad, servicios, asesores, horarios (sintéticos) | DB | ✅ Completo |
+| TB.3 | Prueba de aislamiento: confirmar que este giro no interfiere con Total Racks (mismo criterio que T3.12/T4A.12) | Validación | ✅ Completo |
+| TB.4 | Deploy y piloto interno (sin cliente final real — validar el flujo de punta a punta con mensajes de prueba) | Validación | ✅ Completo |
+
+**ANEXO B — ✅ VALIDADO (cerrado el 9 de julio de 2026).** Ver evidencia completa en la sección 3.7.
+
+---
+
+### 3.7 Validación — evidencia de cierre (TB.1–TB.4)
+
+| Campo | Valor |
+|---|---|
+| Estado | ✅ Validado y cerrado |
+| Fecha de cierre | 9 de julio de 2026 |
+| Commits de referencia | `66de0f2`, `a0007b4`, `b80c69c` |
+| Migraciones de referencia | `022_servicios.sql`, `023_ta9_rename_handler.sql`, `024_anexo_b_salon_unas.sql` |
+
+#### Objetivo original
+
+Probar que la plataforma **generaliza** más allá de Total Racks: que `WorkflowEngine` y `SchedulingEngine` (validados en Anexo A con un solo giro de negocio) funcionan para un giro **estructuralmente distinto** — transaccional y de ciclo corto (agenda), en vez de consultivo y de ciclo largo (cotización) — sin modificar el Kernel. Criterio de éxito explícito (3.1): *cero líneas nuevas en `WorkflowEngine`*.
+
+#### Flujo implementado
+
+Empresa sintética **"Salón de Uñas Ejemplo"** (`company_id b5a10000-...-001`), sin cliente real (TB.0, decisión de negocio ya confirmada). Workflow de **3 nodos** (no los 4 originalmente esbozados en 3.4 — simplificación deliberada, ver "Qué no se demostró todavía"):
+
+```
+Intención: solicitud_cotizacion (reusada del catálogo cerrado, sin colisión con Total Racks)
+  Nodo 1 pedir_servicio        → captura servicio_elegido
+  Nodo 2 pedir_asesora         → captura asesora_preferida (opcional)
+  Nodo 3 pedir_hora_y_agendar  → captura hora_preferida + agenda en el mismo turno
+                                  (es_fin y campo a la vez — colapsa "mostrar
+                                  horarios" + "confirmar" del diseño original en uno)
+```
+
+Datos sembrados: personalidad propia ("Sofía"), `knowledge_base` con el catálogo de servicios, 3 `servicios` (tabla TC.2, adelantada de Anexo C), 2 `asesoras` (Ana, Betty) sin Google conectado (`calendario_id: NULL` → `MockCalendarProvider` automático, confirmando que el Anexo A también funciona sin Google real), horarios laborales 09:00–19:00 todos los días.
+
+Handler de agenda **graduado de prueba a producción**: `ta9_agendar_con_horario` (TA.9, marcado explícitamente como código de validación) se renombró a `agendar_cita_con_horario_solicitado` y su parser de hora se mejoró para entender `am`/`pm` además de `HH:MM` 24h — cualquier empresa puede usarlo hoy, no solo el salón.
+
+#### Evidencia de ejecución
+
+Dos corridas reales de punta a punta, vía `Orchestrator.procesarMensaje()` invocado directo en el Shell de Render (sin necesitar un segundo número de WhatsApp — confirmado que `procesarMensaje()` no depende de `channel_endpoints`/Twilio):
+
+- **Corrida 1** (cliente `+5210000000001`): *"Hola, quisiera cotizar un servicio"* → *"Manicure en gel"* → *"Con Ana"* → *"3pm"* → **cita real creada**: `2026-07-10 21:00–21:30 UTC` (= 3pm America/Monterrey exacto), `estado: agendada`, `calendar_event_id: null` (mock, esperado).
+- **Corrida 2** (cliente `+5210000000002`, tras corregir un bug encontrado en la corrida 1 — ver abajo): *"Pedicure spa"* → *"Con Ana"* → *"5pm"* → **cita real creada**: `2026-07-10 23:00–23:30 UTC` (= 5pm exacto), **`asesor: Ana`** confirmado por join contra `asesores` — la preferencia sí se honró.
+
+**Bug encontrado y corregido durante la validación** (no antes de cerrar — la validación *sirvió para encontrarlo*): el handler ignoraba `captured_fields.asesora_preferida` por completo — la corrida 1 asignó automático (coincidió con Ana por casualidad, no por diseño). Se agregó `SchedulingEngine.buscarAsesorPorNombre()` (commit `b80c69c`, 4 tests nuevos) y la corrida 2 confirmó la corrección con evidencia real, no solo con tests.
+
+`npm test`: 477/477 en verde al cierre, sin ninguna regresión acumulada desde TA.0.
+
+#### Qué se demostró
+
+- `WorkflowEngine` generaliza a un flujo estructuralmente distinto (transaccional corto vs. consultivo largo) con **cero cambios de código** en `modules/workflow-engine.js`.
+- `SchedulingEngine`/`ActionRunner` funcionan igual de bien para una empresa sin Google conectado (`MockCalendarProvider`) que para una con Google real (Total Racks, Anexo A).
+- Reusar una intención del catálogo cerrado (`solicitud_cotizacion`) entre dos empresas distintas no genera colisión — el aislamiento por `company_id` en `WorkflowEngine.evaluar()` es estructural, no una promesa.
+- El mecanismo "sin disponibilidad → ofrecer alternativas y reabrir sesión" (construido en TA.9) es reutilizable tal cual para un segundo giro, sin cambios.
+- El proceso de validación (probar de verdad, no solo diseñar) encontró un bug real (preferencia de asesor ignorada) que ninguna revisión de código había detectado.
+
+#### Qué NO se demostró todavía
+
+- **El diseño de 4 nodos del Anexo original** (mostrar 2-3 horarios *antes* de confirmar, como paso separado) — se simplificó a 3 nodos porque el mecanismo de TA.9 ya resuelve el caso "no disponible" reactivamente (ofrece alternativas solo si hay conflicto), no proactivamente (mostrar opciones siempre). Si el negocio real requiere mostrar horarios *antes* de preguntar, eso exige generalizar `Orchestrator` para que un nodo intermedio también pueda ejecutar una acción y mostrar su resultado — no construido, ver Riesgos.
+- **`servicios.duracion_minutos` no está conectado** a la duración real de la cita — `agendar_cita_con_horario_solicitado` sigue usando 30 minutos fijos salvo que se le pase `parametros.duracionMinutos` explícito. El servicio elegido (`captured_fields.servicio_elegido`) nunca se cruza contra la tabla `servicios`.
+- **Reglas de negocio reales de un salón de uñas** (políticas de cancelación, tiempos de servicio reales, no-shows) — es validación sintética (TB.0), no un cliente real operando. No se ha probado bajo carga ni con datos reales del giro.
+- **Multi-recurso por cita** (más de una asesora, o asesora + sala) — fuera de alcance, ya documentado desde Anexo A (2.4.1).
+
+#### Riesgos pendientes
+
+| Riesgo | Severidad | Estado |
 |---|---|---|
-| TB.0 | ~~Confirmar si es cliente real o validación interna~~ — **Confirmado: validación interna/sintética.** No hay cliente real de salón de uñas todavía; se construye como prueba de arquitectura con datos de ejemplo | Decisión de negocio — resuelta |
-| TB.1 | Diseñar workflow completo (nodos, catálogo de intenciones, reglas comerciales del giro) — con datos y reglas sintéticas pero realistas | Diseño |
-| TB.2 | Seed de datos: empresa, personalidad, servicios, asesores, horarios (sintéticos) | DB |
-| TB.3 | Prueba de aislamiento: confirmar que este giro no interfiere con Total Racks (mismo criterio que T3.12/T4A.12) | Validación |
-| TB.4 | Deploy y piloto interno (sin cliente final real — validar el flujo de punta a punta con mensajes de prueba) | Validación |
+| `servicio_elegido`/`asesora_preferida` se leen como texto libre, sin catálogo validado contra `servicios`/`asesores` — un nombre mal escrito simplemente no matchea, sin aviso al cliente | Media | Sin resolver — aceptable para validación sintética, revisar antes de un cliente real |
+| Nodo intermedio no puede ejecutar acciones — cualquier flujo que necesite "mostrar opciones antes de preguntar" (en vez de "fallar y ofrecer alternativas") requiere trabajo de `Orchestrator` no hecho | Media | Documentado, no bloqueante para el objetivo de este Anexo |
+| Validación sintética, no probada con un negocio real de este giro | Media | Aceptado desde TB.0 — reevaluar si aparece un cliente real de agenda transaccional |
+
+#### Conclusión técnica
+
+**Anexo B cumple su objetivo.** La plataforma generaliza: el mismo Kernel (`WorkflowEngine`, `SchedulingEngine`, `ActionRunner`, `google-auth`) sirve dos giros de negocio estructuralmente distintos sin una sola línea de cambio en el motor. Combinado con Anexo A (validado con Total Racks, cliente real, Google Calendar real), esto es evidencia suficiente para congelar el Core como **baseline v1** — ver `docs/decisions/ADR-005-baseline-v1-core-freeze.md`.
 
 ---
 

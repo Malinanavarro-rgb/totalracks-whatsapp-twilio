@@ -14,6 +14,7 @@ Los ADRs no se borran. Si una decisión cambia, se crea un nuevo ADR que superse
 | [ADR-002](ADR-002-arquitectura-multiempresa.md) | Arquitectura Multi-empresa (Multi-tenant) | Aceptada | FASE 3 |
 | [ADR-003](ADR-003-channel-router.md) | Channel Router: resolución de empresa por número receptor | Aceptada | FASE 3 |
 | [ADR-004](ADR-004-memory-engine.md) | Memory Engine (M9): decisión diferida | Diferida | FASE 5+ |
+| [ADR-005](ADR-005-baseline-v1-core-freeze.md) | Core baseline v1: freeze del motor conversacional y de agenda | Aceptada | Anexo A/B → Plataforma SaaS |
 
 ---
 

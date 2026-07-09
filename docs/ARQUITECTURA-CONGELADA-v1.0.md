@@ -2,11 +2,12 @@
 
 | Campo | Valor |
 |-------|-------|
-| Estado | Vigente |
-| Fecha de congelamiento | 6 de julio de 2026 |
-| Commit de referencia | `277038c` (FASE 4B — producción Total Racks, 384/384 tests) |
-| Vigente durante | Implementación de `docs/anexos/plataforma-saas/README.md` (Anexo A, B, C) |
-| Precedencia | Sujeta a `docs/constitution/v3-constitution.md` (TARA-CONST-001). Este documento es un recorte operativo de esa Constitución para la ventana de trabajo actual, no la reemplaza. |
+| Estado | Vigente — actualizado tras el cierre de Anexo A y Anexo B |
+| Fecha de congelamiento original | 6 de julio de 2026 |
+| Fecha de última actualización | 9 de julio de 2026 (ver `docs/decisions/ADR-005-baseline-v1-core-freeze.md`) |
+| Commit de referencia | `b80c69c` (Anexo B validado, 477/477 tests) |
+| Vigente durante | Construcción de la plataforma SaaS alrededor del Core (`docs/roadmap/README.md`). Anexo A y B ya validados y congelados como baseline v1 — ver ADR-005. Anexo C queda parcialmente adelantado (`servicios`, `mensajes_automaticos`); el resto (rename `tipo_rack`, checklist de alta) no es el foco actual. |
+| Precedencia | Sujeta a `docs/constitution/v3-constitution.md` (TARA-CONST-001) y a `docs/decisions/ADR-005-baseline-v1-core-freeze.md`. Este documento es un recorte operativo, no reemplaza a ninguno de los dos. |
 
 ---
 
@@ -33,34 +34,37 @@ Si durante la implementación de un Anexo se descubre que una decisión de `docs
 
 | Componente | Ubicación | Por qué está congelado |
 |---|---|---|
-| WorkflowEngine (M5) | `modules/workflow-engine.js` | Validado en producción con Total Racks (FASE 4A/4B). Los Anexos lo *usan* (workflows apuntan a `agendar_cita`, `servicios`), no lo modifican. |
-| Orchestrator (M7) | `modules/orchestrator.js` | Coordinador del Kernel. Único cambio autorizado por el Anexo A: extraer `_ejecutarAcciones()` hacia `ActionRunner` — ya specificado en el documento, no es una excepción abierta. |
+| WorkflowEngine (M5) | `modules/workflow-engine.js` | Validado dos veces, sin cambios de código entre ambas: Total Racks (real, Anexo A) y Salón de Uñas (sintético, Anexo B). Baseline v1 — ver ADR-005. |
+| Orchestrator (M7) | `modules/orchestrator.js` | `_ejecutarAcciones()`/`_finalizarWorkflow()` extendidos y validados en TA.4/TA.6/TA.9/Anexo B. Cualquier extensión futura (ej. nodo intermedio con acción, ver ADR-005) requiere pasar por ADR, no es una excepción abierta. |
 | AIProvider (puerto) + `OpenAIProvider`/`MockProvider` | `adapters/ai/` | Contrato validado en producción. `CalendarProvider` replica su patrón, no lo toca. |
 | ChannelAdapter (puerto) + `TwilioWhatsAppAdapter` | `adapters/channels/` | Incluye `sendProactive()`, ya usado por T4A.11 y reutilizado tal cual por los recordatorios del Anexo A. |
-| Knowledge Base | tabla `knowledge_base`, lectura en `modules/config.js` | Sigue existiendo para contenido libre; `servicios` (Anexo C) es una tabla nueva y separada, no un reemplazo. |
-| CRM base | `modules/crm.js`, tablas `clientes`/`conversaciones`/`oportunidades` | Única excepción ya aprobada y acotada: el rename `tipo_rack`→`categoria_principal` (TC.1). Cualquier otro cambio a estas tablas o a `crm.js` fuera de ese rename requiere pasar por la regla de cambio. |
-| ContextBuilder, PromptBuilder, AuditLogger, ChannelRouter | `modules/context-builder.js`, `modules/prompt-builder.js`, `modules/audit-logger.js`, `modules/channel-router.js` | Kernel puro (Artículo 4 de la Constitución). Ningún Anexo tiene motivo para tocarlos. |
-| Constitución y ADRs 001-004 | `docs/constitution/`, `docs/decisions/` | Los principios (P1-P8, R1-R10) no se renegocian dentro de la implementación de un Anexo. |
+| `SchedulingEngine` (M10) | `modules/scheduling-engine.js` | Baseline v1 (ADR-005) — validado con Google real (Anexo A) y `MockCalendarProvider` (Anexo B). `citas` es la fuente de verdad; Google Calendar es integración opcional best-effort, no dependencia. |
+| `CalendarProvider` (puerto) + `GoogleCalendarProvider`/`MockCalendarProvider` | `adapters/calendar/` | Baseline v1 (ADR-005) — ambos providers validados con datos reales de dos empresas distintas. |
+| `ActionRunner` (M8) | `modules/action-runner.js` | Baseline v1 (ADR-005) — formalizado en TA.4, extendido en TA.6/TA.9, reusado sin cambios en Anexo B. |
+| `google-auth.js` (OAuth + cifrado) | `modules/google-auth.js` | Baseline v1 (ADR-005) — flujo OAuth real completo, validado con Total Racks. |
+| Knowledge Base | tabla `knowledge_base`, lectura en `modules/config.js` | Sigue existiendo para contenido libre; `servicios` es una tabla nueva y separada, no un reemplazo. |
+| CRM base | `modules/crm.js`, tablas `clientes`/`conversaciones`/`oportunidades` | Única excepción ya aprobada y acotada: el rename `tipo_rack`→`categoria_principal` (TC.1, no priorizado por ahora). Cualquier otro cambio a estas tablas o a `crm.js` requiere pasar por la regla de cambio. |
+| ContextBuilder, PromptBuilder, AuditLogger, ChannelRouter | `modules/context-builder.js`, `modules/prompt-builder.js`, `modules/audit-logger.js`, `modules/channel-router.js` | Kernel puro (Artículo 4 de la Constitución). Nada en el roadmap actual tiene motivo para tocarlos. |
+| Integración multiempresa (`company_id` como invariante) | Toda tabla nueva desde ADR-002 | Baseline v1 (ADR-005) — confirmado sin colisión entre dos empresas reusando la misma intención del catálogo cerrado. |
+| Constitución y ADRs 001-005 | `docs/constitution/`, `docs/decisions/` | Los principios (P1-P8, R1-R10) no se renegocian por iniciativa propia. |
 
 ---
 
-## Componentes en evolución (este es el espacio de trabajo de los Anexos)
+## Componentes en evolución (foco actual: plataforma SaaS alrededor del Core)
 
-| Componente | Estado actual | Anexo/fase que lo mueve |
+| Componente | Estado actual | Fase que lo construye |
 |---|---|---|
-| `CalendarProvider` + `GoogleCalendarProvider`/`MockCalendarProvider` | No existe — se crea desde cero | Anexo A |
-| `SchedulingEngine` (M10) | No existe — se crea desde cero | Anexo A |
-| `ActionRunner` (M8) | Existe como stub hardcodeado en `Orchestrator._ejecutarAcciones()` | Anexo A lo formaliza |
-| `servicios`, `mensajes_automaticos`, `citas`, `asesores`, `horarios_laborales`, `calendar_credentials` | No existen | Anexo A / Anexo C |
-| Workflow del segundo giro (salón de uñas) | No existe — validación interna/sintética | Anexo B |
-| Plataforma de configuración (checklist de alta de empresa, generalización de campos CRM) | Parcial — algunas piezas ya configurables (4.1 del Anexo C) | Anexo C |
-| Dashboard operativo | No iniciado | Fuera de alcance de los Anexos — roadmap original, sin renumerar (ver Anexo, sección 7) |
-| Multiempresa (Organization/Workspace formal) | Parcial — hoy `companies` hace las veces de Workspace (ADR-002) | Fuera de alcance de los Anexos |
-| Billing | No iniciado | Fuera de alcance de los Anexos — roadmap original |
-| Automatizaciones adicionales (más allá de agenda) | No iniciado | Futuro — depende de qué necesite un tercer giro |
+| `servicios`, `mensajes_automaticos` | Existen (adelantados de Anexo C), en uso desde Anexo B/TA.7 | Se completan según necesidad real, no por diseño especulativo |
+| Plataforma de configuración (checklist de alta de empresa, generalización de campos CRM, rename `tipo_rack`) | Parcial — algunas piezas ya configurables (4.1 del Anexo C) | Anexo C, sin fecha fija — no es el foco actual |
+| Dashboard, portal de administración, gestión de empresas/usuarios/asesores | No iniciado | FASE 5 — Plataforma SaaS (ver roadmap) |
+| Agenda propia de TARA (UI sobre la tabla `citas`, ya existente) | No iniciado — el modelo de datos (`citas`, `asesores`, `horarios_laborales`) ya existe y está validado | FASE 5 |
+| Conversaciones en tiempo real + intervención humana ("Tomar conversación"/"Regresar a TARA") | No iniciado | FASE 5 |
+| CRM, reportes | No iniciado (existe `oportunidades` como base parcial) | FASE 5 |
+| Multiempresa (Organization/Workspace formal), Billing | Parcial / no iniciado | Futuro, fuera del foco actual |
+| Memory Engine (M9) | Diferido (ADR-004) | FASE 6 |
 
 ---
 
 ## Cómo se usa este documento
 
-Antes de escribir código para TA.x, TB.x o TC.x: si el cambio toca solo la columna "en evolución", se procede directo. Si toca algo de "componentes estables" más allá de las dos excepciones ya aprobadas (extracción de `ActionRunner` y rename `tipo_rack`), se aplica la regla de cambio antes de escribir una sola línea.
+Antes de tocar algo de la tabla "estables": se aplica la regla de cambio (bug con reproducción, o evidencia de un piloto real — ver ADR-005). No se modifica por "ya que estoy aquí, lo mejoro" ni por generalización especulativa. Todo lo que sí es foco activo vive en la tabla "en evolución" y se puede tocar directo.
