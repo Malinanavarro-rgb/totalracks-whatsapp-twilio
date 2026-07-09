@@ -828,14 +828,19 @@ function crearOrchestrator(overrides = {}) {
     // Parsea la hora que el cliente escribió (HH:MM 24h o HH[:MM]am/pm — no
     // es un parser de lenguaje natural completo, ver comentario de
     // _parsearHoraPreferida) e intenta agendar; si no hay disponibilidad,
-    // ofrece hasta 3 alternativas en vez de fallar en silencio.
+    // ofrece hasta 3 alternativas en vez de fallar en silencio. Si el cliente
+    // expresó preferencia de asesor (captured_fields.asesora_preferida), se
+    // intenta honrar por nombre; sin match, se asigna automático como siempre.
     runner.registrar('agendar_cita_con_horario_solicitado', async (parametros, ctx) => {
       const scheduling = await schedulingEngineParaEmpresa(ctx.company_id);
       const { inicio, fin } = _parsearHoraPreferida(ctx.capturedFields?.hora_preferida, parametros);
+      const asesorId = parametros.asesorId
+        || await scheduling.buscarAsesorPorNombre(ctx.company_id, ctx.capturedFields?.asesora_preferida)
+        || undefined;
 
       try {
         const cita = await scheduling.agendarCita(ctx.company_id, {
-          clienteId: ctx.clienteRaw.id, inicio, fin,
+          clienteId: ctx.clienteRaw.id, asesorId, inicio, fin,
         });
         return { tipo: 'agendada', cita };
       } catch (err) {

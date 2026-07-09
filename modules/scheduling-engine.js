@@ -246,6 +246,30 @@ class SchedulingEngine {
     return data;
   }
 
+  /**
+   * Busca un asesor activo cuyo nombre aparezca en el texto dado (ej. el
+   * cliente escribió "con Ana" o "prefiero a Betty"). Coincidencia parcial,
+   * insensible a mayúsculas — no es NLU, solo busca el nombre dentro del
+   * texto. Usado por handlers de ActionRunner que quieren honrar la
+   * preferencia de asesor expresada en lenguaje libre (Anexo B).
+   * @returns {Promise<string|null>} asesorId o null si no hay texto o no matchea
+   */
+  async buscarAsesorPorNombre(company_id, textoPreferencia) {
+    if (!textoPreferencia) return null;
+
+    const { data, error } = await this._db
+      .from('asesores')
+      .select('id, nombre')
+      .eq('company_id', company_id)
+      .eq('activo', true);
+
+    if (error || !data) return null;
+
+    const texto = textoPreferencia.toLowerCase();
+    const match = data.find(a => texto.includes(a.nombre.toLowerCase()));
+    return match ? match.id : null;
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // CRUD DE CITAS
   // ═══════════════════════════════════════════════════════════════════════════

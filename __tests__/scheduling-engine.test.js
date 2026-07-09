@@ -350,4 +350,50 @@ describe('SchedulingEngine', () => {
       expect(calendar.cancelarEvento).not.toHaveBeenCalled();
     });
   });
+
+  // ── buscarAsesorPorNombre() ─────────────────────────────────────────────────
+
+  describe('buscarAsesorPorNombre()', () => {
+    const asesoresDisponibles = [
+      { id: ASESOR_1, nombre: 'Ana' },
+      { id: ASESOR_2, nombre: 'Betty' },
+    ];
+
+    test('encuentra el asesor cuyo nombre aparece en el texto (insensible a mayúsculas)', async () => {
+      const db = crearMockDb({ data: asesoresDisponibles, error: null });
+      const engine = new SchedulingEngine(db, crearMockCalendar());
+
+      const asesorId = await engine.buscarAsesorPorNombre(COMPANY_A, 'me gustaría con ANA por favor');
+
+      expect(asesorId).toBe(ASESOR_1);
+    });
+
+    test('devuelve null si el texto no menciona a ningún asesor activo', async () => {
+      const db = crearMockDb({ data: asesoresDisponibles, error: null });
+      const engine = new SchedulingEngine(db, crearMockCalendar());
+
+      const asesorId = await engine.buscarAsesorPorNombre(COMPANY_A, 'sin preferencia, cualquiera');
+
+      expect(asesorId).toBeNull();
+    });
+
+    test('devuelve null sin consultar la DB si no se da texto', async () => {
+      const db = crearMockDb();
+      const engine = new SchedulingEngine(db, crearMockCalendar());
+
+      const asesorId = await engine.buscarAsesorPorNombre(COMPANY_A, '');
+
+      expect(asesorId).toBeNull();
+      expect(db.from).not.toHaveBeenCalled();
+    });
+
+    test('devuelve null si la consulta de asesores falla', async () => {
+      const db = crearMockDb({ data: null, error: { message: 'fallo de red' } });
+      const engine = new SchedulingEngine(db, crearMockCalendar());
+
+      const asesorId = await engine.buscarAsesorPorNombre(COMPANY_A, 'Ana');
+
+      expect(asesorId).toBeNull();
+    });
+  });
 });
