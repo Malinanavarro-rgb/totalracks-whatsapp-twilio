@@ -142,3 +142,82 @@ body {
 }
 
 .alerta--error_tecnico { background: #fdecea; border-color: #e0a3a0; color: #a03a34; }
+
+/* ── Conversaciones ────────────────────────────────────────────────────── */
+
+.conversaciones-lista { list-style: none; padding: 0; margin: 1.5rem 0 0; display: flex; flex-direction: column; gap: 0.5rem; }
+
+.conversacion-item {
+  display: block;
+  background: #fff;
+  border-radius: 10px;
+  padding: 0.9rem 1.1rem;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  text-decoration: none;
+  color: inherit;
+}
+
+.conversacion-item-encabezado { display: flex; justify-content: space-between; align-items: center; }
+
+.etiqueta-atencion {
+  font-size: 0.75rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  background: #eef0f7;
+  color: #444;
+}
+.etiqueta-atencion--humano { background: #e3f3e6; color: #226a34; }
+
+.conversacion-item-preview {
+  margin: 0.35rem 0 0;
+  color: #777;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.conversacion-acciones { margin: 1rem 0; }
+.conversacion-acciones button {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 6px;
+  background: #1a1a2e;
+  color: #fff;
+  cursor: pointer;
+}
+
+.historial-mensajes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 55vh;
+  overflow-y: auto;
+  background: #fff;
+  border-radius: 10px;
+  padding: 1rem;
+  margin: 1rem 0;
+}
+
+.mensaje-burbuja { max-width: 70%; padding: 0.5rem 0.85rem; border-radius: 10px; font-size: 0.9rem; }
+.mensaje-burbuja--cliente { align-self: flex-start; background: #eef0f7; }
+.mensaje-burbuja--tara    { align-self: flex-end; background: #dbe7ff; }
+.mensaje-burbuja--humano  { align-self: flex-end; background: #d9f2e0; }
+
+.mensaje-form { display: flex; gap: 0.5rem; }
+.mensaje-form input {
+  flex: 1;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 1rem;
+}
+.mensaje-form button {
+  padding: 0.6rem 1.1rem;
+  border: none;
+  border-radius: 6px;
+  background: #1a1a2e;
+  color: #fff;
+  cursor: pointer;
+}
+.mensaje-form button:disabled { opacity: 0.6; cursor: default; }

@@ -6,7 +6,7 @@ import { useAuth } from '../context/AuthContext';
 // para no rediseñar la navegación en cada fase futura.
 const MODULOS = [
   { ruta: '/operaciones',   etiqueta: 'Centro de Operaciones', habilitado: true },
-  { ruta: '/conversaciones', etiqueta: 'Conversaciones',        habilitado: false },
+  { ruta: '/conversaciones', etiqueta: 'Conversaciones',        habilitado: true },
   { ruta: '/agenda',         etiqueta: 'Agenda TARA',           habilitado: false },
   { ruta: '/crm',            etiqueta: 'CRM',                   habilitado: false },
   { ruta: '/configuracion',  etiqueta: 'Configuración',         habilitado: false },

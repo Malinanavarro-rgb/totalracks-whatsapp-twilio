@@ -30,4 +30,11 @@ export const api = {
   logout: () => pedir('/api/auth/logout', { method: 'POST' }),
 
   dashboard: () => pedir('/api/dashboard'),
+
+  conversaciones:          () => pedir('/api/conversaciones'),
+  historialConversacion:   (clienteId) => pedir(`/api/conversaciones/${clienteId}`),
+  tomarConversacion:       (clienteId) => pedir(`/api/conversaciones/${clienteId}/tomar`, { method: 'POST' }),
+  regresarATara:           (clienteId) => pedir(`/api/conversaciones/${clienteId}/regresar`, { method: 'POST' }),
+  enviarMensaje:           (clienteId, texto) =>
+    pedir(`/api/conversaciones/${clienteId}/mensajes`, { method: 'POST', body: JSON.stringify({ texto }) }),
 };

@@ -21,6 +21,11 @@ const { generarUrlAutorizacion, manejarCallback } = require('./modules/google-au
 const { iniciarSesion, obtenerEmpresasDeUsuario, ErrorAuth } = require('./modules/auth');
 const { crearRequireAuth }              = require('./modules/auth-middleware');
 const { obtenerMetricas }               = require('./modules/dashboard');
+const {
+  listarConversaciones, obtenerHistorial, tomarConversacion,
+  regresarATara, enviarMensajeHumano, registrarMensajeEntranteHumano,
+}                                        = require('./modules/conversaciones');
+const { obtenerOCrearCliente }           = require('./modules/crm');
 
 const app           = express();
 const adapter       = new TwilioWhatsAppAdapter(twilioClient);
@@ -74,6 +79,15 @@ app.post('/webhook/twilio', async (req, res) => {
       return res.type('text/xml').send('<Response></Response>');
     }
     message.company_id = routeResult.company_id;
+
+    // FASE 5 (Fase 3 — intervención humana): si un humano ya tomó esta
+    // conversación, TARA no responde. Se resuelve el cliente aquí (capa de
+    // plataforma) sin tocar el Orchestrator/WorkflowEngine (ADR-005).
+    const cliente = await obtenerOCrearCliente(message.from, message.company_id);
+    if (cliente?.atendido_por === 'humano') {
+      await registrarMensajeEntranteHumano(supabase, message.company_id, cliente.id, message.content);
+      return res.type('text/xml').send('<Response></Response>');
+    }
 
     const resultado = await enqueueForPhone(
       message.from,
@@ -322,6 +336,60 @@ app.get('/api/dashboard', requireAuth, async (req, res) => {
     res.json(metricas);
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// ── CONVERSACIONES (Plataforma SaaS, Fase 3) ──────────────────────────────────
+// Lógica real en modules/conversaciones.js. Cero cambios al Orchestrator —
+// la intervención humana vive enteramente en esta capa (ver webhook arriba).
+
+app.get('/api/conversaciones', requireAuth, async (req, res) => {
+  try {
+    const lista = await listarConversaciones(supabase, req.usuario.company_id, req.usuario);
+    res.json(lista);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/conversaciones/:clienteId', requireAuth, async (req, res) => {
+  try {
+    const historial = await obtenerHistorial(supabase, req.usuario.company_id, req.params.clienteId);
+    res.json(historial);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/conversaciones/:clienteId/tomar', requireAuth, async (req, res) => {
+  try {
+    const cliente = await tomarConversacion(supabase, req.usuario.company_id, req.params.clienteId, req.usuario.id);
+    res.json(cliente);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/conversaciones/:clienteId/regresar', requireAuth, async (req, res) => {
+  try {
+    const cliente = await regresarATara(supabase, req.usuario.company_id, req.params.clienteId);
+    res.json(cliente);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/conversaciones/:clienteId/mensajes', requireAuth, async (req, res) => {
+  try {
+    const { texto } = req.body;
+    if (!texto || !texto.trim()) return res.status(400).json({ error: 'texto requerido' });
+
+    await enviarMensajeHumano(
+      supabase, adapter, req.usuario.company_id, req.params.clienteId, req.usuario.id, texto.trim()
+    );
+    res.status(201).json({ ok: true });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
   }
 });
 
