@@ -687,9 +687,10 @@ class Orchestrator {
 
 /**
  * ANEXO A (TA.9 v2) — parseo simple de "hora_preferida" (ej. "10:00", "16:30")
- * para la validación manual de agenda. No es un parser de lenguaje natural —
- * si no matchea HH:MM, usa una hora por defecto (10:00) para no romper el
- * flujo de prueba. `fecha`/`duracionMinutos` en `parametros` son opcionales.
+ * para agendar_cita_con_horario_solicitado. No es un parser de lenguaje
+ * natural completo — entiende HH:MM (24h) y HH[:MM]am/pm; si no matchea
+ * nada reconocible, usa una hora por defecto (10:00) para no romper el
+ * flujo. `fecha`/`duracionMinutos` en `parametros` son opcionales.
  *
  * Reutiliza horaLocalAUTC (SchedulingEngine, TA.9 fix de zona horaria) para
  * no reintroducir el mismo bug: "10:00" es hora de pared en America/Monterrey,
@@ -697,8 +698,18 @@ class Orchestrator {
  */
 function _parsearHoraPreferida(texto, parametros = {}) {
   const { horaLocalAUTC } = require('./scheduling-engine');
-  const match = String(texto || '').match(/(\d{1,2}):(\d{2})/);
-  const horaHHMM = match ? `${match[1].padStart(2, '0')}:${match[2]}:00` : '10:00:00';
+  const match = String(texto || '').toLowerCase().match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/);
+
+  let hora = 10;
+  let minuto = 0;
+  if (match) {
+    hora = Number(match[1]);
+    minuto = match[2] ? Number(match[2]) : 0;
+    const meridiano = match[3];
+    if (meridiano === 'pm' && hora < 12) hora += 12;
+    if (meridiano === 'am' && hora === 12) hora = 0;
+  }
+  const horaHHMM = `${String(hora).padStart(2, '0')}:${String(minuto).padStart(2, '0')}:00`;
   const duracion = parametros.duracionMinutos || 30;
   const zona = parametros.zonaHoraria || 'America/Monterrey';
 
@@ -812,12 +823,13 @@ function crearOrchestrator(overrides = {}) {
       return scheduling.cancelarCita({ id: parametros.citaId });
     });
 
-    // ANEXO A (TA.9 v2) — handler EXCLUSIVO de la validación manual de agenda,
-    // no lo dispara ningún workflow real. Parsea la hora que el cliente
-    // escribió (formato simple HH:MM — no es un parser de lenguaje natural,
-    // suficiente para la prueba controlada) y intenta agendar; si no hay
-    // disponibilidad, ofrece hasta 3 alternativas en vez de fallar en silencio.
-    runner.registrar('ta9_agendar_con_horario', async (parametros, ctx) => {
+    // Validado primero en TA.9 (Anexo A) con una cita real en Google Calendar,
+    // y de nuevo en Anexo B (segundo giro) — cualquier empresa puede usarlo.
+    // Parsea la hora que el cliente escribió (HH:MM 24h o HH[:MM]am/pm — no
+    // es un parser de lenguaje natural completo, ver comentario de
+    // _parsearHoraPreferida) e intenta agendar; si no hay disponibilidad,
+    // ofrece hasta 3 alternativas en vez de fallar en silencio.
+    runner.registrar('agendar_cita_con_horario_solicitado', async (parametros, ctx) => {
       const scheduling = await schedulingEngineParaEmpresa(ctx.company_id);
       const { inicio, fin } = _parsearHoraPreferida(ctx.capturedFields?.hora_preferida, parametros);
 
@@ -852,4 +864,4 @@ function crearOrchestrator(overrides = {}) {
   });
 }
 
-module.exports = { Orchestrator, crearOrchestrator, RESPUESTA_EMERGENCIA };
+module.exports = { Orchestrator, crearOrchestrator, RESPUESTA_EMERGENCIA, parsearHoraPreferida: _parsearHoraPreferida };

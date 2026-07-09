@@ -12,7 +12,7 @@
 
 'use strict';
 
-const { Orchestrator, RESPUESTA_EMERGENCIA } = require('../modules/orchestrator');
+const { Orchestrator, RESPUESTA_EMERGENCIA, parsearHoraPreferida } = require('../modules/orchestrator');
 const { ContextBuilder }  = require('../modules/context-builder');
 const { PromptBuilder }   = require('../modules/prompt-builder');
 const { AIEngine }        = require('../modules/ai-engine');
@@ -1206,6 +1206,47 @@ describe('Orchestrator + WorkflowEngine — sin_disponibilidad reabre sesión (T
       nodoFinalConAccion.acciones[0],
       expect.objectContaining({ capturedFields: { hora_preferida: '11:00' } })
     );
+  });
+});
+
+// ── parsearHoraPreferida() — graduado a producción en Anexo B ────────────────
+
+describe('parsearHoraPreferida()', () => {
+  const FECHA_BASE = '2026-08-01T00:00:00Z';
+
+  test('HH:MM 24h se interpreta como hora local America/Monterrey', () => {
+    const { inicio } = parsearHoraPreferida('10:00', { fecha: FECHA_BASE });
+    expect(inicio.toISOString()).toBe('2026-08-01T16:00:00.000Z');
+  });
+
+  test('HHam se interpreta correctamente', () => {
+    const { inicio } = parsearHoraPreferida('10am', { fecha: FECHA_BASE });
+    expect(inicio.toISOString()).toBe('2026-08-01T16:00:00.000Z');
+  });
+
+  test('HH:MMpm suma 12 horas (no se confunde con HH:MM 24h)', () => {
+    const { inicio } = parsearHoraPreferida('2:30pm', { fecha: FECHA_BASE });
+    expect(inicio.toISOString()).toBe('2026-08-01T20:30:00.000Z');
+  });
+
+  test('12pm (mediodía) no se convierte a las 24:00', () => {
+    const { inicio } = parsearHoraPreferida('12pm', { fecha: FECHA_BASE });
+    expect(inicio.toISOString()).toBe('2026-08-01T18:00:00.000Z');
+  });
+
+  test('12am (medianoche) se convierte a las 00:00, no a las 12:00', () => {
+    const { inicio } = parsearHoraPreferida('12am', { fecha: FECHA_BASE });
+    expect(inicio.toISOString()).toBe('2026-08-01T06:00:00.000Z');
+  });
+
+  test('texto no reconocible usa la hora por defecto (10:00)', () => {
+    const { inicio } = parsearHoraPreferida('no sé, cuando sea', { fecha: FECHA_BASE });
+    expect(inicio.toISOString()).toBe('2026-08-01T16:00:00.000Z');
+  });
+
+  test('fin respeta duracionMinutos', () => {
+    const { inicio, fin } = parsearHoraPreferida('10:00', { fecha: FECHA_BASE, duracionMinutos: 45 });
+    expect(fin.getTime() - inicio.getTime()).toBe(45 * 60000);
   });
 });
 
