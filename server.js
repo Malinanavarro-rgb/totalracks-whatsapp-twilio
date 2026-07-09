@@ -8,8 +8,9 @@
  */
 
 require('dotenv').config();
-const express = require('express');
-const path    = require('path');
+const express      = require('express');
+const path         = require('path');
+const cookieParser = require('cookie-parser');
 
 const { supabase, twilioClient }        = require('./modules/clients');
 const { obtenerConfigEmpresa }          = require('./modules/config');
@@ -17,13 +18,18 @@ const { crearOrchestrator }             = require('./modules/orchestrator');
 const { TwilioWhatsAppAdapter }         = require('./adapters/channels/twilio-whatsapp');
 const { ChannelRouter }                 = require('./modules/channel-router');
 const { generarUrlAutorizacion, manejarCallback } = require('./modules/google-auth');
+const { iniciarSesion, obtenerEmpresasDeUsuario, ErrorAuth } = require('./modules/auth');
+const { crearRequireAuth }              = require('./modules/auth-middleware');
 
 const app           = express();
 const adapter       = new TwilioWhatsAppAdapter(twilioClient);
 const orchestrator  = crearOrchestrator();
 const channelRouter = new ChannelRouter(supabase);
+const requireAuth   = crearRequireAuth(supabase);
 
 app.use(express.urlencoded({ extended: false }));
+app.use(express.json());
+app.use(cookieParser());
 
 // ── Cola por conversación ─────────────────────────────────────────────────────
 // Serializa mensajes del mismo número para evitar race conditions cuando el
@@ -359,6 +365,57 @@ app.get('/oauth/google/callback', async (req, res) => {
   }
 });
 
+// ── AUTH (Plataforma SaaS, Fase 1) ────────────────────────────────────────────
+// Login mediado por el backend — el frontend nunca habla con Supabase.
+// Rutas delgadas, la lógica vive en modules/auth.js.
+
+const COOKIE_OPTS = {
+  httpOnly: true,
+  secure:   process.env.NODE_ENV === 'production',
+  sameSite: 'lax',
+  maxAge:   7 * 24 * 60 * 60 * 1000, // 7 días
+};
+
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body || {};
+    if (!email || !password) {
+      return res.status(400).json({ error: 'email y password son requeridos' });
+    }
+
+    const { token, usuario, empresaActiva, empresas } = await iniciarSesion(supabase, email, password);
+
+    res.cookie('tara_session', token, COOKIE_OPTS);
+    res.cookie('tara_company', empresaActiva.company_id, COOKIE_OPTS);
+    res.json({ usuario, empresaActiva, empresas });
+  } catch (e) {
+    const status = e instanceof ErrorAuth ? e.status : 500;
+    res.status(status).json({ error: e.message });
+  }
+});
+
+app.get('/api/auth/me', requireAuth, async (req, res) => {
+  try {
+    const empresas = await obtenerEmpresasDeUsuario(supabase, req.usuario.id);
+    const empresaActiva = empresas.find(e => e.company_id === req.usuario.company_id)
+      || { company_id: req.usuario.company_id, rol: req.usuario.rol, nombre: null };
+
+    res.json({
+      usuario: { id: req.usuario.id, nombre: req.usuario.nombre, email: req.usuario.email },
+      empresaActiva,
+      empresas,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  res.clearCookie('tara_session', COOKIE_OPTS);
+  res.clearCookie('tara_company', COOKIE_OPTS);
+  res.json({ ok: true });
+});
+
 // ── ROOT ──────────────────────────────────────────────────────────────────────
 
 app.get('/', (req, res) => res.json({
@@ -374,8 +431,26 @@ app.get('/', (req, res) => res.json({
     terminos:    'GET  /terminos',
     google_oauth_iniciar: 'GET  /oauth/google/iniciar?company_id=...',
     google_oauth_callback: 'GET  /oauth/google/callback',
+    auth_login:  'POST /api/auth/login',
+    auth_me:     'GET  /api/auth/me',
+    auth_logout: 'POST /api/auth/logout',
   },
 }));
+
+// ── FRONTEND (Plataforma SaaS) ─────────────────────────────────────────────────
+// Sirve el build de React (frontend/dist). Cualquier ruta que no sea de la
+// API/webhook/OAuth cae aquí y devuelve index.html — el ruteo real (/login,
+// /operaciones, etc.) lo resuelve React Router en el cliente. Se sirve desde
+// el mismo servicio Express — sin costo ni deploy adicional en Render.
+
+const FRONTEND_DIST = path.join(__dirname, 'frontend', 'dist');
+app.use(express.static(FRONTEND_DIST));
+
+app.get(/^(?!\/api|\/oauth|\/webhook|\/health|\/privacidad|\/terminos).*/, (req, res) => {
+  res.sendFile(path.join(FRONTEND_DIST, 'index.html'), (err) => {
+    if (err) res.status(404).send('Panel no disponible — ¿se corrió "npm run build" en frontend/?');
+  });
+});
 
 // ── INICIO ────────────────────────────────────────────────────────────────────
 

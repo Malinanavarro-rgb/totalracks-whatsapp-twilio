@@ -1,0 +1,107 @@
+/* TARA Matrix™ — Plataforma SaaS, Fase 1. Estilos mínimos, sin librería de UI. */
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, 'Segoe UI', Roboto, sans-serif;
+  background: #f5f6fa;
+  color: #1a1a1a;
+}
+
+/* ── Login ─────────────────────────────────────────────────────────────── */
+
+.login-pantalla {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.login-tarjeta {
+  background: #fff;
+  padding: 2.5rem;
+  border-radius: 12px;
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.08);
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+}
+
+.login-tarjeta h1 { margin: 0 0 0.25rem; font-size: 1.4rem; }
+.login-subtitulo { margin: 0 0 1.5rem; color: #666; font-size: 0.9rem; }
+
+.login-tarjeta label { font-size: 0.85rem; margin-bottom: 0.25rem; color: #333; }
+.login-tarjeta input {
+  padding: 0.6rem 0.75rem;
+  margin-bottom: 1rem;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 1rem;
+}
+
+.login-tarjeta button {
+  padding: 0.7rem;
+  border: none;
+  border-radius: 6px;
+  background: #1a1a2e;
+  color: #fff;
+  font-size: 1rem;
+  cursor: pointer;
+}
+.login-tarjeta button:disabled { opacity: 0.6; cursor: default; }
+
+.login-error { color: #c0392b; font-size: 0.85rem; margin: -0.5rem 0 1rem; }
+
+/* ── Shell ─────────────────────────────────────────────────────────────── */
+
+.shell { display: flex; min-height: 100vh; }
+
+.shell-sidebar {
+  width: 220px;
+  background: #1a1a2e;
+  color: #fff;
+  padding: 1.5rem 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.shell-logo { padding: 0 1.25rem 1.5rem; font-weight: 700; }
+
+.shell-nav-item {
+  display: block;
+  padding: 0.6rem 1.25rem;
+  color: #cfd2e3;
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+.shell-nav-item.active { background: rgba(255,255,255,0.08); color: #fff; }
+.shell-nav-item--deshabilitado { color: #6a6d85; cursor: default; }
+.shell-nav-item--deshabilitado small { display: block; font-size: 0.7rem; }
+
+.shell-contenido { flex: 1; display: flex; flex-direction: column; }
+
+.shell-header {
+  background: #fff;
+  padding: 1rem 1.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #e5e5e5;
+}
+.shell-rol { color: #888; font-size: 0.85rem; }
+.shell-usuario { display: flex; align-items: center; gap: 0.75rem; font-size: 0.9rem; }
+.shell-usuario button {
+  padding: 0.4rem 0.8rem;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.shell-main { padding: 2rem; }
+
+.pantalla-cargando { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+
+.operaciones-nota { color: #888; font-size: 0.9rem; }
