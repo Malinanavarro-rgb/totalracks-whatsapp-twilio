@@ -28,4 +28,6 @@ export const api = {
   yo: () => pedir('/api/auth/me'),
 
   logout: () => pedir('/api/auth/logout', { method: 'POST' }),
+
+  dashboard: () => pedir('/api/dashboard'),
 };

@@ -20,6 +20,7 @@ const { ChannelRouter }                 = require('./modules/channel-router');
 const { generarUrlAutorizacion, manejarCallback } = require('./modules/google-auth');
 const { iniciarSesion, obtenerEmpresasDeUsuario, ErrorAuth } = require('./modules/auth');
 const { crearRequireAuth }              = require('./modules/auth-middleware');
+const { obtenerMetricas }               = require('./modules/dashboard');
 
 const app           = express();
 const adapter       = new TwilioWhatsAppAdapter(twilioClient);
@@ -311,28 +312,14 @@ app.get('/api/diagnostics', async (req, res) => {
   res.status(todoOk ? 200 : 503).json(resultado);
 });
 
-// ── DASHBOARD ─────────────────────────────────────────────────────────────────
+// ── DASHBOARD (Plataforma SaaS, Fase 2 — Centro de Operaciones) ───────────────
+// Requiere sesión — las métricas siempre se calculan sobre req.usuario.company_id,
+// nunca sobre un company_id que mande el cliente. Lógica real en modules/dashboard.js.
 
-app.get('/api/dashboard', async (req, res) => {
+app.get('/api/dashboard', requireAuth, async (req, res) => {
   try {
-    const { count: clientesCount } = await supabase
-      .from('clientes').select('*', { count: 'exact', head: true });
-
-    const { data: oportunidades } = await supabase
-      .from('oportunidades').select('presupuesto_estimado, probabilidad')
-      .neq('estado', 'Ganado').neq('estado', 'Perdido');
-
-    const pipeline = (oportunidades || []).reduce(
-      (s, o) => s + ((o.presupuesto_estimado || 0) * ((o.probabilidad || 30) / 100)), 0
-    );
-
-    res.json({
-      modo:                  'multi-tenant',
-      clientesTotales:       clientesCount || 0,
-      oportunidadesAbiertas: oportunidades?.length || 0,
-      pipelineEstimado:      Math.round(pipeline),
-      timestamp:             new Date().toISOString(),
-    });
+    const metricas = await obtenerMetricas(supabase, req.usuario.company_id);
+    res.json(metricas);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
