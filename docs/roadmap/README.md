@@ -49,8 +49,8 @@ El motor conversacional y de agenda (`WorkflowEngine`, `SchedulingEngine`, `Acti
 | Fase 2 | Centro de Operaciones (dashboard, 8 métricas multiempresa) | ✅ Completa | 9 jul 2026 |
 | Fase 3 | Conversaciones en tiempo real + intervención humana ("Tomar conversación"/"Regresar a TARA") | ✅ Completa | 9 jul 2026 |
 | Fase 4 | Agenda propia de TARA (UI sobre `citas`/`asesores`/`horarios_laborales`) | ✅ Completa | 9 jul 2026 |
-| Fase 5 | CRM (clientes, historial, seguimientos) | ⏳ Siguiente | — |
-| Fase 6 | Configuración de empresa (personalidad, KB, usuarios, horarios, servicios, canales) | Futura | — |
+| Fase 5 | CRM (clientes, ficha 360°, seguimientos) | ✅ Completa | 9 jul 2026 |
+| Fase 6 | Configuración de empresa (personalidad, KB, usuarios, horarios, servicios, canales) | ⏳ Siguiente | — |
 | Fase 7 | Reportes | Futura | — |
 
 **Fase 1 — Login:** `usuarios`/`usuarios_empresas` (muchos-a-muchos, un usuario puede pertenecer a varias empresas con rol distinto en cada una), sesión mediada 100% por el backend (cookie `httpOnly`, el frontend nunca toca Supabase ni el JWT), 4 roles (owner/administrador/supervisor/asesor).
@@ -62,6 +62,10 @@ El motor conversacional y de agenda (`WorkflowEngine`, `SchedulingEngine`, `Acti
 **Fase 4 — Agenda propia de TARA:** vista por día agrupada por asesor, alta de citas (cliente existente o nuevo), reagendado y cancelación. Un solo camino de escritura: reusa `SchedulingEngine.agendarCita()/reagendarCita()/cancelarCita()` — el mismo que usa la conversación de WhatsApp. Base multiusuario agregada: `asesores.usuario_id` vincula un asesor de agenda con su cuenta de login, permitiendo que un rol Asesor vea/gestione solo su propia agenda.
 
 **Google Calendar sigue siendo integración opcional, no dependencia del producto** — la fuente de verdad de la agenda es la tabla `citas` (ya el caso desde TA.3: si Google falla o no está conectado, la agenda de TARA sigue funcionando igual vía `MockCalendarProvider`).
+
+**Fase 5 — CRM:** lista de clientes (visibilidad por rol, mismo criterio que Conversaciones), ficha completa (datos + historial de conversaciones + citas + oportunidades), seguimientos manuales con prioridad (alta/media/baja). Fija **ADR-006 — Ficha 360° del cliente**: `cliente_id`+`company_id` es la forma obligatoria de todo módulo nuevo asociado a un cliente, y `crm-ui.obtenerFichaCliente()` es el único agregador de lectura — los módulos futuros (Cotizaciones, Pedidos, Facturas, Archivos) se conectan ahí, no reinventan su propio join.
+
+**Ver decisiones de diseño:** `docs/decisions/ADR-006-cliente-entidad-central-ficha-360.md`.
 
 ---
 
