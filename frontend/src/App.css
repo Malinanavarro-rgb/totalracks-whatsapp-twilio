@@ -291,3 +291,52 @@ body {
 .modal-acciones button { padding: 0.55rem 1.1rem; border-radius: 6px; cursor: pointer; font-size: 0.9rem; }
 .modal-acciones button[type="submit"] { border: none; background: #1a1a2e; color: #fff; }
 .modal-acciones button[type="button"] { border: 1px solid #ddd; background: #fff; }
+
+/* ── CRM ───────────────────────────────────────────────────────────────── */
+
+.crm-seccion {
+  background: #fff;
+  border-radius: 10px;
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1.25rem;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+.crm-seccion h2 { margin: 0 0 0.85rem; font-size: 1rem; }
+
+.crm-seccion-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; }
+.crm-seccion-header h2 { margin: 0; }
+.crm-seccion-header button {
+  padding: 0.35rem 0.8rem; border: 1px solid #ddd; border-radius: 6px;
+  background: #fff; cursor: pointer; font-size: 0.85rem;
+}
+
+.crm-datos-lista { display: grid; grid-template-columns: 140px 1fr; row-gap: 0.5rem; margin: 0; font-size: 0.9rem; }
+.crm-datos-lista dt { color: #888; }
+.crm-datos-lista dd { margin: 0; }
+
+.crm-form-edicion { display: flex; flex-direction: column; gap: 0.75rem; max-width: 420px; }
+.crm-form-edicion label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; color: #333; }
+.crm-form-edicion input, .crm-form-edicion select {
+  padding: 0.5rem 0.65rem; border: 1px solid #ddd; border-radius: 6px; font-size: 0.9rem;
+}
+
+.crm-form-seguimiento { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
+.crm-form-seguimiento input[type="text"] { flex: 1; min-width: 160px; }
+.crm-form-seguimiento input, .crm-form-seguimiento select {
+  padding: 0.5rem 0.65rem; border: 1px solid #ddd; border-radius: 6px; font-size: 0.9rem;
+}
+.crm-form-seguimiento button {
+  padding: 0.5rem 1rem; border: none; border-radius: 6px; background: #1a1a2e; color: #fff; cursor: pointer;
+}
+
+.crm-seguimientos-lista { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+.crm-seguimiento-item { display: flex; align-items: center; gap: 0.6rem; font-size: 0.9rem; }
+.crm-seguimiento-item--completado .crm-seguimiento-texto { text-decoration: line-through; color: #999; }
+.crm-seguimiento-fecha { margin-left: auto; color: #888; font-size: 0.8rem; }
+
+.etiqueta-prioridad { font-size: 0.7rem; padding: 0.1rem 0.45rem; border-radius: 999px; background: #eef0f7; color: #444; text-transform: uppercase; }
+.etiqueta-prioridad--alta { background: #fdecea; color: #a03a34; }
+.etiqueta-prioridad--media { background: #fff7e6; color: #7a5b00; }
+.etiqueta-prioridad--baja { background: #e3f3e6; color: #226a34; }
+
+.crm-oportunidades-lista { list-style: none; padding: 0; margin: 0; font-size: 0.9rem; display: flex; flex-direction: column; gap: 0.4rem; }

@@ -8,7 +8,7 @@ const MODULOS = [
   { ruta: '/operaciones',   etiqueta: 'Centro de Operaciones', habilitado: true },
   { ruta: '/conversaciones', etiqueta: 'Conversaciones',        habilitado: true },
   { ruta: '/agenda',         etiqueta: 'Agenda TARA',           habilitado: true },
-  { ruta: '/crm',            etiqueta: 'CRM',                   habilitado: false },
+  { ruta: '/crm',            etiqueta: 'CRM',                   habilitado: true },
   { ruta: '/configuracion',  etiqueta: 'Configuración',         habilitado: false },
   { ruta: '/reportes',       etiqueta: 'Reportes',              habilitado: false },
 ];

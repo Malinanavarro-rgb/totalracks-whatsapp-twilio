@@ -30,6 +30,10 @@ const {
   listarAsesores, listarCitas, consultarDisponibilidad, obtenerOCrearClienteManual,
   crearCita, reagendarCita, cancelarCita, vincularUsuarioAAsesor,
 }                                        = require('./modules/agenda');
+const {
+  listarClientes, obtenerFichaCliente, actualizarCliente,
+  listarSeguimientos, crearSeguimiento, actualizarSeguimiento,
+}                                        = require('./modules/crm-ui');
 
 const app           = express();
 const adapter       = new TwilioWhatsAppAdapter(twilioClient);
@@ -485,6 +489,67 @@ app.patch('/api/agenda/asesores/:id/vincular', requireAuth, async (req, res) => 
     }
     const asesor = await vincularUsuarioAAsesor(supabase, req.usuario.company_id, req.params.id, req.body.usuario_id);
     res.json(asesor);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// ── CRM (Plataforma SaaS, Fase 5) ─────────────────────────────────────────────
+// Lógica real en modules/crm-ui.js (distinto de modules/crm.js, el write path
+// congelado del motor conversacional — ADR-005). Solo lectura/edición de UI.
+
+app.get('/api/crm/clientes', requireAuth, async (req, res) => {
+  try {
+    const clientes = await listarClientes(supabase, req.usuario.company_id, req.usuario);
+    res.json(clientes);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/crm/clientes/:id', requireAuth, async (req, res) => {
+  try {
+    const ficha = await obtenerFichaCliente(supabase, req.usuario.company_id, req.params.id);
+    res.json(ficha);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/crm/clientes/:id', requireAuth, async (req, res) => {
+  try {
+    const cliente = await actualizarCliente(supabase, req.usuario.company_id, req.params.id, req.body);
+    res.json(cliente);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.get('/api/crm/clientes/:id/seguimientos', requireAuth, async (req, res) => {
+  try {
+    const seguimientos = await listarSeguimientos(supabase, req.usuario.company_id, req.params.id);
+    res.json(seguimientos);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/crm/clientes/:id/seguimientos', requireAuth, async (req, res) => {
+  try {
+    const { texto, fecha_programada, prioridad } = req.body;
+    if (!texto || !texto.trim()) return res.status(400).json({ error: 'texto requerido' });
+
+    const seguimiento = await crearSeguimiento(supabase, req.usuario.company_id, req.params.id, req.usuario.id, { texto, fecha_programada, prioridad });
+    res.status(201).json(seguimiento);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/crm/seguimientos/:id', requireAuth, async (req, res) => {
+  try {
+    const seguimiento = await actualizarSeguimiento(supabase, req.usuario.company_id, req.params.id, req.body);
+    res.json(seguimiento);
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
   }

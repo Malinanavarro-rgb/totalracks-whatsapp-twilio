@@ -7,6 +7,8 @@ import Operaciones from './pages/Operaciones';
 import Conversaciones from './pages/Conversaciones';
 import ConversacionDetalle from './pages/ConversacionDetalle';
 import Agenda from './pages/Agenda';
+import Crm from './pages/Crm';
+import CrmClienteDetalle from './pages/CrmClienteDetalle';
 import './App.css';
 
 export default function App() {
@@ -27,6 +29,8 @@ export default function App() {
             <Route path="/conversaciones" element={<Conversaciones />} />
             <Route path="/conversaciones/:clienteId" element={<ConversacionDetalle />} />
             <Route path="/agenda" element={<Agenda />} />
+            <Route path="/crm" element={<Crm />} />
+            <Route path="/crm/clientes/:clienteId" element={<CrmClienteDetalle />} />
           </Route>
 
           <Route path="/" element={<Navigate to="/operaciones" replace />} />

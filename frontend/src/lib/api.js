@@ -45,4 +45,14 @@ export const api = {
   reagendarCita: (citaId, inicio, fin) =>
     pedir(`/api/agenda/citas/${citaId}`, { method: 'PATCH', body: JSON.stringify({ inicio, fin }) }),
   cancelarCita:  (citaId) => pedir(`/api/agenda/citas/${citaId}/cancelar`, { method: 'POST' }),
+
+  clientesCrm:        () => pedir('/api/crm/clientes'),
+  fichaCliente:       (clienteId) => pedir(`/api/crm/clientes/${clienteId}`),
+  actualizarCliente:  (clienteId, cambios) =>
+    pedir(`/api/crm/clientes/${clienteId}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
+  seguimientos:       (clienteId) => pedir(`/api/crm/clientes/${clienteId}/seguimientos`),
+  crearSeguimiento:   (clienteId, datos) =>
+    pedir(`/api/crm/clientes/${clienteId}/seguimientos`, { method: 'POST', body: JSON.stringify(datos) }),
+  actualizarSeguimiento: (seguimientoId, cambios) =>
+    pedir(`/api/crm/seguimientos/${seguimientoId}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
 };
