@@ -18,6 +18,7 @@ const { AIEngine }               = require('../modules/ai-engine');
 const { OpenAIProvider }         = require('../adapters/ai/openai-provider');
 const { MockProvider }           = require('../adapters/ai/mock-provider');
 const { TwilioWhatsAppAdapter }  = require('../adapters/channels/twilio-whatsapp');
+const { ChannelRouter }           = require('../modules/channel-router');
 const { enviarRecordatoriosPendientes } = require('../modules/recordatorios');
 
 (async () => {
@@ -26,8 +27,9 @@ const { enviarRecordatoriosPendientes } = require('../modules/recordatorios');
   aiEngine.registerProvider(new OpenAIProvider(openai));
 
   const channelAdapter = new TwilioWhatsAppAdapter(twilioClient);
+  const channelRouter  = new ChannelRouter(supabase);
 
-  const resultado = await enviarRecordatoriosPendientes({ supabase, aiEngine, channelAdapter });
+  const resultado = await enviarRecordatoriosPendientes({ supabase, aiEngine, channelAdapter, channelRouter });
   console.log(`✅ Recordatorios: ${resultado.enviados} enviados, ${resultado.fallidos} fallidos`);
   process.exit(0);
 })().catch(err => {

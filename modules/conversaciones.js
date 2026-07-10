@@ -169,7 +169,7 @@ async function regresarATara(supabase, company_id, clienteId) {
  * ChannelAdapter.sendProactive, ya existente) y lo registra en
  * mensajes_humanos. Requiere que la conversación ya esté tomada.
  */
-async function enviarMensajeHumano(supabase, channelAdapter, company_id, clienteId, asesorId, texto) {
+async function enviarMensajeHumano(supabase, channelAdapter, channelRouter, company_id, clienteId, asesorId, texto) {
   const { data: cliente, error } = await supabase
     .from('clientes')
     .select('telefono, atendido_por')
@@ -193,7 +193,8 @@ async function enviarMensajeHumano(supabase, channelAdapter, company_id, cliente
     contenido:  texto,
   }]);
 
-  await channelAdapter.sendProactive(texto, cliente.telefono);
+  const numeroOrigen = await channelRouter.resolverEndpointDeEmpresa(company_id);
+  await channelAdapter.sendProactive(texto, cliente.telefono, numeroOrigen);
 }
 
 /**

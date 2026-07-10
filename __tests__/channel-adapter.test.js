@@ -200,10 +200,22 @@ describe('TwilioWhatsAppAdapter', () => {
       });
     });
 
-    test('lanza error si TWILIO_WHATSAPP_NUMBER no está definido', async () => {
+    test('lanza error si no hay from ni TWILIO_WHATSAPP_NUMBER definido', async () => {
       await expect(
         adapter.sendProactive('Hola', '+5218112345678')
-      ).rejects.toThrow('TWILIO_WHATSAPP_NUMBER no definido');
+      ).rejects.toThrow('no hay número de origen');
+    });
+
+    test('usa el "from" explícito (resuelto por empresa) en vez de la variable global', async () => {
+      process.env.TWILIO_WHATSAPP_NUMBER = '+528100000000'; // no debe usarse
+
+      await adapter.sendProactive('Hola', '+5218112345678', '+5219999999999');
+
+      expect(mockCreate).toHaveBeenCalledWith({
+        from: 'whatsapp:+5219999999999',
+        to:   'whatsapp:+5218112345678',
+        body: 'Hola',
+      });
     });
 
     test('propaga errores del cliente Twilio', async () => {

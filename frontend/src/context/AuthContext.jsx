@@ -32,7 +32,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ sesion, cargando, iniciarSesion, cerrarSesion }}>
+    <AuthContext.Provider value={{ sesion, cargando, iniciarSesion, cerrarSesion, rehidratar }}>
       {children}
     </AuthContext.Provider>
   );

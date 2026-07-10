@@ -9,7 +9,7 @@ const MODULOS = [
   { ruta: '/conversaciones', etiqueta: 'Conversaciones',        habilitado: true },
   { ruta: '/agenda',         etiqueta: 'Agenda TARA',           habilitado: true },
   { ruta: '/crm',            etiqueta: 'CRM',                   habilitado: true },
-  { ruta: '/configuracion',  etiqueta: 'Configuración',         habilitado: false },
+  { ruta: '/configuracion',  etiqueta: 'Configuración',         habilitado: true },
   { ruta: '/reportes',       etiqueta: 'Reportes',              habilitado: false },
 ];
 

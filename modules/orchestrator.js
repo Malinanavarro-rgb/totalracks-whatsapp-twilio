@@ -37,6 +37,7 @@
 
 const { randomUUID }  = require('crypto');
 const { ActionRunner } = require('./action-runner');
+const { instruccionesDePersonalidad } = require('./personalidad-presets');
 
 // ═════════════════════════════════════════════════════════════════════════════
 // CONSTANTES
@@ -331,6 +332,7 @@ class Orchestrator {
       `Eres ${nombre}, ${cargo} de ${company.nombre}.`,
       company.descripcion ? company.descripcion : null,
       `Tono de comunicación: ${tono}.`,
+      ...instruccionesDePersonalidad(personality),
       'Nunca menciones que eres IA, bot, asistente virtual o inteligencia artificial.',
       'Evita frases genéricas: no uses "Gracias por tu mensaje", "Estoy aquí para ayudarte" ni "¿Puedes proporcionar más información?".',
       'Cuando tengas suficiente información, da tu recomendación con justificación concreta. No sigas pidiendo datos innecesarios.',

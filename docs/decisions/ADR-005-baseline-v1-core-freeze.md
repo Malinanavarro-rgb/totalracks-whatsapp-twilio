@@ -53,6 +53,12 @@ Cualquier cambio a estos componentes, aun justificado, se documenta explícitame
 
 El esfuerzo de desarrollo se redirige a construir la plataforma **alrededor** del motor, no a seguir iterando el motor mismo: dashboard, agenda propia de TARA (UI), portal de administración, gestión de empresas/usuarios/asesores, conversaciones en tiempo real, intervención humana, CRM, reportes, configuración por empresa, experiencia SaaS. Ver `docs/roadmap/README.md` (actualizado el mismo día que este ADR).
 
+## Excepciones documentadas (cambios posteriores al Core, con justificación)
+
+| Fecha | Componente | Qué cambió | Por qué | Alternativas consideradas |
+|---|---|---|---|---|
+| 9 jul 2026 | `Orchestrator._mapearPersonalidad()` | Se agregó `instruccionesDePersonalidad()` (`modules/personalidad-presets.js`) — 3 líneas de instrucción opcionales (longitud de respuesta, uso de emojis, nivel de iniciativa), aditivo, sin cambiar lógica de decisión existente | Dirigido explícitamente por la dueña del producto (Fase 6, Configuración amigable de IA): las opciones de negocio que ve el cliente deben tener efecto real desde el día uno, no solo guardarse para una implementación futura | (a) guardar las opciones sin aplicarlas todavía — descartada porque la dueña pidió efecto real inmediato; (b) tocar `PromptBuilder` en vez de `Orchestrator` — descartada porque el string de identidad ya se ensambla en `_mapearPersonalidad`, agregar el bloque ahí es el cambio más chico posible |
+
 ## Condición para reabrir
 
 Este ADR se revisa si:

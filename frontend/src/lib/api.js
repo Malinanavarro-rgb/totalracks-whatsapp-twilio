@@ -55,4 +55,36 @@ export const api = {
     pedir(`/api/crm/clientes/${clienteId}/seguimientos`, { method: 'POST', body: JSON.stringify(datos) }),
   actualizarSeguimiento: (seguimientoId, cambios) =>
     pedir(`/api/crm/seguimientos/${seguimientoId}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
+
+  // Configuración de empresa (Fase 6)
+  personalidad:            () => pedir('/api/config/personalidad'),
+  actualizarPersonalidad:  (cambios) => pedir('/api/config/personalidad', { method: 'PATCH', body: JSON.stringify(cambios) }),
+
+  knowledgeBase:           () => pedir('/api/config/knowledge-base'),
+  crearKnowledgeBase:      (datos) => pedir('/api/config/knowledge-base', { method: 'POST', body: JSON.stringify(datos) }),
+  actualizarKnowledgeBase: (id, datos) => pedir(`/api/config/knowledge-base/${id}`, { method: 'PATCH', body: JSON.stringify(datos) }),
+  eliminarKnowledgeBase:   (id) => pedir(`/api/config/knowledge-base/${id}`, { method: 'DELETE' }),
+
+  horariosConfig:          () => pedir('/api/config/horarios'),
+  crearHorarioConfig:      (datos) => pedir('/api/config/horarios', { method: 'POST', body: JSON.stringify(datos) }),
+  eliminarHorarioConfig:   (id) => pedir(`/api/config/horarios/${id}`, { method: 'DELETE' }),
+
+  horarioAtencion:         () => pedir('/api/config/horario-atencion'),
+  guardarHorarioAtencion:  (datos) => pedir('/api/config/horario-atencion', { method: 'POST', body: JSON.stringify(datos) }),
+  eliminarHorarioAtencion: (id) => pedir(`/api/config/horario-atencion/${id}`, { method: 'DELETE' }),
+
+  serviciosConfig:         () => pedir('/api/config/servicios'),
+  crearServicioConfig:     (datos) => pedir('/api/config/servicios', { method: 'POST', body: JSON.stringify(datos) }),
+  actualizarServicioConfig: (id, datos) => pedir(`/api/config/servicios/${id}`, { method: 'PATCH', body: JSON.stringify(datos) }),
+
+  canalesConfig:           () => pedir('/api/config/canales'),
+
+  usuariosConfig:          () => pedir('/api/config/usuarios'),
+  invitarUsuario:          (datos) => pedir('/api/config/usuarios/invitar', { method: 'POST', body: JSON.stringify(datos) }),
+  actualizarMiembro:       (usuarioId, cambios) => pedir(`/api/config/usuarios/${usuarioId}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
+
+  // Aceptar invitación (público, sin sesión)
+  obtenerInvitacion:       (token) => pedir(`/api/invitaciones/${token}`),
+  aceptarInvitacion:       (token, password) =>
+    pedir(`/api/invitaciones/${token}/aceptar`, { method: 'POST', body: JSON.stringify({ password }) }),
 };

@@ -114,14 +114,20 @@ class TwilioWhatsAppAdapter extends ChannelAdapter {
    *
    * @param {string} text          - Texto del mensaje
    * @param {string} identificador - Número de teléfono destino (con código de país)
+   * @param {string} [from]        - Número de origen (sin "whatsapp:"). Cuando se
+   *                                 envía en nombre de una empresa específica, el
+   *                                 llamador debe resolverlo vía ChannelRouter
+   *                                 (channel_endpoints) — nunca asumir un único
+   *                                 número global. Si se omite, cae a
+   *                                 TWILIO_WHATSAPP_NUMBER (compatibilidad).
    * @returns {Promise<void>}
    */
-  async sendProactive(text, identificador) {
-    const from = process.env.TWILIO_WHATSAPP_NUMBER;
-    if (!from) throw new Error('TWILIO_WHATSAPP_NUMBER no definido en .env');
+  async sendProactive(text, identificador, from) {
+    const numeroOrigen = from || process.env.TWILIO_WHATSAPP_NUMBER;
+    if (!numeroOrigen) throw new Error('sendProactive: no hay número de origen (from) ni TWILIO_WHATSAPP_NUMBER definido');
 
     await this._client.messages.create({
-      from: `whatsapp:${from}`,
+      from: `whatsapp:${numeroOrigen}`,
       to:   `whatsapp:${identificador}`,
       body: text,
     });

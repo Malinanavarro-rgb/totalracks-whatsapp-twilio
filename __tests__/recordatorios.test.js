@@ -40,6 +40,10 @@ function crearMockChannelAdapter() {
   return { sendProactive: jest.fn().mockResolvedValue(undefined) };
 }
 
+function crearMockChannelRouter() {
+  return { resolverEndpointDeEmpresa: jest.fn().mockResolvedValue('+5218100000000') };
+}
+
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
 const AHORA = new Date('2026-07-10T00:00:00Z');
@@ -74,13 +78,15 @@ describe('recordatorios', () => {
       );
       const aiEngine = crearMockAIEngine({ respuesta_texto: 'no debería llamarse' });
       const channelAdapter = crearMockChannelAdapter();
+      const channelRouter  = crearMockChannelRouter();
 
-      const resultado = await enviarRecordatoriosPendientes({ supabase: db, aiEngine, channelAdapter, ahora: AHORA });
+      const resultado = await enviarRecordatoriosPendientes({ supabase: db, aiEngine, channelAdapter, channelRouter, ahora: AHORA });
 
       expect(aiEngine.procesar).not.toHaveBeenCalled();
       expect(channelAdapter.sendProactive).toHaveBeenCalledWith(
         expect.stringContaining('Hola Carlos, tu cita con Ana es el'),
-        '+5218112345678'
+        '+5218112345678',
+        '+5218100000000'
       );
       expect(resultado).toEqual({ enviados: 1, fallidos: 0 });
     });
@@ -94,12 +100,14 @@ describe('recordatorios', () => {
       );
       const aiEngine = crearMockAIEngine({ respuesta_texto: '¡Qué gusto saludarte!' });
       const channelAdapter = crearMockChannelAdapter();
+      const channelRouter  = crearMockChannelRouter();
 
-      await enviarRecordatoriosPendientes({ supabase: db, aiEngine, channelAdapter, ahora: AHORA, timeoutIaMs: 200 });
+      await enviarRecordatoriosPendientes({ supabase: db, aiEngine, channelAdapter, channelRouter, ahora: AHORA, timeoutIaMs: 200 });
 
       expect(channelAdapter.sendProactive).toHaveBeenCalledWith(
         expect.stringMatching(/^¡Qué gusto saludarte! Hola Carlos/),
-        '+5218112345678'
+        '+5218112345678',
+        '+5218100000000'
       );
     });
 
@@ -116,14 +124,16 @@ describe('recordatorios', () => {
         )),
       };
       const channelAdapter = crearMockChannelAdapter();
+      const channelRouter  = crearMockChannelRouter();
 
       const resultado = await enviarRecordatoriosPendientes({
-        supabase: db, aiEngine, channelAdapter, ahora: AHORA, timeoutIaMs: 10,
+        supabase: db, aiEngine, channelAdapter, channelRouter, ahora: AHORA, timeoutIaMs: 10,
       });
 
       expect(channelAdapter.sendProactive).toHaveBeenCalledWith(
         expect.stringMatching(/^Hola Carlos/), // sin la frase de la IA
-        '+5218112345678'
+        '+5218112345678',
+        '+5218100000000'
       );
       expect(resultado).toEqual({ enviados: 1, fallidos: 0 });
     });
@@ -137,12 +147,14 @@ describe('recordatorios', () => {
       );
       const aiEngine = { procesar: jest.fn().mockRejectedValue(new Error('OpenAI caído')) };
       const channelAdapter = crearMockChannelAdapter();
+      const channelRouter  = crearMockChannelRouter();
 
-      const resultado = await enviarRecordatoriosPendientes({ supabase: db, aiEngine, channelAdapter, ahora: AHORA });
+      const resultado = await enviarRecordatoriosPendientes({ supabase: db, aiEngine, channelAdapter, channelRouter, ahora: AHORA });
 
       expect(channelAdapter.sendProactive).toHaveBeenCalledWith(
         expect.stringMatching(/^Hola Carlos/),
-        '+5218112345678'
+        '+5218112345678',
+        '+5218100000000'
       );
       expect(resultado).toEqual({ enviados: 1, fallidos: 0 });
     });
@@ -155,8 +167,9 @@ describe('recordatorios', () => {
       );
       const aiEngine = crearMockAIEngine({});
       const channelAdapter = crearMockChannelAdapter();
+      const channelRouter  = crearMockChannelRouter();
 
-      const resultado = await enviarRecordatoriosPendientes({ supabase: db, aiEngine, channelAdapter, ahora: AHORA });
+      const resultado = await enviarRecordatoriosPendientes({ supabase: db, aiEngine, channelAdapter, channelRouter, ahora: AHORA });
 
       expect(channelAdapter.sendProactive).not.toHaveBeenCalled();
       expect(resultado).toEqual({ enviados: 0, fallidos: 0 });
@@ -177,8 +190,9 @@ describe('recordatorios', () => {
           .mockRejectedValueOnce(new Error('Twilio caído'))
           .mockResolvedValueOnce(undefined),
       };
+      const channelRouter = crearMockChannelRouter();
 
-      const resultado = await enviarRecordatoriosPendientes({ supabase: db, aiEngine, channelAdapter, ahora: AHORA });
+      const resultado = await enviarRecordatoriosPendientes({ supabase: db, aiEngine, channelAdapter, channelRouter, ahora: AHORA });
 
       expect(channelAdapter.sendProactive).toHaveBeenCalledTimes(2);
       expect(resultado).toEqual({ enviados: 1, fallidos: 1 });
@@ -189,7 +203,7 @@ describe('recordatorios', () => {
 
       await enviarRecordatoriosPendientes({
         supabase: db, aiEngine: crearMockAIEngine({}), channelAdapter: crearMockChannelAdapter(),
-        ahora: AHORA, ventanaHoras: 24,
+        channelRouter: crearMockChannelRouter(), ahora: AHORA, ventanaHoras: 24,
       });
 
       const builder = db._builders[0];
@@ -203,8 +217,9 @@ describe('recordatorios', () => {
       const db = crearMockDb({ data: [], error: null });
       const aiEngine = crearMockAIEngine({});
       const channelAdapter = crearMockChannelAdapter();
+      const channelRouter  = crearMockChannelRouter();
 
-      const resultado = await enviarRecordatoriosPendientes({ supabase: db, aiEngine, channelAdapter, ahora: AHORA });
+      const resultado = await enviarRecordatoriosPendientes({ supabase: db, aiEngine, channelAdapter, channelRouter, ahora: AHORA });
 
       expect(db.from).toHaveBeenCalledTimes(1);
       expect(channelAdapter.sendProactive).not.toHaveBeenCalled();

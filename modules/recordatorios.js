@@ -53,13 +53,15 @@ function conTimeout(promesa, ms) {
  * @param {import('@supabase/supabase-js').SupabaseClient} params.supabase
  * @param {import('./ai-engine').AIEngine} params.aiEngine
  * @param {import('../adapters/channels/channel-adapter').ChannelAdapter} params.channelAdapter
+ * @param {import('./channel-router').ChannelRouter} params.channelRouter - resuelve el número
+ *   de WhatsApp propio de cada empresa (channel_endpoints) — nunca se asume un único número global.
  * @param {Date}   [params.ahora=new Date()]
  * @param {number} [params.ventanaHoras=24]
  * @param {number} [params.timeoutIaMs=3000]
  * @returns {Promise<{enviados: number, fallidos: number}>}
  */
 async function enviarRecordatoriosPendientes({
-  supabase, aiEngine, channelAdapter,
+  supabase, aiEngine, channelAdapter, channelRouter,
   ahora = new Date(), ventanaHoras = 24, timeoutIaMs = 3000,
 }) {
   const hasta = new Date(ahora.getTime() + ventanaHoras * 3600 * 1000);
@@ -82,7 +84,7 @@ async function enviarRecordatoriosPendientes({
 
   for (const cita of citas || []) {
     try {
-      const seEnvio = await _procesarRecordatorio(cita, { supabase, aiEngine, channelAdapter, timeoutIaMs });
+      const seEnvio = await _procesarRecordatorio(cita, { supabase, aiEngine, channelAdapter, channelRouter, timeoutIaMs });
       if (seEnvio) enviados++;
     } catch (err) {
       fallidos++;
@@ -93,7 +95,7 @@ async function enviarRecordatoriosPendientes({
   return { enviados, fallidos };
 }
 
-async function _procesarRecordatorio(cita, { supabase, aiEngine, channelAdapter, timeoutIaMs }) {
+async function _procesarRecordatorio(cita, { supabase, aiEngine, channelAdapter, channelRouter, timeoutIaMs }) {
   const { data: plantillaRow, error: errorPlantilla } = await supabase
     .from('mensajes_automaticos')
     .select('*')
@@ -137,7 +139,8 @@ async function _procesarRecordatorio(cita, { supabase, aiEngine, channelAdapter,
     }
   }
 
-  await channelAdapter.sendProactive(mensaje, cita.clientes.telefono);
+  const numeroOrigen = await channelRouter.resolverEndpointDeEmpresa(cita.company_id);
+  await channelAdapter.sendProactive(mensaje, cita.clientes.telefono, numeroOrigen);
 
   await supabase
     .from('citas')

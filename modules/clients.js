@@ -24,6 +24,4 @@ const twilioClient = twilio(
   process.env.TWILIO_AUTH_TOKEN
 );
 
-const COMPANY_SLUG = process.env.COMPANY_SLUG || 'totalracks';
-
-module.exports = { supabase, openai, twilioClient, COMPANY_SLUG };
+module.exports = { supabase, openai, twilioClient };

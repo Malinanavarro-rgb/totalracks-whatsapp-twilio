@@ -57,4 +57,15 @@ async function obtenerConfigEmpresa(companyId) {
   return result;
 }
 
-module.exports = { obtenerConfigEmpresa };
+/**
+ * Invalida la caché de una empresa. Se llama después de editar
+ * personalities/knowledge_base desde Configuración (Fase 6) para que el
+ * cambio tenga efecto inmediato, sin esperar el TTL de 5 minutos.
+ *
+ * @param {string} companyId
+ */
+function invalidarCache(companyId) {
+  _cache.delete(companyId);
+}
+
+module.exports = { obtenerConfigEmpresa, invalidarCache };

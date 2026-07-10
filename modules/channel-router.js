@@ -80,6 +80,40 @@ class ChannelRouter {
   invalidarCache(endpoint) {
     this._cache.delete(endpoint);
   }
+
+  /**
+   * Dirección inversa de enrutar(): dado un company_id, resuelve el número
+   * propio de esa empresa para ese canal (ej. su WhatsApp). Se usa para
+   * envíos proactivos (recordatorios, intervención humana) — nunca debe
+   * asumirse un único número global para todas las empresas.
+   *
+   * @param {string} company_id
+   * @param {string} [canal='whatsapp']
+   * @returns {Promise<string|null>} número sin el prefijo "whatsapp:"
+   */
+  async resolverEndpointDeEmpresa(company_id, canal = 'whatsapp') {
+    if (!company_id) return null;
+
+    const cacheKey = `empresa:${company_id}:${canal}`;
+    const cached = this._cache.get(cacheKey);
+    if (cached && (Date.now() - cached.cachedAt) < CACHE_TTL) {
+      return cached.numero;
+    }
+
+    const { data, error } = await this._db
+      .from('channel_endpoints')
+      .select('endpoint')
+      .eq('company_id', company_id)
+      .eq('canal', canal)
+      .eq('activo', true)
+      .maybeSingle();
+
+    if (error || !data) return null;
+
+    const numero = data.endpoint.replace(`${canal}:`, '');
+    this._cache.set(cacheKey, { numero, cachedAt: Date.now() });
+    return numero;
+  }
 }
 
 module.exports = { ChannelRouter };

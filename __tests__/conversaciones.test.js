@@ -150,17 +150,20 @@ describe('conversaciones', () => {
         { data: null, error: null }, // insert
       );
       const adapter = { sendProactive: jest.fn().mockResolvedValue(undefined) };
+      const router  = { resolverEndpointDeEmpresa: jest.fn().mockResolvedValue('+5218100000000') };
 
-      await enviarMensajeHumano(db, adapter, COMPANY_A, CLIENTE_ID, ASESOR_1, 'hola, soy Ana');
+      await enviarMensajeHumano(db, adapter, router, COMPANY_A, CLIENTE_ID, ASESOR_1, 'hola, soy Ana');
 
-      expect(adapter.sendProactive).toHaveBeenCalledWith('hola, soy Ana', '+5218110000000');
+      expect(router.resolverEndpointDeEmpresa).toHaveBeenCalledWith(COMPANY_A);
+      expect(adapter.sendProactive).toHaveBeenCalledWith('hola, soy Ana', '+5218110000000', '+5218100000000');
     });
 
     test('rechaza si la conversación no está tomada (atendido_por=ia)', async () => {
       const db = crearMockDb({ data: { telefono: '+52...', atendido_por: 'ia' }, error: null });
       const adapter = { sendProactive: jest.fn() };
+      const router  = { resolverEndpointDeEmpresa: jest.fn() };
 
-      await expect(enviarMensajeHumano(db, adapter, COMPANY_A, CLIENTE_ID, ASESOR_1, 'hola'))
+      await expect(enviarMensajeHumano(db, adapter, router, COMPANY_A, CLIENTE_ID, ASESOR_1, 'hola'))
         .rejects.toMatchObject({ status: 409 });
       expect(adapter.sendProactive).not.toHaveBeenCalled();
     });

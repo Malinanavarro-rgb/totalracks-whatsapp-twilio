@@ -486,6 +486,34 @@ describe('Orchestrator — mapeadores', () => {
       expect(str).not.toContain('Rack Selectivo');
       expect(str).not.toContain('$45,000');
     });
+
+    // Fase 6 (Configuración amigable de IA): longitud_respuesta/uso_emojis/
+    // nivel_iniciativa deben modificar el comportamiento real desde el string
+    // de identidad — no solo guardarse sin efecto.
+    it('sin longitud_respuesta/uso_emojis/nivel_iniciativa (valores default), no agrega instrucciones extra', () => {
+      const { personality, company } = makeEmpresaRaw();
+      const str = orch._mapearPersonalidad(personality, company);
+      expect(str).not.toContain('breve');
+      expect(str).not.toContain('emojis');
+    });
+
+    it('longitud_respuesta=cortas agrega la instrucción de brevedad', () => {
+      const { personality, company } = makeEmpresaRaw();
+      const str = orch._mapearPersonalidad({ ...personality, longitud_respuesta: 'cortas' }, company);
+      expect(str).toContain('Responde de forma breve');
+    });
+
+    it('uso_emojis=frecuente agrega la instrucción de usar emojis', () => {
+      const { personality, company } = makeEmpresaRaw();
+      const str = orch._mapearPersonalidad({ ...personality, uso_emojis: 'frecuente' }, company);
+      expect(str).toContain('Usa emojis con frecuencia');
+    });
+
+    it('nivel_iniciativa=cerrar_ventas agrega la instrucción de cierre proactivo', () => {
+      const { personality, company } = makeEmpresaRaw();
+      const str = orch._mapearPersonalidad({ ...personality, nivel_iniciativa: 'cerrar_ventas' }, company);
+      expect(str).toContain('cerrar la venta');
+    });
   });
 
   describe('_mapearDatosCliente()', () => {

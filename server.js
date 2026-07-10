@@ -34,12 +34,34 @@ const {
   listarClientes, obtenerFichaCliente, actualizarCliente,
   listarSeguimientos, crearSeguimiento, actualizarSeguimiento,
 }                                        = require('./modules/crm-ui');
+const {
+  obtenerPersonalidad, actualizarPersonalidad,
+  listarKnowledgeBase, crearKnowledgeBase, actualizarKnowledgeBase, eliminarKnowledgeBase,
+  listarHorarios, crearHorario, actualizarHorario, eliminarHorario,
+  listarHorarioAtencionBot, guardarHorarioAtencionBot, eliminarHorarioAtencionBot,
+  listarServicios, crearServicio, actualizarServicio,
+  listarCanales, estaDentroDeHorarioAtencion, esPrimerContacto,
+}                                        = require('./modules/configuracion');
+const {
+  listarMiembros, listarInvitacionesPendientes, crearInvitacion,
+  obtenerInvitacionPorToken, aceptarInvitacion, actualizarMiembro,
+}                                        = require('./modules/invitaciones');
 
 const app           = express();
 const adapter       = new TwilioWhatsAppAdapter(twilioClient);
 const orchestrator  = crearOrchestrator();
 const channelRouter = new ChannelRouter(supabase);
 const requireAuth   = crearRequireAuth(supabase);
+
+// Configuración de empresa y gestión de usuarios: solo Owner/Administrador
+// (matriz de permisos aprobada, docs/anexos/plataforma-saas). Se usa como
+// segundo middleware, después de requireAuth.
+function soloGerencial(req, res, next) {
+  if (!['owner', 'administrador'].includes(req.usuario.rol)) {
+    return res.status(403).json({ error: 'No autorizado' });
+  }
+  next();
+}
 
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
@@ -97,11 +119,36 @@ app.post('/webhook/twilio', async (req, res) => {
       return res.type('text/xml').send('<Response></Response>');
     }
 
+    // FASE 6 (Configuración — horario de atención del bot): fuera de horario,
+    // TARA no invoca al motor de IA — responde un mensaje fijo. Guard en la
+    // capa de plataforma, igual que el de intervención humana (ADR-005).
+    const dentroDeHorario = await estaDentroDeHorarioAtencion(supabase, message.company_id);
+    if (!dentroDeHorario) {
+      return res.type('text/xml').send(adapter.formatOutgoing(
+        'Gracias por tu mensaje. En este momento estamos fuera de horario de atención — te responderemos en cuanto sea posible.',
+        req.body
+      ));
+    }
+
     const resultado = await enqueueForPhone(
       message.from,
       () => orchestrator.procesarMensaje(message)
     );
-    res.type('text/xml').send(adapter.formatOutgoing(resultado.respuesta_texto, req.body));
+
+    // FASE 6 (Configuración — mensaje de bienvenida y firma): se aplican en
+    // la capa de plataforma, sobre el texto ya generado por el Orchestrator
+    // — cero cambios al motor de IA/prompt.
+    let textoFinal = resultado.respuesta_texto;
+    const { personality } = await obtenerConfigEmpresa(message.company_id);
+
+    if (personality?.mensaje_bienvenida && await esPrimerContacto(supabase, cliente.id)) {
+      textoFinal = `${personality.mensaje_bienvenida}\n\n${textoFinal}`;
+    }
+    if (personality?.firma) {
+      textoFinal = `${textoFinal}\n\n${personality.firma}`;
+    }
+
+    res.type('text/xml').send(adapter.formatOutgoing(textoFinal, req.body));
   } catch (e) {
     console.error('❌ Error en webhook:', e);
     res.type('text/xml').send(adapter.formatOutgoing('Error técnico. Intenta de nuevo.', req.body));
@@ -393,7 +440,7 @@ app.post('/api/conversaciones/:clienteId/mensajes', requireAuth, async (req, res
     if (!texto || !texto.trim()) return res.status(400).json({ error: 'texto requerido' });
 
     await enviarMensajeHumano(
-      supabase, adapter, req.usuario.company_id, req.params.clienteId, req.usuario.id, texto.trim()
+      supabase, adapter, channelRouter, req.usuario.company_id, req.params.clienteId, req.usuario.id, texto.trim()
     );
     res.status(201).json({ ok: true });
   } catch (e) {
@@ -550,6 +597,215 @@ app.patch('/api/crm/seguimientos/:id', requireAuth, async (req, res) => {
   try {
     const seguimiento = await actualizarSeguimiento(supabase, req.usuario.company_id, req.params.id, req.body);
     res.json(seguimiento);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// ── CONFIGURACIÓN DE EMPRESA (Plataforma SaaS, Fase 6) ───────────────────────
+// Lógica real en modules/configuracion.js. Solo campos de negocio — los
+// parámetros técnicos del motor de IA nunca se exponen aquí (ver ADR-005).
+
+app.get('/api/config/personalidad', requireAuth, async (req, res) => {
+  try {
+    res.json(await obtenerPersonalidad(supabase, req.usuario.company_id));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/config/personalidad', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    res.json(await actualizarPersonalidad(supabase, req.usuario.company_id, req.body));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.get('/api/config/knowledge-base', requireAuth, async (req, res) => {
+  try {
+    res.json(await listarKnowledgeBase(supabase, req.usuario.company_id));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/config/knowledge-base', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    res.status(201).json(await crearKnowledgeBase(supabase, req.usuario.company_id, req.body));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/config/knowledge-base/:id', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    res.json(await actualizarKnowledgeBase(supabase, req.usuario.company_id, req.params.id, req.body));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/config/knowledge-base/:id', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    await eliminarKnowledgeBase(supabase, req.usuario.company_id, req.params.id);
+    res.status(204).send();
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/config/horarios', requireAuth, async (req, res) => {
+  try {
+    res.json(await listarHorarios(supabase, req.usuario.company_id));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/config/horarios', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    res.status(201).json(await crearHorario(supabase, req.usuario.company_id, req.body));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/config/horarios/:id', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    res.json(await actualizarHorario(supabase, req.usuario.company_id, req.params.id, req.body));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/config/horarios/:id', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    await eliminarHorario(supabase, req.usuario.company_id, req.params.id);
+    res.status(204).send();
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/config/horario-atencion', requireAuth, async (req, res) => {
+  try {
+    res.json(await listarHorarioAtencionBot(supabase, req.usuario.company_id));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/config/horario-atencion', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    res.status(201).json(await guardarHorarioAtencionBot(supabase, req.usuario.company_id, req.body));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/config/horario-atencion/:id', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    await eliminarHorarioAtencionBot(supabase, req.usuario.company_id, req.params.id);
+    res.status(204).send();
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/config/servicios', requireAuth, async (req, res) => {
+  try {
+    res.json(await listarServicios(supabase, req.usuario.company_id));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/config/servicios', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    res.status(201).json(await crearServicio(supabase, req.usuario.company_id, req.body));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/config/servicios/:id', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    res.json(await actualizarServicio(supabase, req.usuario.company_id, req.params.id, req.body));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/config/canales', requireAuth, async (req, res) => {
+  try {
+    res.json(await listarCanales(supabase, req.usuario.company_id));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── USUARIOS / INVITACIONES (Plataforma SaaS, Fase 6) ─────────────────────────
+// Alta sin depender de crear cuentas manualmente en Supabase Dashboard.
+// Lógica real en modules/invitaciones.js.
+
+app.get('/api/config/usuarios', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    const [miembros, invitacionesPendientes] = await Promise.all([
+      listarMiembros(supabase, req.usuario.company_id),
+      listarInvitacionesPendientes(supabase, req.usuario.company_id),
+    ]);
+    res.json({ miembros, invitacionesPendientes });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/config/usuarios/invitar', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    const { nombre, email, rol } = req.body;
+    if (!nombre || !email) return res.status(400).json({ error: 'nombre y email requeridos' });
+
+    const invitacion = await crearInvitacion(supabase, req.usuario.company_id, { nombre, email, rol });
+    res.status(201).json({ ...invitacion, link: `/aceptar-invitacion/${invitacion.token}` });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/config/usuarios/:usuarioId', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    res.json(await actualizarMiembro(supabase, req.usuario.company_id, req.params.usuarioId, req.body));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Públicas — sin requireAuth. El invitado todavía no tiene sesión.
+
+app.get('/api/invitaciones/:token', async (req, res) => {
+  try {
+    const invitacion = await obtenerInvitacionPorToken(supabase, req.params.token);
+    res.json({ nombre: invitacion.nombre, email: invitacion.email, empresa: invitacion.companies?.nombre });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/invitaciones/:token/aceptar', async (req, res) => {
+  try {
+    const { password } = req.body;
+    if (!password || password.length < 6) {
+      return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
+    }
+    const { email } = await aceptarInvitacion(supabase, req.params.token, password);
+
+    // Cuenta y membresía creadas — se inicia sesión automáticamente para
+    // que el invitado entre directo, sin tener que loguearse aparte.
+    const { token, usuario, empresaActiva, empresas } = await iniciarSesion(supabase, email, password);
+    res.cookie('tara_session', token, COOKIE_OPTS);
+    res.cookie('tara_company', empresaActiva.company_id, COOKIE_OPTS);
+    res.status(201).json({ usuario, empresaActiva, empresas });
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
   }
