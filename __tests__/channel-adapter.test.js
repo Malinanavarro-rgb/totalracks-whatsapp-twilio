@@ -218,6 +218,31 @@ describe('TwilioWhatsAppAdapter', () => {
       });
     });
 
+    // Bug real de producción: TWILIO_WHATSAPP_NUMBER con el prefijo
+    // "whatsapp:" ya incluido duplicaba el prefijo ("whatsapp:whatsapp:+...")
+    // — Twilio rechazaba el envío (21212) y el cron reintentaba sin fin.
+    test('no duplica el prefijo "whatsapp:" si TWILIO_WHATSAPP_NUMBER ya lo incluye', async () => {
+      process.env.TWILIO_WHATSAPP_NUMBER = 'whatsapp:+528100000000';
+
+      await adapter.sendProactive('Hola', '+5218112345678');
+
+      expect(mockCreate).toHaveBeenCalledWith({
+        from: 'whatsapp:+528100000000',
+        to:   'whatsapp:+5218112345678',
+        body: 'Hola',
+      });
+    });
+
+    test('no duplica el prefijo "whatsapp:" si el "from" explícito ya lo incluye', async () => {
+      await adapter.sendProactive('Hola', '+5218112345678', 'whatsapp:+5219999999999');
+
+      expect(mockCreate).toHaveBeenCalledWith({
+        from: 'whatsapp:+5219999999999',
+        to:   'whatsapp:+5218112345678',
+        body: 'Hola',
+      });
+    });
+
     test('propaga errores del cliente Twilio', async () => {
       process.env.TWILIO_WHATSAPP_NUMBER = '+528100000000';
       mockCreate.mockRejectedValueOnce(new Error('Twilio API error: 21211'));

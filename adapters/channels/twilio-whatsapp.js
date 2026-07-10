@@ -123,7 +123,14 @@ class TwilioWhatsAppAdapter extends ChannelAdapter {
    * @returns {Promise<void>}
    */
   async sendProactive(text, identificador, from) {
-    const numeroOrigen = from || process.env.TWILIO_WHATSAPP_NUMBER;
+    // Bug real encontrado en producción: TWILIO_WHATSAPP_NUMBER puede venir
+    // con el prefijo "whatsapp:" ya incluido (formato documentado en
+    // render.yaml) — sin este strip, el "whatsapp:" se duplicaba
+    // ("whatsapp:whatsapp:+..."), Twilio rechazaba el envío (21212 Invalid
+    // From Number) y, al fallar antes de marcar recordatorio_enviado, el
+    // cron reintentaba la misma cita indefinidamente, agotando la cuota
+    // diaria de la cuenta.
+    const numeroOrigen = (from || process.env.TWILIO_WHATSAPP_NUMBER || '').replace(/^whatsapp:/, '');
     if (!numeroOrigen) throw new Error('sendProactive: no hay número de origen (from) ni TWILIO_WHATSAPP_NUMBER definido');
 
     await this._client.messages.create({
