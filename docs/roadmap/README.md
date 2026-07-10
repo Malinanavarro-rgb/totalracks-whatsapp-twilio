@@ -39,23 +39,29 @@ El motor conversacional y de agenda (`WorkflowEngine`, `SchedulingEngine`, `Acti
 
 ## FASE 5 — Plataforma SaaS (foco actual)
 
-**Objetivo:** convertir TARA en un producto comercial. El Core ya funciona y está congelado — el esfuerzo se concentra en construir la experiencia alrededor de él.
+**Objetivo:** convertir TARA en un producto comercial multiempresa. El Core ya funciona y está congelado — el esfuerzo se concentra en construir la experiencia alrededor de él. Diseño funcional completo (sitemap, módulos, permisos por rol, MVP vs. futuro) aprobado antes de escribir código — ver `docs/anexos/plataforma-saas/README.md`.
 
-Frentes de trabajo (sin orden de prioridad fijo todavía — se prioriza según se vaya definiendo):
+**Principio vigente en todas las sub-fases:** el Core (tabla "estables" de `docs/ARQUITECTURA-CONGELADA-v1.0.md`) no se toca para construir esto salvo bug o evidencia real (ADR-005) — la plataforma se construye *sobre* el Core, no *dentro* de él. Cada sub-fase reusa el mismo camino de escritura del motor (`SchedulingEngine`, `ActionRunner`) en vez de duplicar lógica.
 
-- **Dashboard** — visibilidad operativa por empresa.
-- **Agenda propia de TARA** — interfaz sobre el modelo de datos ya validado (`citas`, `asesores`, `horarios_laborales`). **Google Calendar queda como integración opcional futura, no como dependencia del producto** — la fuente de verdad es la tabla `citas` (ya el caso desde TA.3: si Google falla o no está conectado, la agenda de TARA sigue funcionando igual).
-- **Portal de administración** — onboarding de empresas sin SQL directo.
-- **Gestión de empresas** — alta, configuración, estado.
-- **Gestión de usuarios y asesores** — hoy `asesores` existe a nivel de datos; falta la capa de gestión.
-- **Conversaciones en tiempo real** — visibilidad de conversaciones activas por empresa.
-- **Intervención humana** — "Tomar conversación" / "Regresar a TARA": un humano puede pausar al bot y retomar el control, y devolverlo.
-- **CRM** — sobre la base ya existente (`clientes`, `oportunidades`).
-- **Reportes** — métricas operativas y comerciales por empresa.
-- **Configuración por empresa** — reglas, personalidad, catálogos, sin migración por cada ajuste (ya parcialmente resuelto por `personalities.reglas`, `servicios`, `mensajes_automaticos`).
-- **Experiencia SaaS** — el conjunto anterior como producto cohesivo, no como piezas sueltas.
+| Sub-fase | Nombre | Estado | Fecha |
+|---|---|---|---|
+| Fase 1 | Login + Supabase Auth + roles + usuario↔empresa (muchos-a-muchos) | ✅ Completa | 9 jul 2026 |
+| Fase 2 | Centro de Operaciones (dashboard, 8 métricas multiempresa) | ✅ Completa | 9 jul 2026 |
+| Fase 3 | Conversaciones en tiempo real + intervención humana ("Tomar conversación"/"Regresar a TARA") | ✅ Completa | 9 jul 2026 |
+| Fase 4 | Agenda propia de TARA (UI sobre `citas`/`asesores`/`horarios_laborales`) | ✅ Completa | 9 jul 2026 |
+| Fase 5 | CRM (clientes, historial, seguimientos) | ⏳ Siguiente | — |
+| Fase 6 | Configuración de empresa (personalidad, KB, usuarios, horarios, servicios, canales) | Futura | — |
+| Fase 7 | Reportes | Futura | — |
 
-**Restricción vigente:** el Core (tabla "estables" de `docs/ARQUITECTURA-CONGELADA-v1.0.md`) no se toca para construir esto salvo bug o evidencia real — la plataforma se construye *sobre* el Core, no *dentro* de él.
+**Fase 1 — Login:** `usuarios`/`usuarios_empresas` (muchos-a-muchos, un usuario puede pertenecer a varias empresas con rol distinto en cada una), sesión mediada 100% por el backend (cookie `httpOnly`, el frontend nunca toca Supabase ni el JWT), 4 roles (owner/administrador/supervisor/asesor).
+
+**Fase 2 — Centro de Operaciones:** 8 métricas (conversaciones activas/atendidas hoy, clientes nuevos, IA vs. humano, tiempo promedio de respuesta, citas agendadas, alertas) calculadas en `modules/dashboard.js`, siempre filtradas por `company_id` del usuario autenticado — nunca por uno que mande el cliente. Agnóstico de giro (sin conceptos de ventas/oportunidades).
+
+**Fase 3 — Conversaciones + intervención humana:** un asesor puede tomar una conversación (TARA deja de responder) y devolverla. Implementado enteramente en la capa de plataforma (webhook de `server.js` + `modules/conversaciones.js`) — **cero cambios al Orchestrator/WorkflowEngine**. Tabla nueva `mensajes_humanos` (aditiva) para los mensajes que pasan por un humano.
+
+**Fase 4 — Agenda propia de TARA:** vista por día agrupada por asesor, alta de citas (cliente existente o nuevo), reagendado y cancelación. Un solo camino de escritura: reusa `SchedulingEngine.agendarCita()/reagendarCita()/cancelarCita()` — el mismo que usa la conversación de WhatsApp. Base multiusuario agregada: `asesores.usuario_id` vincula un asesor de agenda con su cuenta de login, permitiendo que un rol Asesor vea/gestione solo su propia agenda.
+
+**Google Calendar sigue siendo integración opcional, no dependencia del producto** — la fuente de verdad de la agenda es la tabla `citas` (ya el caso desde TA.3: si Google falla o no está conectado, la agenda de TARA sigue funcionando igual vía `MockCalendarProvider`).
 
 ---
 
