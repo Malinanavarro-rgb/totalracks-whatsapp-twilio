@@ -13,7 +13,8 @@
 
 require('dotenv').config();
 
-const { supabase, openai, twilioClient } = require('../modules/clients');
+// RLS: cron job sin usuario final — usa supabaseServicio (bypassa RLS).
+const { supabaseServicio: supabase, openai, twilioClient } = require('../modules/clients');
 const { AIEngine }               = require('../modules/ai-engine');
 const { OpenAIProvider }         = require('../adapters/ai/openai-provider');
 const { MockProvider }           = require('../adapters/ai/mock-provider');

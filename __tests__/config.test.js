@@ -7,7 +7,7 @@ const mockEq1         = jest.fn(() => ({ eq: mockEq2, maybeSingle: mockMaybeSing
 const mockSelect      = jest.fn(() => ({ eq: mockEq1 }));
 const mockFrom        = jest.fn(() => ({ select: mockSelect }));
 
-jest.mock('../modules/clients', () => ({ supabase: { from: (...args) => mockFrom(...args) } }));
+jest.mock('../modules/clients', () => ({ supabaseServicio: { from: (...args) => mockFrom(...args) } }));
 
 const { obtenerConfigEmpresa, invalidarCache } = require('../modules/config');
 

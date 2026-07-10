@@ -746,7 +746,9 @@ function crearOrchestrator(overrides = {}) {
   const { obtenerProviderParaEmpresa } = require('./google-auth');
   const { MockCalendarProvider }   = require('../adapters/calendar/mock-calendar-provider');
 
-  const { supabase, openai: openaiClient } = require('./clients');
+  // RLS: crearOrchestrator() se usa desde el webhook de Twilio (sin usuario
+  // final) — usa supabaseServicio (bypassa RLS por diseño de Supabase).
+  const { supabaseServicio: supabase, openai: openaiClient } = require('./clients');
 
   const {
     obtenerConfigEmpresa,

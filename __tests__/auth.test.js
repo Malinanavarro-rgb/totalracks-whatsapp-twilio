@@ -1,5 +1,13 @@
 'use strict';
 
+// RLS: iniciarSesion() construye un cliente por-sesión (crearClienteConSesion)
+// en cuanto tiene el JWT — se mockea para que apunte al mismo mock de
+// Supabase usado en cada test, preservando las aserciones existentes.
+const mockCrearClienteConSesion = jest.fn();
+jest.mock('../modules/clients', () => ({
+  crearClienteConSesion: (...args) => mockCrearClienteConSesion(...args),
+}));
+
 const { iniciarSesion, obtenerEmpresasDeUsuario, resolverSesion, ErrorAuth } = require('../modules/auth');
 
 // ─── Mock Supabase (thenable, mismo patrón que scheduling-engine.test.js) ─────
@@ -62,6 +70,7 @@ describe('auth', () => {
         },
         fromResults: [{ data: [], error: null }], // usuarios_empresas vacío
       });
+      mockCrearClienteConSesion.mockReturnValue(supabase);
 
       await expect(iniciarSesion(supabase, 'a@b.com', 'ok')).rejects.toMatchObject({
         message: 'Tu cuenta no está asociada a ninguna empresa',
@@ -80,6 +89,7 @@ describe('auth', () => {
           { data: { id: USUARIO_ID, nombre: 'Alina', email: 'a@b.com' }, error: null },
         ],
       });
+      mockCrearClienteConSesion.mockReturnValue(supabase);
 
       const resultado = await iniciarSesion(supabase, 'a@b.com', 'ok');
 
@@ -106,6 +116,7 @@ describe('auth', () => {
           { data: { id: USUARIO_ID, nombre: 'Alina', email: 'a@b.com' }, error: null },
         ],
       });
+      mockCrearClienteConSesion.mockReturnValue(supabase);
 
       const resultado = await iniciarSesion(supabase, 'a@b.com', 'ok');
 

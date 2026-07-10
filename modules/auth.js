@@ -14,6 +14,8 @@
 
 'use strict';
 
+const { crearClienteConSesion } = require('./clients');
+
 class ErrorAuth extends Error {
   constructor(message, status) {
     super(message);
@@ -61,13 +63,19 @@ async function iniciarSesion(supabase, email, password) {
   }
 
   const usuarioId = data.user.id;
-  const empresas = await obtenerEmpresasDeUsuario(supabase, usuarioId);
+
+  // RLS: en cuanto existe el JWT, se usa un cliente por-sesión (nunca el
+  // singleton) para que auth.uid() resuelva correctamente en las políticas
+  // de usuarios_empresas/usuarios.
+  const clienteSesion = crearClienteConSesion(data.session.access_token);
+
+  const empresas = await obtenerEmpresasDeUsuario(clienteSesion, usuarioId);
 
   if (empresas.length === 0) {
     throw new ErrorAuth('Tu cuenta no está asociada a ninguna empresa', 403);
   }
 
-  const { data: usuarioRow } = await supabase
+  const { data: usuarioRow } = await clienteSesion
     .from('usuarios')
     .select('id, nombre, email')
     .eq('id', usuarioId)
@@ -86,6 +94,10 @@ async function iniciarSesion(supabase, email, password) {
  * empresa activa (cookie tara_company). Nunca confía en que la cookie de
  * empresa sea válida — siempre revalida contra usuarios_empresas, que es
  * la única fuente de verdad de a qué empresa pertenece un usuario.
+ *
+ * RLS: el llamador (crearRequireAuth) debe pasar un cliente construido con
+ * crearClienteConSesion(token) — el mismo token que se valida aquí — para
+ * que auth.uid() resuelva correctamente en la política de usuarios_empresas.
  *
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} token

@@ -9,7 +9,9 @@
  * Soporta N empresas simultáneas sin contaminación de caché.
  */
 
-const { supabase } = require('./clients');
+// RLS: usado por el Orchestrator durante el procesamiento del webhook (sin
+// usuario final) — usa supabaseServicio (bypassa RLS por diseño de Supabase).
+const { supabaseServicio: supabase } = require('./clients');
 
 const _cache   = new Map(); // Map<companyId, { data, cachedAt }>
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutos

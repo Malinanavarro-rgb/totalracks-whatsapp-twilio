@@ -12,10 +12,12 @@
 const { resolverSesion } = require('./auth');
 
 /**
- * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {(jwt: string) => import('@supabase/supabase-js').SupabaseClient} crearClienteConSesion
+ *   factory que construye un cliente Supabase con el JWT del usuario adjunto
+ *   (ver modules/clients.js) — necesario para que RLS resuelva auth.uid().
  * @returns {import('express').RequestHandler}
  */
-function crearRequireAuth(supabase) {
+function crearRequireAuth(crearClienteConSesion) {
   return async function requireAuth(req, res, next) {
     const token     = req.cookies?.tara_session;
     const companyId = req.cookies?.tara_company;
@@ -24,12 +26,14 @@ function crearRequireAuth(supabase) {
       return res.status(401).json({ error: 'Sesión no encontrada' });
     }
 
-    const usuario = await resolverSesion(supabase, token, companyId);
+    const clienteSesion = crearClienteConSesion(token);
+    const usuario = await resolverSesion(clienteSesion, token, companyId);
     if (!usuario) {
       return res.status(401).json({ error: 'Sesión inválida o expirada' });
     }
 
-    req.usuario = usuario;
+    req.usuario  = usuario;
+    req.supabase = clienteSesion;
     next();
   };
 }

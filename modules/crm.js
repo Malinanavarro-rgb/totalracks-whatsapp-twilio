@@ -4,7 +4,9 @@
  * No contiene lógica de negocio específica de ningún giro comercial.
  */
 
-const { supabase } = require('./clients');
+// RLS: parte del write path del webhook de Twilio (sin usuario final) — usa
+// supabaseServicio (bypassa RLS por diseño de Supabase).
+const { supabaseServicio: supabase } = require('./clients');
 
 // ── CLIENTES ──────────────────────────────────────────────────────────────────
 

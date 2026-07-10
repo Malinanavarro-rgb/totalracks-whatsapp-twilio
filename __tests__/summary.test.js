@@ -5,7 +5,7 @@ const mockEq = jest.fn().mockReturnThis();
 const mockSelect = jest.fn().mockReturnThis();
 const mockFrom = jest.fn().mockReturnValue({ select: mockSelect, eq: mockEq, maybeSingle: mockMaybeSingle });
 
-jest.mock('../modules/clients', () => ({ supabase: { from: (...args) => mockFrom(...args) } }));
+jest.mock('../modules/clients', () => ({ supabaseServicio: { from: (...args) => mockFrom(...args) } }));
 
 const { generarResumenCliente } = require('../modules/summary');
 

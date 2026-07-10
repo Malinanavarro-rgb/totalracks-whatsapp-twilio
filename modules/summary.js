@@ -8,7 +8,9 @@
  *           Reemplazará el historial crudo que hoy se envía a OpenAI.
  */
 
-const { supabase } = require('./clients');
+// RLS: futuro Memory Engine se consume desde el Orchestrator (sin usuario
+// final) — usa supabaseServicio (bypassa RLS por diseño de Supabase).
+const { supabaseServicio: supabase } = require('./clients');
 
 /**
  * Genera un resumen comprimido del cliente.

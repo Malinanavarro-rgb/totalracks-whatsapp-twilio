@@ -12,7 +12,7 @@ const express      = require('express');
 const path         = require('path');
 const cookieParser = require('cookie-parser');
 
-const { supabase, twilioClient }        = require('./modules/clients');
+const { supabase, supabaseServicio, crearClienteConSesion, twilioClient } = require('./modules/clients');
 const { obtenerConfigEmpresa }          = require('./modules/config');
 const { crearOrchestrator }             = require('./modules/orchestrator');
 const { TwilioWhatsAppAdapter }         = require('./adapters/channels/twilio-whatsapp');
@@ -50,8 +50,12 @@ const {
 const app           = express();
 const adapter       = new TwilioWhatsAppAdapter(twilioClient);
 const orchestrator  = crearOrchestrator();
-const channelRouter = new ChannelRouter(supabase);
-const requireAuth   = crearRequireAuth(supabase);
+// RLS: ChannelRouter resuelve routing/envío de WhatsApp — es infraestructura
+// de sistema (webhook + envío proactivo), no una consulta específica de un
+// usuario del panel. Usa supabaseServicio siempre, sin importar desde qué
+// ruta se invoque.
+const channelRouter = new ChannelRouter(supabaseServicio);
+const requireAuth   = crearRequireAuth(crearClienteConSesion);
 
 // Configuración de empresa y gestión de usuarios: solo Owner/Administrador
 // (matriz de permisos aprobada, docs/anexos/plataforma-saas). Se usa como
@@ -115,14 +119,14 @@ app.post('/webhook/twilio', async (req, res) => {
     // plataforma) sin tocar el Orchestrator/WorkflowEngine (ADR-005).
     const cliente = await obtenerOCrearCliente(message.from, message.company_id);
     if (cliente?.atendido_por === 'humano') {
-      await registrarMensajeEntranteHumano(supabase, message.company_id, cliente.id, message.content);
+      await registrarMensajeEntranteHumano(supabaseServicio, message.company_id, cliente.id, message.content);
       return res.type('text/xml').send('<Response></Response>');
     }
 
     // FASE 6 (Configuración — horario de atención del bot): fuera de horario,
     // TARA no invoca al motor de IA — responde un mensaje fijo. Guard en la
     // capa de plataforma, igual que el de intervención humana (ADR-005).
-    const dentroDeHorario = await estaDentroDeHorarioAtencion(supabase, message.company_id);
+    const dentroDeHorario = await estaDentroDeHorarioAtencion(supabaseServicio, message.company_id);
     if (!dentroDeHorario) {
       return res.type('text/xml').send(adapter.formatOutgoing(
         'Gracias por tu mensaje. En este momento estamos fuera de horario de atención — te responderemos en cuanto sea posible.',
@@ -141,7 +145,7 @@ app.post('/webhook/twilio', async (req, res) => {
     let textoFinal = resultado.respuesta_texto;
     const { personality } = await obtenerConfigEmpresa(message.company_id);
 
-    if (personality?.mensaje_bienvenida && await esPrimerContacto(supabase, cliente.id)) {
+    if (personality?.mensaje_bienvenida && await esPrimerContacto(supabaseServicio, cliente.id)) {
       textoFinal = `${personality.mensaje_bienvenida}\n\n${textoFinal}`;
     }
     if (personality?.firma) {
@@ -159,7 +163,7 @@ app.post('/webhook/twilio', async (req, res) => {
 
 app.get('/health', async (req, res) => {
   try {
-    const { data } = await supabase
+    const { data } = await supabaseServicio
       .from('companies')
       .select('nombre')
       .eq('estado', 'activo')
@@ -216,7 +220,7 @@ app.get('/api/diagnostics', async (req, res) => {
   // ── 2. Supabase — lectura ─────────────────────────────────────────────────
   try {
     const t = Date.now();
-    const { error } = await supabase.from('clientes').select('id').limit(1);
+    const { error } = await supabaseServicio.from('clientes').select('id').limit(1);
     if (error) throw error;
     check('supabase_lectura', 'ok', 'Tabla clientes accesible', { latencia_ms: Date.now() - t });
   } catch (e) {
@@ -227,14 +231,14 @@ app.get('/api/diagnostics', async (req, res) => {
   try {
     const t      = Date.now();
     const testId = '00000000-0000-0000-0000-000000000000';
-    const { error: insertError } = await supabase
+    const { error: insertError } = await supabaseServicio
       .from('decision_logs')
       .insert([{ company_id: testId, tipo: 'channel_event', canal: 'diagnostics',
                  identificador: 'test', payload: { subtipo: 'diagnostics_check' } }]);
 
     if (insertError) throw new Error(`INSERT falló: ${insertError.message}`);
 
-    await supabase.from('decision_logs').delete()
+    await supabaseServicio.from('decision_logs').delete()
       .eq('company_id', testId).eq('canal', 'diagnostics');
 
     check('supabase_decision_logs', 'ok', 'Tabla decision_logs operativa (INSERT confirmado)',
@@ -246,7 +250,7 @@ app.get('/api/diagnostics', async (req, res) => {
   // ── 4. channel_endpoints — routing multi-tenant ───────────────────────────
   try {
     const t = Date.now();
-    const { data: endpoints, error } = await supabase
+    const { data: endpoints, error } = await supabaseServicio
       .from('channel_endpoints')
       .select('endpoint, canal, activo, companies(nombre)')
       .eq('activo', true);
@@ -267,7 +271,7 @@ app.get('/api/diagnostics', async (req, res) => {
   // ── 5. Config de empresa (primer endpoint activo) ─────────────────────────
   try {
     const t = Date.now();
-    const { data: ep } = await supabase
+    const { data: ep } = await supabaseServicio
       .from('channel_endpoints').select('company_id').eq('activo', true).limit(1).maybeSingle();
 
     if (!ep) throw new Error('No hay endpoints activos para probar config');
@@ -387,7 +391,7 @@ app.get('/api/diagnostics', async (req, res) => {
 
 app.get('/api/dashboard', requireAuth, async (req, res) => {
   try {
-    const metricas = await obtenerMetricas(supabase, req.usuario.company_id);
+    const metricas = await obtenerMetricas(req.supabase, req.usuario.company_id);
     res.json(metricas);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -400,7 +404,7 @@ app.get('/api/dashboard', requireAuth, async (req, res) => {
 
 app.get('/api/conversaciones', requireAuth, async (req, res) => {
   try {
-    const lista = await listarConversaciones(supabase, req.usuario.company_id, req.usuario);
+    const lista = await listarConversaciones(req.supabase, req.usuario.company_id, req.usuario);
     res.json(lista);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -409,7 +413,7 @@ app.get('/api/conversaciones', requireAuth, async (req, res) => {
 
 app.get('/api/conversaciones/:clienteId', requireAuth, async (req, res) => {
   try {
-    const historial = await obtenerHistorial(supabase, req.usuario.company_id, req.params.clienteId);
+    const historial = await obtenerHistorial(req.supabase, req.usuario.company_id, req.params.clienteId);
     res.json(historial);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -418,7 +422,7 @@ app.get('/api/conversaciones/:clienteId', requireAuth, async (req, res) => {
 
 app.post('/api/conversaciones/:clienteId/tomar', requireAuth, async (req, res) => {
   try {
-    const cliente = await tomarConversacion(supabase, req.usuario.company_id, req.params.clienteId, req.usuario.id);
+    const cliente = await tomarConversacion(req.supabase, req.usuario.company_id, req.params.clienteId, req.usuario.id);
     res.json(cliente);
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
@@ -427,7 +431,7 @@ app.post('/api/conversaciones/:clienteId/tomar', requireAuth, async (req, res) =
 
 app.post('/api/conversaciones/:clienteId/regresar', requireAuth, async (req, res) => {
   try {
-    const cliente = await regresarATara(supabase, req.usuario.company_id, req.params.clienteId);
+    const cliente = await regresarATara(req.supabase, req.usuario.company_id, req.params.clienteId);
     res.json(cliente);
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
@@ -455,7 +459,7 @@ app.post('/api/conversaciones/:clienteId/mensajes', requireAuth, async (req, res
 
 app.get('/api/agenda/asesores', requireAuth, async (req, res) => {
   try {
-    const asesores = await listarAsesores(supabase, req.usuario.company_id);
+    const asesores = await listarAsesores(req.supabase, req.usuario.company_id);
     res.json(asesores);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -465,7 +469,7 @@ app.get('/api/agenda/asesores', requireAuth, async (req, res) => {
 app.get('/api/agenda/citas', requireAuth, async (req, res) => {
   try {
     const { desde, hasta } = req.query;
-    const citas = await listarCitas(supabase, req.usuario.company_id, req.usuario, { desde, hasta });
+    const citas = await listarCitas(req.supabase, req.usuario.company_id, req.usuario, { desde, hasta });
     res.json(citas);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -475,7 +479,7 @@ app.get('/api/agenda/citas', requireAuth, async (req, res) => {
 app.get('/api/agenda/disponibilidad', requireAuth, async (req, res) => {
   try {
     const { asesorId, fecha, duracionMinutos } = req.query;
-    const slots = await consultarDisponibilidad(supabase, req.usuario.company_id, {
+    const slots = await consultarDisponibilidad(req.supabase, req.usuario.company_id, {
       asesorId,
       fecha: new Date(fecha),
       duracionMinutos: duracionMinutos ? Number(duracionMinutos) : undefined,
@@ -491,7 +495,7 @@ app.post('/api/agenda/clientes', requireAuth, async (req, res) => {
     const { telefono, nombre, empresa, notas } = req.body;
     if (!telefono) return res.status(400).json({ error: 'telefono requerido' });
 
-    const cliente = await obtenerOCrearClienteManual(supabase, req.usuario.company_id, { telefono, nombre, empresa, notas });
+    const cliente = await obtenerOCrearClienteManual(req.supabase, req.usuario.company_id, { telefono, nombre, empresa, notas });
     res.status(201).json(cliente);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -501,7 +505,7 @@ app.post('/api/agenda/clientes', requireAuth, async (req, res) => {
 app.post('/api/agenda/citas', requireAuth, async (req, res) => {
   try {
     const { clienteId, asesorId, inicio, fin } = req.body;
-    const cita = await crearCita(supabase, req.usuario.company_id, req.usuario, {
+    const cita = await crearCita(req.supabase, req.usuario.company_id, req.usuario, {
       clienteId, asesorId, inicio: new Date(inicio), fin: new Date(fin),
     });
     res.status(201).json(cita);
@@ -513,7 +517,7 @@ app.post('/api/agenda/citas', requireAuth, async (req, res) => {
 app.patch('/api/agenda/citas/:id', requireAuth, async (req, res) => {
   try {
     const { inicio, fin } = req.body;
-    const cita = await reagendarCita(supabase, req.usuario.company_id, req.usuario, req.params.id, new Date(inicio), new Date(fin));
+    const cita = await reagendarCita(req.supabase, req.usuario.company_id, req.usuario, req.params.id, new Date(inicio), new Date(fin));
     res.json(cita);
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
@@ -522,7 +526,7 @@ app.patch('/api/agenda/citas/:id', requireAuth, async (req, res) => {
 
 app.post('/api/agenda/citas/:id/cancelar', requireAuth, async (req, res) => {
   try {
-    const cita = await cancelarCita(supabase, req.usuario.company_id, req.usuario, req.params.id);
+    const cita = await cancelarCita(req.supabase, req.usuario.company_id, req.usuario, req.params.id);
     res.json(cita);
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
@@ -534,7 +538,7 @@ app.patch('/api/agenda/asesores/:id/vincular', requireAuth, async (req, res) => 
     if (!['owner', 'administrador'].includes(req.usuario.rol)) {
       return res.status(403).json({ error: 'No autorizado' });
     }
-    const asesor = await vincularUsuarioAAsesor(supabase, req.usuario.company_id, req.params.id, req.body.usuario_id);
+    const asesor = await vincularUsuarioAAsesor(req.supabase, req.usuario.company_id, req.params.id, req.body.usuario_id);
     res.json(asesor);
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
@@ -547,7 +551,7 @@ app.patch('/api/agenda/asesores/:id/vincular', requireAuth, async (req, res) => 
 
 app.get('/api/crm/clientes', requireAuth, async (req, res) => {
   try {
-    const clientes = await listarClientes(supabase, req.usuario.company_id, req.usuario);
+    const clientes = await listarClientes(req.supabase, req.usuario.company_id, req.usuario);
     res.json(clientes);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -556,7 +560,7 @@ app.get('/api/crm/clientes', requireAuth, async (req, res) => {
 
 app.get('/api/crm/clientes/:id', requireAuth, async (req, res) => {
   try {
-    const ficha = await obtenerFichaCliente(supabase, req.usuario.company_id, req.params.id);
+    const ficha = await obtenerFichaCliente(req.supabase, req.usuario.company_id, req.params.id);
     res.json(ficha);
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
@@ -565,7 +569,7 @@ app.get('/api/crm/clientes/:id', requireAuth, async (req, res) => {
 
 app.patch('/api/crm/clientes/:id', requireAuth, async (req, res) => {
   try {
-    const cliente = await actualizarCliente(supabase, req.usuario.company_id, req.params.id, req.body);
+    const cliente = await actualizarCliente(req.supabase, req.usuario.company_id, req.params.id, req.body);
     res.json(cliente);
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
@@ -574,7 +578,7 @@ app.patch('/api/crm/clientes/:id', requireAuth, async (req, res) => {
 
 app.get('/api/crm/clientes/:id/seguimientos', requireAuth, async (req, res) => {
   try {
-    const seguimientos = await listarSeguimientos(supabase, req.usuario.company_id, req.params.id);
+    const seguimientos = await listarSeguimientos(req.supabase, req.usuario.company_id, req.params.id);
     res.json(seguimientos);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -586,7 +590,7 @@ app.post('/api/crm/clientes/:id/seguimientos', requireAuth, async (req, res) => 
     const { texto, fecha_programada, prioridad } = req.body;
     if (!texto || !texto.trim()) return res.status(400).json({ error: 'texto requerido' });
 
-    const seguimiento = await crearSeguimiento(supabase, req.usuario.company_id, req.params.id, req.usuario.id, { texto, fecha_programada, prioridad });
+    const seguimiento = await crearSeguimiento(req.supabase, req.usuario.company_id, req.params.id, req.usuario.id, { texto, fecha_programada, prioridad });
     res.status(201).json(seguimiento);
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
@@ -595,7 +599,7 @@ app.post('/api/crm/clientes/:id/seguimientos', requireAuth, async (req, res) => 
 
 app.patch('/api/crm/seguimientos/:id', requireAuth, async (req, res) => {
   try {
-    const seguimiento = await actualizarSeguimiento(supabase, req.usuario.company_id, req.params.id, req.body);
+    const seguimiento = await actualizarSeguimiento(req.supabase, req.usuario.company_id, req.params.id, req.body);
     res.json(seguimiento);
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
@@ -608,7 +612,7 @@ app.patch('/api/crm/seguimientos/:id', requireAuth, async (req, res) => {
 
 app.get('/api/config/personalidad', requireAuth, async (req, res) => {
   try {
-    res.json(await obtenerPersonalidad(supabase, req.usuario.company_id));
+    res.json(await obtenerPersonalidad(req.supabase, req.usuario.company_id));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -616,7 +620,7 @@ app.get('/api/config/personalidad', requireAuth, async (req, res) => {
 
 app.patch('/api/config/personalidad', requireAuth, soloGerencial, async (req, res) => {
   try {
-    res.json(await actualizarPersonalidad(supabase, req.usuario.company_id, req.body));
+    res.json(await actualizarPersonalidad(req.supabase, req.usuario.company_id, req.body));
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
   }
@@ -624,7 +628,7 @@ app.patch('/api/config/personalidad', requireAuth, soloGerencial, async (req, re
 
 app.get('/api/config/knowledge-base', requireAuth, async (req, res) => {
   try {
-    res.json(await listarKnowledgeBase(supabase, req.usuario.company_id));
+    res.json(await listarKnowledgeBase(req.supabase, req.usuario.company_id));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -632,7 +636,7 @@ app.get('/api/config/knowledge-base', requireAuth, async (req, res) => {
 
 app.post('/api/config/knowledge-base', requireAuth, soloGerencial, async (req, res) => {
   try {
-    res.status(201).json(await crearKnowledgeBase(supabase, req.usuario.company_id, req.body));
+    res.status(201).json(await crearKnowledgeBase(req.supabase, req.usuario.company_id, req.body));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -640,7 +644,7 @@ app.post('/api/config/knowledge-base', requireAuth, soloGerencial, async (req, r
 
 app.patch('/api/config/knowledge-base/:id', requireAuth, soloGerencial, async (req, res) => {
   try {
-    res.json(await actualizarKnowledgeBase(supabase, req.usuario.company_id, req.params.id, req.body));
+    res.json(await actualizarKnowledgeBase(req.supabase, req.usuario.company_id, req.params.id, req.body));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -648,7 +652,7 @@ app.patch('/api/config/knowledge-base/:id', requireAuth, soloGerencial, async (r
 
 app.delete('/api/config/knowledge-base/:id', requireAuth, soloGerencial, async (req, res) => {
   try {
-    await eliminarKnowledgeBase(supabase, req.usuario.company_id, req.params.id);
+    await eliminarKnowledgeBase(req.supabase, req.usuario.company_id, req.params.id);
     res.status(204).send();
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -657,7 +661,7 @@ app.delete('/api/config/knowledge-base/:id', requireAuth, soloGerencial, async (
 
 app.get('/api/config/horarios', requireAuth, async (req, res) => {
   try {
-    res.json(await listarHorarios(supabase, req.usuario.company_id));
+    res.json(await listarHorarios(req.supabase, req.usuario.company_id));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -665,7 +669,7 @@ app.get('/api/config/horarios', requireAuth, async (req, res) => {
 
 app.post('/api/config/horarios', requireAuth, soloGerencial, async (req, res) => {
   try {
-    res.status(201).json(await crearHorario(supabase, req.usuario.company_id, req.body));
+    res.status(201).json(await crearHorario(req.supabase, req.usuario.company_id, req.body));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -673,7 +677,7 @@ app.post('/api/config/horarios', requireAuth, soloGerencial, async (req, res) =>
 
 app.patch('/api/config/horarios/:id', requireAuth, soloGerencial, async (req, res) => {
   try {
-    res.json(await actualizarHorario(supabase, req.usuario.company_id, req.params.id, req.body));
+    res.json(await actualizarHorario(req.supabase, req.usuario.company_id, req.params.id, req.body));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -681,7 +685,7 @@ app.patch('/api/config/horarios/:id', requireAuth, soloGerencial, async (req, re
 
 app.delete('/api/config/horarios/:id', requireAuth, soloGerencial, async (req, res) => {
   try {
-    await eliminarHorario(supabase, req.usuario.company_id, req.params.id);
+    await eliminarHorario(req.supabase, req.usuario.company_id, req.params.id);
     res.status(204).send();
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -690,7 +694,7 @@ app.delete('/api/config/horarios/:id', requireAuth, soloGerencial, async (req, r
 
 app.get('/api/config/horario-atencion', requireAuth, async (req, res) => {
   try {
-    res.json(await listarHorarioAtencionBot(supabase, req.usuario.company_id));
+    res.json(await listarHorarioAtencionBot(req.supabase, req.usuario.company_id));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -698,7 +702,7 @@ app.get('/api/config/horario-atencion', requireAuth, async (req, res) => {
 
 app.post('/api/config/horario-atencion', requireAuth, soloGerencial, async (req, res) => {
   try {
-    res.status(201).json(await guardarHorarioAtencionBot(supabase, req.usuario.company_id, req.body));
+    res.status(201).json(await guardarHorarioAtencionBot(req.supabase, req.usuario.company_id, req.body));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -706,7 +710,7 @@ app.post('/api/config/horario-atencion', requireAuth, soloGerencial, async (req,
 
 app.delete('/api/config/horario-atencion/:id', requireAuth, soloGerencial, async (req, res) => {
   try {
-    await eliminarHorarioAtencionBot(supabase, req.usuario.company_id, req.params.id);
+    await eliminarHorarioAtencionBot(req.supabase, req.usuario.company_id, req.params.id);
     res.status(204).send();
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -715,7 +719,7 @@ app.delete('/api/config/horario-atencion/:id', requireAuth, soloGerencial, async
 
 app.get('/api/config/servicios', requireAuth, async (req, res) => {
   try {
-    res.json(await listarServicios(supabase, req.usuario.company_id));
+    res.json(await listarServicios(req.supabase, req.usuario.company_id));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -723,7 +727,7 @@ app.get('/api/config/servicios', requireAuth, async (req, res) => {
 
 app.post('/api/config/servicios', requireAuth, soloGerencial, async (req, res) => {
   try {
-    res.status(201).json(await crearServicio(supabase, req.usuario.company_id, req.body));
+    res.status(201).json(await crearServicio(req.supabase, req.usuario.company_id, req.body));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -731,7 +735,7 @@ app.post('/api/config/servicios', requireAuth, soloGerencial, async (req, res) =
 
 app.patch('/api/config/servicios/:id', requireAuth, soloGerencial, async (req, res) => {
   try {
-    res.json(await actualizarServicio(supabase, req.usuario.company_id, req.params.id, req.body));
+    res.json(await actualizarServicio(req.supabase, req.usuario.company_id, req.params.id, req.body));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -739,7 +743,7 @@ app.patch('/api/config/servicios/:id', requireAuth, soloGerencial, async (req, r
 
 app.get('/api/config/canales', requireAuth, async (req, res) => {
   try {
-    res.json(await listarCanales(supabase, req.usuario.company_id));
+    res.json(await listarCanales(req.supabase, req.usuario.company_id));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -752,8 +756,8 @@ app.get('/api/config/canales', requireAuth, async (req, res) => {
 app.get('/api/config/usuarios', requireAuth, soloGerencial, async (req, res) => {
   try {
     const [miembros, invitacionesPendientes] = await Promise.all([
-      listarMiembros(supabase, req.usuario.company_id),
-      listarInvitacionesPendientes(supabase, req.usuario.company_id),
+      listarMiembros(req.supabase, req.usuario.company_id),
+      listarInvitacionesPendientes(req.supabase, req.usuario.company_id),
     ]);
     res.json({ miembros, invitacionesPendientes });
   } catch (e) {
@@ -766,7 +770,7 @@ app.post('/api/config/usuarios/invitar', requireAuth, soloGerencial, async (req,
     const { nombre, email, rol } = req.body;
     if (!nombre || !email) return res.status(400).json({ error: 'nombre y email requeridos' });
 
-    const invitacion = await crearInvitacion(supabase, req.usuario.company_id, { nombre, email, rol });
+    const invitacion = await crearInvitacion(req.supabase, req.usuario.company_id, { nombre, email, rol });
     res.status(201).json({ ...invitacion, link: `/aceptar-invitacion/${invitacion.token}` });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -775,7 +779,7 @@ app.post('/api/config/usuarios/invitar', requireAuth, soloGerencial, async (req,
 
 app.patch('/api/config/usuarios/:usuarioId', requireAuth, soloGerencial, async (req, res) => {
   try {
-    res.json(await actualizarMiembro(supabase, req.usuario.company_id, req.params.usuarioId, req.body));
+    res.json(await actualizarMiembro(req.supabase, req.usuario.company_id, req.params.usuarioId, req.body));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -785,7 +789,7 @@ app.patch('/api/config/usuarios/:usuarioId', requireAuth, soloGerencial, async (
 
 app.get('/api/invitaciones/:token', async (req, res) => {
   try {
-    const invitacion = await obtenerInvitacionPorToken(supabase, req.params.token);
+    const invitacion = await obtenerInvitacionPorToken(supabaseServicio, req.params.token);
     res.json({ nombre: invitacion.nombre, email: invitacion.email, empresa: invitacion.companies?.nombre });
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
@@ -798,7 +802,7 @@ app.post('/api/invitaciones/:token/aceptar', async (req, res) => {
     if (!password || password.length < 6) {
       return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
     }
-    const { email } = await aceptarInvitacion(supabase, req.params.token, password);
+    const { email } = await aceptarInvitacion(supabaseServicio, req.params.token, password);
 
     // Cuenta y membresía creadas — se inicia sesión automáticamente para
     // que el invitado entre directo, sin tener que loguearse aparte.
@@ -830,7 +834,7 @@ app.get('/oauth/google/iniciar', (req, res) => {
 
 app.get('/oauth/google/callback', async (req, res) => {
   try {
-    await manejarCallback(supabase, req.query.code, req.query.state);
+    await manejarCallback(supabaseServicio, req.query.code, req.query.state);
     res.send('Cuenta de Google conectada correctamente. Puedes cerrar esta ventana.');
   } catch (e) {
     console.error('❌ Error en /oauth/google/callback:', e);
@@ -869,7 +873,7 @@ app.post('/api/auth/login', async (req, res) => {
 
 app.get('/api/auth/me', requireAuth, async (req, res) => {
   try {
-    const empresas = await obtenerEmpresasDeUsuario(supabase, req.usuario.id);
+    const empresas = await obtenerEmpresasDeUsuario(req.supabase, req.usuario.id);
     const empresaActiva = empresas.find(e => e.company_id === req.usuario.company_id)
       || { company_id: req.usuario.company_id, rol: req.usuario.rol, nombre: null };
 
@@ -946,7 +950,7 @@ app.listen(PORT, async () => {
   console.log('============================================================\n');
 
   try {
-    const { data: endpoints } = await supabase
+    const { data: endpoints } = await supabaseServicio
       .from('channel_endpoints').select('endpoint, companies(nombre)').eq('activo', true);
     if (endpoints?.length) {
       endpoints.forEach(e => console.log(`  ✅ ${e.endpoint} → ${e.companies?.nombre}`));
