@@ -50,8 +50,8 @@ El motor conversacional y de agenda (`WorkflowEngine`, `SchedulingEngine`, `Acti
 | Fase 3 | Conversaciones en tiempo real + intervención humana ("Tomar conversación"/"Regresar a TARA") | ✅ Completa | 9 jul 2026 |
 | Fase 4 | Agenda propia de TARA (UI sobre `citas`/`asesores`/`horarios_laborales`) | ✅ Completa | 9 jul 2026 |
 | Fase 5 | CRM (clientes, ficha 360°, seguimientos) | ✅ Completa | 9 jul 2026 |
-| Fase 6 | Configuración de empresa (personalidad, KB, usuarios, horarios, servicios, canales) | ⏳ Siguiente | — |
-| Fase 7 | Reportes | Futura | — |
+| Fase 6 | Configuración de empresa (personalidad, KB, usuarios, horarios, servicios, canales) | ✅ Completa | 9 jul 2026 |
+| Fase 7 | Reportes | ⏳ Siguiente | — |
 
 **Fase 1 — Login:** `usuarios`/`usuarios_empresas` (muchos-a-muchos, un usuario puede pertenecer a varias empresas con rol distinto en cada una), sesión mediada 100% por el backend (cookie `httpOnly`, el frontend nunca toca Supabase ni el JWT), 4 roles (owner/administrador/supervisor/asesor).
 
@@ -66,6 +66,14 @@ El motor conversacional y de agenda (`WorkflowEngine`, `SchedulingEngine`, `Acti
 **Fase 5 — CRM:** lista de clientes (visibilidad por rol, mismo criterio que Conversaciones), ficha completa (datos + historial de conversaciones + citas + oportunidades), seguimientos manuales con prioridad (alta/media/baja). Fija **ADR-006 — Ficha 360° del cliente**: `cliente_id`+`company_id` es la forma obligatoria de todo módulo nuevo asociado a un cliente, y `crm-ui.obtenerFichaCliente()` es el único agregador de lectura — los módulos futuros (Cotizaciones, Pedidos, Facturas, Archivos) se conectan ahí, no reinventan su propio join.
 
 **Ver decisiones de diseño:** `docs/decisions/ADR-006-cliente-entidad-central-ficha-360.md`.
+
+**Fase 6 — Configuración de empresa:** personalidad de negocio (nombre del asistente, cargo, objetivo, idioma, tono, longitud de respuesta, uso de emojis, nivel de iniciativa, mensaje de bienvenida, firma) — sin exponer nunca parámetros técnicos del motor de IA (modelo, temperatura, max_tokens, skills, reglas, campos_requeridos, max_turnos_memoria, kb_max_secciones), que siguen siendo de administración exclusiva de TARA. Knowledge Base, horarios (de citas y, por separado, de atención del bot — granular por día), servicios, canales (solo lectura + conectar Google Calendar), e invitación de usuarios completa vía `auth.signUp()` (sin necesitar `service_role`; auto-login al aceptar).
+
+Tono/longitud/emojis/iniciativa modifican el comportamiento real de TARA desde el día uno vía una extensión aditiva de `Orchestrator._mapearPersonalidad()`, documentada explícitamente en ADR-005 como excepción dirigida (no iniciativa propia). Mensaje de bienvenida, firma y horario de atención se resuelven 100% en la capa de plataforma (webhook), sin tocar el motor.
+
+**Auditoría multiempresa (antes de cerrar la fase):** se encontró y corrigió un bug real — `sendProactive()` asumía un único número de WhatsApp global (`TWILIO_WHATSAPP_NUMBER`) en vez de resolver el número propio de cada empresa vía `channel_endpoints`. Afectaba recordatorios e intervención humana; se corrigió antes de que impactara a una segunda empresa real con su propio número.
+
+**Ver decisiones de diseño:** `docs/decisions/ADR-005-baseline-v1-core-freeze.md` (sección "Excepciones documentadas").
 
 ---
 
