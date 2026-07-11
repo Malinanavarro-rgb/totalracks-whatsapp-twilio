@@ -64,6 +64,14 @@ describe('ChannelAdapter — contrato de interfaz', () => {
   test('sendProactive() lanza error si no está implementado', async () => {
     await expect(base.sendProactive('hola', '+521234')).rejects.toThrow('no soporta envío proactivo');
   });
+
+  test('enviarMensaje() lanza error si no está implementado', async () => {
+    await expect(base.enviarMensaje('+521234', 'hola')).rejects.toThrow('debe implementar enviarMensaje()');
+  });
+
+  test('verificarWebhook() devuelve null por default (la mayoría de proveedores no lo necesitan)', () => {
+    expect(base.verificarWebhook({})).toBeNull();
+  });
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -250,6 +258,31 @@ describe('TwilioWhatsAppAdapter', () => {
       await expect(
         adapter.sendProactive('Hola', 'numero_invalido')
       ).rejects.toThrow('Twilio API error: 21211');
+    });
+  });
+
+  // ── enviarMensaje (respuesta principal — migración Twilio/Meta) ─────────────
+  describe('enviarMensaje()', () => {
+    test('delega en sendProactive() con los parámetros reordenados', async () => {
+      await adapter.enviarMensaje('+5218112345678', 'Hola, en qué te ayudo', '+528100000000');
+
+      expect(mockCreate).toHaveBeenCalledWith({
+        from: 'whatsapp:+528100000000',
+        to:   'whatsapp:+5218112345678',
+        body: 'Hola, en qué te ayudo',
+      });
+    });
+
+    test('sin "from" explícito, cae a TWILIO_WHATSAPP_NUMBER igual que sendProactive', async () => {
+      process.env.TWILIO_WHATSAPP_NUMBER = 'whatsapp:+528100000000';
+
+      await adapter.enviarMensaje('+5218112345678', 'Hola');
+
+      expect(mockCreate).toHaveBeenCalledWith({
+        from: 'whatsapp:+528100000000',
+        to:   'whatsapp:+5218112345678',
+        body: 'Hola',
+      });
     });
   });
 });

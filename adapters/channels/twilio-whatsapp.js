@@ -139,6 +139,27 @@ class TwilioWhatsAppAdapter extends ChannelAdapter {
       body: text,
     });
   }
+
+  /**
+   * Respuesta principal de una conversación — para Twilio es el mismo API
+   * call que sendProactive() (mensaje saliente por WhatsApp), solo con
+   * nombres de parámetros orientados a "responder", no "enviar seguimiento".
+   * Existe para unificar el modelo con proveedores que no soportan
+   * responder síncronamente dentro del webhook (ver Meta Cloud API).
+   *
+   * Requiere `from` explícito: a diferencia del viejo flujo por TwiML (que
+   * respondía automáticamente por el mismo número al que llegó el mensaje),
+   * una llamada API explícita no infiere el remitente — el llamador debe
+   * resolverlo vía ChannelRouter, igual que en sendProactive().
+   *
+   * @param {string} destinatario - Número de teléfono destino
+   * @param {string} texto        - Respuesta de TARA
+   * @param {string} [from]       - Número de origen (sin "whatsapp:")
+   * @returns {Promise<void>}
+   */
+  async enviarMensaje(destinatario, texto, from) {
+    return this.sendProactive(texto, destinatario, from);
+  }
 }
 
 module.exports = { TwilioWhatsAppAdapter };

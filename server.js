@@ -98,21 +98,31 @@ function enqueueForPhone(phone, fn) {
 
 // ── WEBHOOK TWILIO ────────────────────────────────────────────────────────────
 
+// Migración Twilio→Meta Cloud API: modelo de envío unificado y asíncrono.
+// El webhook solo acusa recibo (200) — la respuesta real se envía con una
+// llamada API explícita (adapter.enviarMensaje()), igual para cualquier
+// proveedor futuro (Meta no soporta responder síncrono dentro del webhook
+// como Twilio vía TwiML). El número de origen siempre se resuelve por
+// empresa (channelRouter.resolverEndpointDeEmpresa) — nunca un número
+// global — mismo patrón ya usado en recordatorios e intervención humana.
 app.post('/webhook/twilio', async (req, res) => {
+  let message;
   try {
     if (!adapter.validateSignature(req)) {
       return res.status(403).type('text/plain').send('Firma inválida');
     }
 
-    const message = adapter.parseIncoming(req);
+    message = adapter.parseIncoming(req);
 
     // FASE 3 — routing dinámico: resolver empresa por número receptor
     const routeResult = await channelRouter.enrutar(message.incoming_endpoint);
     if (!routeResult) {
       console.warn('⚠️  Endpoint sin empresa registrada:', message.incoming_endpoint);
-      return res.type('text/xml').send('<Response></Response>');
+      return res.sendStatus(200);
     }
     message.company_id = routeResult.company_id;
+
+    const numeroOrigen = await channelRouter.resolverEndpointDeEmpresa(message.company_id);
 
     // FASE 5 (Fase 3 — intervención humana): si un humano ya tomó esta
     // conversación, TARA no responde. Se resuelve el cliente aquí (capa de
@@ -120,7 +130,7 @@ app.post('/webhook/twilio', async (req, res) => {
     const cliente = await obtenerOCrearCliente(message.from, message.company_id);
     if (cliente?.atendido_por === 'humano') {
       await registrarMensajeEntranteHumano(supabaseServicio, message.company_id, cliente.id, message.content);
-      return res.type('text/xml').send('<Response></Response>');
+      return res.sendStatus(200);
     }
 
     // FASE 6 (Configuración — horario de atención del bot): fuera de horario,
@@ -128,10 +138,12 @@ app.post('/webhook/twilio', async (req, res) => {
     // capa de plataforma, igual que el de intervención humana (ADR-005).
     const dentroDeHorario = await estaDentroDeHorarioAtencion(supabaseServicio, message.company_id);
     if (!dentroDeHorario) {
-      return res.type('text/xml').send(adapter.formatOutgoing(
+      await adapter.enviarMensaje(
+        message.from,
         'Gracias por tu mensaje. En este momento estamos fuera de horario de atención — te responderemos en cuanto sea posible.',
-        req.body
-      ));
+        numeroOrigen
+      );
+      return res.sendStatus(200);
     }
 
     const resultado = await enqueueForPhone(
@@ -152,10 +164,19 @@ app.post('/webhook/twilio', async (req, res) => {
       textoFinal = `${textoFinal}\n\n${personality.firma}`;
     }
 
-    res.type('text/xml').send(adapter.formatOutgoing(textoFinal, req.body));
+    await adapter.enviarMensaje(message.from, textoFinal, numeroOrigen);
+    res.sendStatus(200);
   } catch (e) {
     console.error('❌ Error en webhook:', e);
-    res.type('text/xml').send(adapter.formatOutgoing('Error técnico. Intenta de nuevo.', req.body));
+    try {
+      if (message?.from && message?.company_id) {
+        const numeroOrigen = await channelRouter.resolverEndpointDeEmpresa(message.company_id);
+        await adapter.enviarMensaje(message.from, 'Error técnico. Intenta de nuevo.', numeroOrigen);
+      }
+    } catch (e2) {
+      console.error('❌ Error enviando mensaje de error:', e2);
+    }
+    res.sendStatus(200);
   }
 });
 

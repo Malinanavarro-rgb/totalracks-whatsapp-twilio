@@ -76,6 +76,34 @@ class ChannelAdapter {
   async sendProactive(text, identificador) {
     throw new Error(`${this.constructor.name} no soporta envío proactivo`);
   }
+
+  /**
+   * Envía la respuesta principal de una conversación de forma asíncrona
+   * (llamada API explícita), en vez de devolverla inline en la respuesta
+   * HTTP del webhook. Necesario porque no todos los proveedores soportan
+   * responder síncronamente dentro del propio webhook (ej. Meta Cloud API
+   * no lo soporta; Twilio sí, vía TwiML, pero puede unificarse igual).
+   * @param {string} destinatario - Identificador del destino (phone, user_id)
+   * @param {string} texto        - Respuesta de TARA
+   * @param {string} [from]       - Origen explícito (ej. número de la empresa),
+   *                                cuando el proveedor lo requiere
+   * @returns {Promise<void>}
+   */
+  async enviarMensaje(destinatario, texto, from) {
+    throw new Error(`${this.constructor.name} debe implementar enviarMensaje()`);
+  }
+
+  /**
+   * Maneja el handshake de verificación de webhook que algunos proveedores
+   * exigen antes de aceptar el registro (ej. Meta Cloud API: GET con
+   * hub.mode/hub.verify_token/hub.challenge). Opcional — el default no hace
+   * nada, ya que Twilio (y la mayoría de proveedores) no lo necesitan.
+   * @param {Object} request - El objeto request de Express
+   * @returns {string|null} el valor a devolver como respuesta (ej. hub.challenge), o null si no aplica
+   */
+  verificarWebhook(request) {
+    return null;
+  }
 }
 
 module.exports = { ChannelAdapter };
