@@ -107,15 +107,12 @@ function enqueueForPhone(phone, fn) {
 // global — mismo patrón ya usado en recordatorios e intervención humana.
 app.post('/webhook/twilio', async (req, res) => {
   let message;
-  console.log('📩 Webhook Twilio: request recibido', { from: req.body?.From, to: req.body?.To });
   try {
     if (!adapter.validateSignature(req)) {
-      console.warn('⚠️  Webhook Twilio: firma inválida');
       return res.status(403).type('text/plain').send('Firma inválida');
     }
 
     message = adapter.parseIncoming(req);
-    console.log('📩 Webhook Twilio: mensaje parseado', { from: message.from, incoming_endpoint: message.incoming_endpoint, content: message.content });
 
     // FASE 3 — routing dinámico: resolver empresa por número receptor
     const routeResult = await channelRouter.enrutar(message.incoming_endpoint);
@@ -124,18 +121,15 @@ app.post('/webhook/twilio', async (req, res) => {
       return res.status(200).end();
     }
     message.company_id = routeResult.company_id;
-    console.log('📩 Webhook Twilio: empresa resuelta', { company_id: message.company_id });
 
     const numeroOrigen = await channelRouter.resolverEndpointDeEmpresa(message.company_id);
-    console.log('📩 Webhook Twilio: número de origen resuelto', { numeroOrigen });
 
     // FASE 5 (Fase 3 — intervención humana): si un humano ya tomó esta
     // conversación, TARA no responde. Se resuelve el cliente aquí (capa de
     // plataforma) sin tocar el Orchestrator/WorkflowEngine (ADR-005).
     const cliente = await obtenerOCrearCliente(message.from, message.company_id);
-    console.log('📩 Webhook Twilio: cliente resuelto', { cliente_id: cliente?.id, atendido_por: cliente?.atendido_por });
     if (cliente?.atendido_por === 'humano') {
-      console.log('📩 Webhook Twilio: atendido por humano — TARA no responde, se registra el mensaje');
+      console.log(`📩 ${message.from} — atendido por humano, TARA no responde (cliente ${cliente.id})`);
       await registrarMensajeEntranteHumano(supabaseServicio, message.company_id, cliente.id, message.content);
       return res.status(200).end();
     }
@@ -144,7 +138,6 @@ app.post('/webhook/twilio', async (req, res) => {
     // TARA no invoca al motor de IA — responde un mensaje fijo. Guard en la
     // capa de plataforma, igual que el de intervención humana (ADR-005).
     const dentroDeHorario = await estaDentroDeHorarioAtencion(supabaseServicio, message.company_id);
-    console.log('📩 Webhook Twilio: dentro de horario de atención?', dentroDeHorario);
     if (!dentroDeHorario) {
       await adapter.enviarMensaje(
         message.from,
@@ -158,7 +151,6 @@ app.post('/webhook/twilio', async (req, res) => {
       message.from,
       () => orchestrator.procesarMensaje(message)
     );
-    console.log('📩 Webhook Twilio: Orchestrator respondió', { preview: resultado?.respuesta_texto?.substring(0, 80) });
 
     // FASE 6 (Configuración — mensaje de bienvenida y firma): se aplican en
     // la capa de plataforma, sobre el texto ya generado por el Orchestrator
@@ -173,9 +165,8 @@ app.post('/webhook/twilio', async (req, res) => {
       textoFinal = `${textoFinal}\n\n${personality.firma}`;
     }
 
-    console.log('📩 Webhook Twilio: enviando respuesta final', { destinatario: message.from, numeroOrigen, preview: textoFinal.substring(0, 80) });
     await adapter.enviarMensaje(message.from, textoFinal, numeroOrigen);
-    console.log('✅ Webhook Twilio: enviarMensaje() completado sin error');
+    console.log(`✅ ${message.from} — respuesta enviada (empresa ${message.company_id})`);
     res.status(200).end();
   } catch (e) {
     console.error('❌ Error en webhook:', e);
