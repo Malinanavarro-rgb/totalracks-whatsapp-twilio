@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { api } from '../../lib/api';
 
 // Fase 6: solo campos de negocio. Los parámetros técnicos del motor de IA
-// (modelo, temperatura, max_tokens, skills, reglas, etc.) nunca se muestran
-// aquí — el cliente nunca ve JSON ni conceptos técnicos (ADR-005).
+// (modelo, temperatura, max_tokens, reglas, etc.) nunca se muestran aquí —
+// el cliente nunca ve JSON ni conceptos técnicos (ADR-005). "Skills" es de
+// negocio pero vive en su propia pestaña (SkillsTab.jsx, Fase 1.4).
 export default function PersonalidadTab() {
   const [form, setForm] = useState(null);
   const [guardando, setGuardando] = useState(false);
@@ -128,6 +129,22 @@ export default function PersonalidadTab() {
       <h2>Firma</h2>
       <label>Se agrega al final de cada respuesta
         <input value={form.firma || ''} onChange={(e) => campo('firma', e.target.value)} />
+      </label>
+
+      <h2>Mensaje fuera de horario</h2>
+      <label>Se envía cuando un cliente escribe fuera del horario de atención del bot
+        <textarea
+          rows={2} value={form.mensaje_fuera_horario || ''}
+          onChange={(e) => campo('mensaje_fuera_horario', e.target.value)}
+        />
+      </label>
+
+      <h2>Mensaje de error técnico</h2>
+      <label>Se envía si ocurre un error inesperado al procesar un mensaje
+        <textarea
+          rows={2} value={form.mensaje_error_tecnico || ''}
+          onChange={(e) => campo('mensaje_error_tecnico', e.target.value)}
+        />
       </label>
 
       {mensaje && <p className="config-mensaje-exito">{mensaje}</p>}

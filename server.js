@@ -41,7 +41,7 @@ const {
   listarKnowledgeBase, crearKnowledgeBase, actualizarKnowledgeBase, eliminarKnowledgeBase,
   listarHorarios, crearHorario, actualizarHorario, eliminarHorario,
   listarHorarioAtencionBot, guardarHorarioAtencionBot, eliminarHorarioAtencionBot,
-  listarServicios, crearServicio, actualizarServicio,
+  listarServicios, crearServicio, actualizarServicio, eliminarServicio,
   listarCanales, estaDentroDeHorarioAtencion, esPrimerContacto,
 }                                        = require('./modules/configuracion');
 const {
@@ -110,6 +110,13 @@ function enqueueForPhone(phone, fn) {
   return task;
 }
 
+// Fase 1.3 (pivote a producto): defaults usados solo si la empresa no
+// personalizó su propio mensaje en Configuración → Personalidad
+// (personalities.mensaje_fuera_horario / mensaje_error_tecnico, migración
+// 041) — mismo texto que antes era fijo para todas las empresas.
+const MENSAJE_FUERA_HORARIO_DEFAULT = 'Gracias por tu mensaje. En este momento estamos fuera de horario de atención — te responderemos en cuanto sea posible.';
+const MENSAJE_ERROR_TECNICO_DEFAULT = 'Error técnico. Intenta de nuevo.';
+
 // ── PROCESAMIENTO COMÚN DE MENSAJES ENTRANTES (Twilio + Meta) ────────────────
 
 // Migración Twilio→Meta Cloud API: modelo de envío unificado y asíncrono.
@@ -134,12 +141,15 @@ async function procesarMensajeEntrante(message, enviar) {
     return;
   }
 
+  const { personality } = await obtenerConfigEmpresa(message.company_id);
+
   // FASE 6 (Configuración — horario de atención del bot): fuera de horario,
-  // TARA no invoca al motor de IA — responde un mensaje fijo. Guard en la
-  // capa de plataforma, igual que el de intervención humana (ADR-005).
+  // TARA no invoca al motor de IA — responde un mensaje fijo (personalizable
+  // por empresa, Fase 1.3 pivote a producto). Guard en la capa de
+  // plataforma, igual que el de intervención humana (ADR-005).
   const dentroDeHorario = await estaDentroDeHorarioAtencion(supabaseServicio, message.company_id);
   if (!dentroDeHorario) {
-    await enviar(message.from, 'Gracias por tu mensaje. En este momento estamos fuera de horario de atención — te responderemos en cuanto sea posible.');
+    await enviar(message.from, personality?.mensaje_fuera_horario || MENSAJE_FUERA_HORARIO_DEFAULT);
     return;
   }
 
@@ -152,7 +162,6 @@ async function procesarMensajeEntrante(message, enviar) {
   // la capa de plataforma, sobre el texto ya generado por el Orchestrator
   // — cero cambios al motor de IA/prompt.
   let textoFinal = resultado.respuesta_texto;
-  const { personality } = await obtenerConfigEmpresa(message.company_id);
 
   if (personality?.mensaje_bienvenida && await esPrimerContacto(supabaseServicio, cliente.id)) {
     textoFinal = `${personality.mensaje_bienvenida}\n\n${textoFinal}`;
@@ -194,7 +203,8 @@ app.post('/webhook/twilio', async (req, res) => {
     try {
       if (message?.from && message?.company_id) {
         const numeroOrigen = await channelRouter.resolverEndpointDeEmpresa(message.company_id);
-        await adapter.enviarMensaje(message.from, 'Error técnico. Intenta de nuevo.', numeroOrigen);
+        const { personality } = await obtenerConfigEmpresa(message.company_id);
+        await adapter.enviarMensaje(message.from, personality?.mensaje_error_tecnico || MENSAJE_ERROR_TECNICO_DEFAULT, numeroOrigen);
       }
     } catch (e2) {
       console.error('❌ Error enviando mensaje de error:', e2);
@@ -252,7 +262,8 @@ app.post('/webhook/meta', async (req, res) => {
     try {
       if (message?.from && message?.company_id) {
         const metaAdapterEmpresa = await obtenerAdapterMetaParaEmpresa(supabaseServicio, message.company_id);
-        if (metaAdapterEmpresa) await metaAdapterEmpresa.enviarMensaje(message.from, 'Error técnico. Intenta de nuevo.');
+        const { personality } = await obtenerConfigEmpresa(message.company_id);
+        if (metaAdapterEmpresa) await metaAdapterEmpresa.enviarMensaje(message.from, personality?.mensaje_error_tecnico || MENSAJE_ERROR_TECNICO_DEFAULT);
       }
     } catch (e2) {
       console.error('❌ Error enviando mensaje de error (Meta):', e2);
@@ -838,6 +849,15 @@ app.post('/api/config/servicios', requireAuth, soloGerencial, async (req, res) =
 app.patch('/api/config/servicios/:id', requireAuth, soloGerencial, async (req, res) => {
   try {
     res.json(await actualizarServicio(req.supabase, req.usuario.company_id, req.params.id, req.body));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/config/servicios/:id', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    await eliminarServicio(req.supabase, req.usuario.company_id, req.params.id);
+    res.status(204).send();
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

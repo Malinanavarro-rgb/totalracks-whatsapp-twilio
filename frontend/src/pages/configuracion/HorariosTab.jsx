@@ -12,6 +12,7 @@ export default function HorariosTab() {
   const [horariosCitas, setHorariosCitas] = useState(null);
   const [horarioBot, setHorarioBot] = useState(null);
   const [error, setError] = useState(null);
+  const [formCita, setFormCita] = useState({ dia_semana: 1, hora_inicio: '09:00', hora_fin: '19:00' });
 
   function cargar() {
     api.horariosConfig().then(setHorariosCitas).catch((e) => setError(e.message));
@@ -23,6 +24,38 @@ export default function HorariosTab() {
   }
 
   useEffect(cargar, []);
+
+  async function agregarHorarioCita(e) {
+    e.preventDefault();
+    try {
+      await api.crearHorarioConfig({
+        dia_semana:  Number(formCita.dia_semana),
+        hora_inicio: formCita.hora_inicio,
+        hora_fin:    formCita.hora_fin,
+      });
+      cargar();
+    } catch (e2) {
+      setError(e2.message);
+    }
+  }
+
+  async function actualizarHorarioCita(id, cambios) {
+    try {
+      await api.actualizarHorarioConfig(id, cambios);
+      cargar();
+    } catch (e2) {
+      setError(e2.message);
+    }
+  }
+
+  async function eliminarHorarioCita(id) {
+    try {
+      await api.eliminarHorarioConfig(id);
+      cargar();
+    } catch (e2) {
+      setError(e2.message);
+    }
+  }
 
   async function guardarDiaBot(dia, hora_inicio, hora_fin) {
     try {
@@ -73,7 +106,17 @@ export default function HorariosTab() {
 
       <section className="crm-seccion">
         <h2>Horarios de citas (Agenda)</h2>
-        <p className="operaciones-nota">Usados por Agenda para calcular disponibilidad — no afectan si TARA responde o no.</p>
+        <p className="operaciones-nota">Usados por Agenda para calcular disponibilidad — no afectan si TARA responde o no. Puedes agregar más de un horario para el mismo día (ej. turno mañana y turno tarde).</p>
+
+        <form className="config-form-inline" onSubmit={agregarHorarioCita}>
+          <select value={formCita.dia_semana} onChange={(e) => setFormCita({ ...formCita, dia_semana: e.target.value })}>
+            {DIAS.map((nombreDia, dia) => <option key={dia} value={dia}>{nombreDia}</option>)}
+          </select>
+          <input type="time" value={formCita.hora_inicio} onChange={(e) => setFormCita({ ...formCita, hora_inicio: e.target.value })} />
+          <input type="time" value={formCita.hora_fin} onChange={(e) => setFormCita({ ...formCita, hora_fin: e.target.value })} />
+          <button type="submit">Agregar</button>
+        </form>
+
         {horariosCitas === null ? (
           <p className="operaciones-nota">Cargando…</p>
         ) : horariosCitas.length === 0 ? (
@@ -81,9 +124,13 @@ export default function HorariosTab() {
         ) : (
           <ul className="config-kb-lista">
             {horariosCitas.map((h) => (
-              <li key={h.id} className="config-kb-item">
-                {DIAS[h.dia_semana]}: {h.hora_inicio}–{h.hora_fin} ({h.zona_horaria})
-              </li>
+              <FilaHorarioCita
+                key={h.id}
+                horario={h}
+                nombreDia={DIAS[h.dia_semana]}
+                onGuardar={actualizarHorarioCita}
+                onEliminar={eliminarHorarioCita}
+              />
             ))}
           </ul>
         )}
@@ -106,5 +153,31 @@ function FilaHorarioBot({ dia, nombreDia, fila, onGuardar, onQuitar }) {
         {fila && <button type="button" onClick={() => onQuitar(fila.id)}>Quitar (24/7)</button>}
       </td>
     </tr>
+  );
+}
+
+function FilaHorarioCita({ horario, nombreDia, onGuardar, onEliminar }) {
+  const [editando, setEditando] = useState(false);
+  const [inicio, setInicio] = useState(horario.hora_inicio.slice(0, 5));
+  const [fin, setFin] = useState(horario.hora_fin.slice(0, 5));
+
+  if (!editando) {
+    return (
+      <li className="config-kb-item">
+        {nombreDia}: {horario.hora_inicio}–{horario.hora_fin} ({horario.zona_horaria})
+        <button onClick={() => setEditando(true)}>Editar</button>
+        <button onClick={() => onEliminar(horario.id)}>Eliminar</button>
+      </li>
+    );
+  }
+
+  return (
+    <li className="config-kb-item">
+      {nombreDia}:
+      <input type="time" value={inicio} onChange={(e) => setInicio(e.target.value)} />
+      <input type="time" value={fin} onChange={(e) => setFin(e.target.value)} />
+      <button onClick={() => { onGuardar(horario.id, { hora_inicio: inicio, hora_fin: fin }); setEditando(false); }}>Guardar</button>
+      <button onClick={() => setEditando(false)}>Cancelar</button>
+    </li>
   );
 }

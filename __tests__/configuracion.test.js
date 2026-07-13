@@ -8,7 +8,7 @@ const {
   listarKnowledgeBase, crearKnowledgeBase, actualizarKnowledgeBase, eliminarKnowledgeBase,
   listarHorarios, crearHorario, actualizarHorario, eliminarHorario,
   listarHorarioAtencionBot, guardarHorarioAtencionBot, eliminarHorarioAtencionBot,
-  listarServicios, crearServicio, actualizarServicio,
+  listarServicios, crearServicio, actualizarServicio, eliminarServicio,
   listarCanales,
   estaDentroDeHorarioAtencion, esPrimerContacto,
 } = require('../modules/configuracion');
@@ -62,6 +62,19 @@ describe('configuracion', () => {
       const db = crearMockDb();
       await expect(actualizarPersonalidad(db, COMPANY_A, { modelo: 'gpt-5' }))
         .rejects.toMatchObject({ status: 400 });
+    });
+
+    test('actualizarPersonalidad() acepta skills, mensaje_fuera_horario y mensaje_error_tecnico (pivote a producto, Fase 1)', async () => {
+      const db = crearMockDb({ data: { skills: [{ nombre: 'agendar citas', activo: true }] }, error: null });
+      const cambios = {
+        skills: [{ nombre: 'agendar citas', activo: true }],
+        mensaje_fuera_horario: 'Volvemos mañana a las 9am',
+        mensaje_error_tecnico: 'Ups, algo salió mal',
+      };
+      await actualizarPersonalidad(db, COMPANY_A, cambios);
+
+      const builder = db.from.mock.results[0].value;
+      expect(builder.update).toHaveBeenCalledWith(cambios);
     });
   });
 
@@ -144,6 +157,16 @@ describe('configuracion', () => {
       const db = crearMockDb({ data: { id: 's1', activo: false }, error: null });
       const resultado = await actualizarServicio(db, COMPANY_A, 's1', { activo: false });
       expect(resultado.activo).toBe(false);
+    });
+
+    test('eliminarServicio() no lanza si tiene éxito', async () => {
+      const db = crearMockDb({ error: null });
+      await expect(eliminarServicio(db, COMPANY_A, 's1')).resolves.toBeUndefined();
+    });
+
+    test('eliminarServicio() lanza si Supabase devuelve error', async () => {
+      const db = crearMockDb({ error: new Error('boom') });
+      await expect(eliminarServicio(db, COMPANY_A, 's1')).rejects.toThrow('No se pudo eliminar el servicio');
     });
   });
 

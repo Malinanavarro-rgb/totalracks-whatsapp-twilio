@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import PersonalidadTab from './configuracion/PersonalidadTab';
+import SkillsTab from './configuracion/SkillsTab';
 import KnowledgeBaseTab from './configuracion/KnowledgeBaseTab';
 import UsuariosTab from './configuracion/UsuariosTab';
 import HorariosTab from './configuracion/HorariosTab';
@@ -8,6 +9,7 @@ import CanalesTab from './configuracion/CanalesTab';
 
 const TABS = [
   { id: 'personalidad',  etiqueta: 'Personalidad',    Componente: PersonalidadTab },
+  { id: 'skills',        etiqueta: 'Skills',           Componente: SkillsTab },
   { id: 'conocimiento',  etiqueta: 'Knowledge Base',   Componente: KnowledgeBaseTab },
   { id: 'usuarios',      etiqueta: 'Usuarios',         Componente: UsuariosTab },
   { id: 'horarios',      etiqueta: 'Horarios',         Componente: HorariosTab },

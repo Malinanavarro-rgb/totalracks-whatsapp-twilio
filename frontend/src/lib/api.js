@@ -67,6 +67,7 @@ export const api = {
 
   horariosConfig:          () => pedir('/api/config/horarios'),
   crearHorarioConfig:      (datos) => pedir('/api/config/horarios', { method: 'POST', body: JSON.stringify(datos) }),
+  actualizarHorarioConfig: (id, datos) => pedir(`/api/config/horarios/${id}`, { method: 'PATCH', body: JSON.stringify(datos) }),
   eliminarHorarioConfig:   (id) => pedir(`/api/config/horarios/${id}`, { method: 'DELETE' }),
 
   horarioAtencion:         () => pedir('/api/config/horario-atencion'),
@@ -76,6 +77,7 @@ export const api = {
   serviciosConfig:         () => pedir('/api/config/servicios'),
   crearServicioConfig:     (datos) => pedir('/api/config/servicios', { method: 'POST', body: JSON.stringify(datos) }),
   actualizarServicioConfig: (id, datos) => pedir(`/api/config/servicios/${id}`, { method: 'PATCH', body: JSON.stringify(datos) }),
+  eliminarServicioConfig:  (id) => pedir(`/api/config/servicios/${id}`, { method: 'DELETE' }),
 
   canalesConfig:           () => pedir('/api/config/canales'),
 

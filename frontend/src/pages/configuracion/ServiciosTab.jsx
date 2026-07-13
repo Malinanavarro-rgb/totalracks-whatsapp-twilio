@@ -37,6 +37,15 @@ export default function ServiciosTab() {
     }
   }
 
+  async function eliminar(id) {
+    try {
+      await api.eliminarServicioConfig(id);
+      cargar();
+    } catch (e2) {
+      setError(e2.message);
+    }
+  }
+
   return (
     <div>
       <form className="config-form-inline" onSubmit={agregar}>
@@ -57,6 +66,7 @@ export default function ServiciosTab() {
           <li key={s.id} className="config-kb-item">
             <strong>{s.nombre}</strong> — {s.duracion_minutos} min{s.precio ? ` — $${s.precio}` : ''}
             <button onClick={() => toggleActivo(s)}>{s.activo ? 'Desactivar' : 'Activar'}</button>
+            <button onClick={() => eliminar(s.id)}>Eliminar</button>
           </li>
         ))}
       </ul>

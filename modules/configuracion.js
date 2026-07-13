@@ -3,9 +3,14 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * Plataforma SaaS, Fase 6: Configuración de empresa. Solo expone campos de
  * negocio — los parámetros técnicos del motor de IA (modelo, temperatura,
- * max_tokens, skills, reglas, campos_requeridos, max_turnos_memoria,
+ * max_tokens, reglas, campos_requeridos, max_turnos_memoria,
  * kb_max_secciones) nunca se leen ni se escriben desde aquí; siguen siendo
  * de administración exclusiva de TARA (vía SQL directo).
+ *
+ * `skills` (Pivote a producto, Fase 1.4) SÍ es de negocio — es la lista de
+ * habilidades que el cliente activa/desactiva para su asistente
+ * ([{nombre, activo}], ver modules/context-builder.js:238-241) — se movió
+ * aquí desde la lista de "solo SQL" anterior.
  *
  * Cualquier escritura sobre `personalities`/`knowledge_base` invalida la
  * caché de modules/config.js para que el cambio tenga efecto inmediato en
@@ -22,6 +27,7 @@ const { horaLocalAUTC } = require('./scheduling-engine');
 const CAMPOS_PERSONALIDAD = [
   'nombre_asistente', 'cargo', 'tono', 'objetivo', 'idioma',
   'mensaje_bienvenida', 'firma', 'longitud_respuesta', 'uso_emojis', 'nivel_iniciativa',
+  'mensaje_fuera_horario', 'mensaje_error_tecnico', 'skills',
 ];
 
 // ── PERSONALIDAD ──────────────────────────────────────────────────────────────
@@ -251,6 +257,16 @@ async function actualizarServicio(supabase, company_id, id, cambios) {
   return data;
 }
 
+async function eliminarServicio(supabase, company_id, id) {
+  const { error } = await supabase
+    .from('servicios')
+    .delete()
+    .eq('id', id)
+    .eq('company_id', company_id);
+
+  if (error) throw new Error('No se pudo eliminar el servicio');
+}
+
 // ── CANALES (solo lectura en MVP + estado de Google Calendar) ────────────────
 
 async function listarCanales(supabase, company_id) {
@@ -308,7 +324,7 @@ module.exports = {
   listarKnowledgeBase, crearKnowledgeBase, actualizarKnowledgeBase, eliminarKnowledgeBase,
   listarHorarios, crearHorario, actualizarHorario, eliminarHorario,
   listarHorarioAtencionBot, guardarHorarioAtencionBot, eliminarHorarioAtencionBot,
-  listarServicios, crearServicio, actualizarServicio,
+  listarServicios, crearServicio, actualizarServicio, eliminarServicio,
   listarCanales,
   estaDentroDeHorarioAtencion, esPrimerContacto,
 };
