@@ -55,6 +55,12 @@ export const api = {
     pedir(`/api/crm/clientes/${clienteId}/seguimientos`, { method: 'POST', body: JSON.stringify(datos) }),
   actualizarSeguimiento: (seguimientoId, cambios) =>
     pedir(`/api/crm/seguimientos/${seguimientoId}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
+  crearOportunidad:   (clienteId, datos) =>
+    pedir(`/api/crm/clientes/${clienteId}/oportunidades`, { method: 'POST', body: JSON.stringify(datos) }),
+  actualizarOportunidad: (oportunidadId, cambios) =>
+    pedir(`/api/crm/oportunidades/${oportunidadId}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
+  eliminarOportunidad: (oportunidadId) => pedir(`/api/crm/oportunidades/${oportunidadId}`, { method: 'DELETE' }),
+  oportunidades:      () => pedir('/api/crm/oportunidades'),
 
   // Configuración de empresa (Fase 6)
   personalidad:            () => pedir('/api/config/personalidad'),
@@ -78,6 +84,11 @@ export const api = {
   crearServicioConfig:     (datos) => pedir('/api/config/servicios', { method: 'POST', body: JSON.stringify(datos) }),
   actualizarServicioConfig: (id, datos) => pedir(`/api/config/servicios/${id}`, { method: 'PATCH', body: JSON.stringify(datos) }),
   eliminarServicioConfig:  (id) => pedir(`/api/config/servicios/${id}`, { method: 'DELETE' }),
+
+  pipelineEtapas:          () => pedir('/api/config/pipeline-etapas'),
+  crearPipelineEtapa:      (datos) => pedir('/api/config/pipeline-etapas', { method: 'POST', body: JSON.stringify(datos) }),
+  actualizarPipelineEtapa: (id, datos) => pedir(`/api/config/pipeline-etapas/${id}`, { method: 'PATCH', body: JSON.stringify(datos) }),
+  eliminarPipelineEtapa:   (id) => pedir(`/api/config/pipeline-etapas/${id}`, { method: 'DELETE' }),
 
   canalesConfig:           () => pedir('/api/config/canales'),
 

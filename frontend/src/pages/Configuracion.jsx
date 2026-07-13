@@ -5,6 +5,7 @@ import KnowledgeBaseTab from './configuracion/KnowledgeBaseTab';
 import UsuariosTab from './configuracion/UsuariosTab';
 import HorariosTab from './configuracion/HorariosTab';
 import ServiciosTab from './configuracion/ServiciosTab';
+import PipelineTab from './configuracion/PipelineTab';
 import CanalesTab from './configuracion/CanalesTab';
 
 const TABS = [
@@ -14,6 +15,7 @@ const TABS = [
   { id: 'usuarios',      etiqueta: 'Usuarios',         Componente: UsuariosTab },
   { id: 'horarios',      etiqueta: 'Horarios',         Componente: HorariosTab },
   { id: 'servicios',     etiqueta: 'Servicios',        Componente: ServiciosTab },
+  { id: 'pipeline',      etiqueta: 'Pipeline',         Componente: PipelineTab },
   { id: 'canales',       etiqueta: 'Canales',          Componente: CanalesTab },
 ];
 

@@ -267,6 +267,59 @@ async function eliminarServicio(supabase, company_id, id) {
   if (error) throw new Error('No se pudo eliminar el servicio');
 }
 
+// ── PIPELINE DE OPORTUNIDADES (Pivote a producto, Fase 2.2) ──────────────────
+// Reemplaza el arreglo ESTADOS hardcodeado que antes mezclaba estado de
+// cliente y de oportunidad — este catálogo es exclusivamente para
+// oportunidades.estado, configurable por empresa (migración 042).
+
+async function listarPipelineEtapas(supabase, company_id) {
+  const { data, error } = await supabase
+    .from('pipeline_etapas')
+    .select('*')
+    .eq('company_id', company_id)
+    .order('orden');
+
+  return error ? [] : (data || []);
+}
+
+async function crearPipelineEtapa(supabase, company_id, { nombre, orden }) {
+  const { data, error } = await supabase
+    .from('pipeline_etapas')
+    .insert([{ company_id, nombre, orden: orden ?? 0, activo: true }])
+    .select()
+    .single();
+
+  if (error) throw new Error(`configuracion.crearPipelineEtapa: ${error.message}`);
+  return data;
+}
+
+async function actualizarPipelineEtapa(supabase, company_id, id, cambios) {
+  const campos = ['nombre', 'orden', 'activo'];
+  const payload = {};
+  for (const campo of campos) if (cambios[campo] !== undefined) payload[campo] = cambios[campo];
+
+  const { data, error } = await supabase
+    .from('pipeline_etapas')
+    .update(payload)
+    .eq('id', id)
+    .eq('company_id', company_id)
+    .select()
+    .maybeSingle();
+
+  if (error || !data) throw new Error('No se pudo actualizar la etapa');
+  return data;
+}
+
+async function eliminarPipelineEtapa(supabase, company_id, id) {
+  const { error } = await supabase
+    .from('pipeline_etapas')
+    .delete()
+    .eq('id', id)
+    .eq('company_id', company_id);
+
+  if (error) throw new Error('No se pudo eliminar la etapa');
+}
+
 // ── CANALES (solo lectura en MVP + estado de Google Calendar) ────────────────
 
 async function listarCanales(supabase, company_id) {
@@ -325,6 +378,7 @@ module.exports = {
   listarHorarios, crearHorario, actualizarHorario, eliminarHorario,
   listarHorarioAtencionBot, guardarHorarioAtencionBot, eliminarHorarioAtencionBot,
   listarServicios, crearServicio, actualizarServicio, eliminarServicio,
+  listarPipelineEtapas, crearPipelineEtapa, actualizarPipelineEtapa, eliminarPipelineEtapa,
   listarCanales,
   estaDentroDeHorarioAtencion, esPrimerContacto,
 };

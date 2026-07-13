@@ -35,6 +35,7 @@ const {
 const {
   listarClientes, obtenerFichaCliente, actualizarCliente,
   listarSeguimientos, crearSeguimiento, actualizarSeguimiento,
+  listarOportunidades, crearOportunidad, actualizarOportunidad, eliminarOportunidad,
 }                                        = require('./modules/crm-ui');
 const {
   obtenerPersonalidad, actualizarPersonalidad,
@@ -42,6 +43,7 @@ const {
   listarHorarios, crearHorario, actualizarHorario, eliminarHorario,
   listarHorarioAtencionBot, guardarHorarioAtencionBot, eliminarHorarioAtencionBot,
   listarServicios, crearServicio, actualizarServicio, eliminarServicio,
+  listarPipelineEtapas, crearPipelineEtapa, actualizarPipelineEtapa, eliminarPipelineEtapa,
   listarCanales, estaDentroDeHorarioAtencion, esPrimerContacto,
 }                                        = require('./modules/configuracion');
 const {
@@ -671,6 +673,15 @@ app.get('/api/crm/clientes', requireAuth, async (req, res) => {
   }
 });
 
+app.get('/api/crm/oportunidades', requireAuth, async (req, res) => {
+  try {
+    const oportunidades = await listarOportunidades(req.supabase, req.usuario.company_id);
+    res.json(oportunidades);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/crm/clientes/:id', requireAuth, async (req, res) => {
   try {
     const ficha = await obtenerFichaCliente(req.supabase, req.usuario.company_id, req.params.id);
@@ -716,6 +727,33 @@ app.patch('/api/crm/seguimientos/:id', requireAuth, async (req, res) => {
     res.json(seguimiento);
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/crm/clientes/:id/oportunidades', requireAuth, async (req, res) => {
+  try {
+    const oportunidad = await crearOportunidad(req.supabase, req.usuario.company_id, req.params.id, req.body);
+    res.status(201).json(oportunidad);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/crm/oportunidades/:id', requireAuth, async (req, res) => {
+  try {
+    const oportunidad = await actualizarOportunidad(req.supabase, req.usuario.company_id, req.params.id, req.body);
+    res.json(oportunidad);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/crm/oportunidades/:id', requireAuth, async (req, res) => {
+  try {
+    await eliminarOportunidad(req.supabase, req.usuario.company_id, req.params.id);
+    res.status(204).send();
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
@@ -857,6 +895,39 @@ app.patch('/api/config/servicios/:id', requireAuth, soloGerencial, async (req, r
 app.delete('/api/config/servicios/:id', requireAuth, soloGerencial, async (req, res) => {
   try {
     await eliminarServicio(req.supabase, req.usuario.company_id, req.params.id);
+    res.status(204).send();
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/config/pipeline-etapas', requireAuth, async (req, res) => {
+  try {
+    res.json(await listarPipelineEtapas(req.supabase, req.usuario.company_id));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/config/pipeline-etapas', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    res.status(201).json(await crearPipelineEtapa(req.supabase, req.usuario.company_id, req.body));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/config/pipeline-etapas/:id', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    res.json(await actualizarPipelineEtapa(req.supabase, req.usuario.company_id, req.params.id, req.body));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/config/pipeline-etapas/:id', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    await eliminarPipelineEtapa(req.supabase, req.usuario.company_id, req.params.id);
     res.status(204).send();
   } catch (e) {
     res.status(500).json({ error: e.message });

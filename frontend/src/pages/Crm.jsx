@@ -14,7 +14,10 @@ export default function Crm() {
 
   return (
     <div>
-      <h1>CRM</h1>
+      <div className="crm-seccion-header">
+        <h1>CRM</h1>
+        <NavLink to="/crm/pipeline">Ver pipeline</NavLink>
+      </div>
       {error && <p className="login-error">{error}</p>}
       {clientes === null && !error && <p className="operaciones-nota">Cargando…</p>}
       {clientes?.length === 0 && <p className="operaciones-nota">No hay clientes todavía.</p>}

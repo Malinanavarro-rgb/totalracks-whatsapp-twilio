@@ -9,6 +9,7 @@ jest.mock('../modules/conversaciones', () => ({
 const {
   listarClientes, obtenerFichaCliente, actualizarCliente,
   listarSeguimientos, crearSeguimiento, actualizarSeguimiento,
+  listarOportunidades, crearOportunidad, actualizarOportunidad, eliminarOportunidad,
 } = require('../modules/crm-ui');
 
 // ─── Mock Builder ─────────────────────────────────────────────────────────────
@@ -18,6 +19,7 @@ function crearBuilder(resultado = { data: null, error: null }) {
     select:      jest.fn().mockReturnThis(),
     insert:      jest.fn().mockReturnThis(),
     update:      jest.fn().mockReturnThis(),
+    delete:      jest.fn().mockReturnThis(),
     eq:          jest.fn().mockReturnThis(),
     or:          jest.fn().mockReturnThis(),
     order:       jest.fn().mockReturnThis(),
@@ -116,6 +118,49 @@ describe('crm-ui', () => {
       const db = crearMockDb({ data: null, error: new Error('boom') });
       const resultado = await listarSeguimientos(db, COMPANY_A, 5);
       expect(resultado).toEqual([]);
+    });
+  });
+
+  describe('oportunidades (Pivote a producto, Fase 2.1)', () => {
+    test('listarOportunidades() devuelve arreglo vacío en error', async () => {
+      const db = crearMockDb({ data: null, error: new Error('boom') });
+      expect(await listarOportunidades(db, COMPANY_A)).toEqual([]);
+    });
+
+    test('crearOportunidad() asocia cliente_id y company_id', async () => {
+      const db = crearMockDb({ data: { id: 'op1' }, error: null });
+      await crearOportunidad(db, COMPANY_A, 5, { estado: 'Nuevo', tipo_rack: 'Cotizacion racks', probabilidad: 40 });
+
+      const builder = db.from.mock.results[0].value;
+      expect(builder.insert).toHaveBeenCalledWith([expect.objectContaining({
+        cliente_id: 5, company_id: COMPANY_A, estado: 'Nuevo', tipo_rack: 'Cotizacion racks', probabilidad: 40,
+      })]);
+    });
+
+    test('actualizarOportunidad() solo aplica campos permitidos, filtrando por company_id', async () => {
+      const db = crearMockDb({ data: { id: 'op1', estado: 'Ganado' }, error: null });
+      const resultado = await actualizarOportunidad(db, COMPANY_A, 'op1', { estado: 'Ganado', cliente_id: 999 });
+
+      const builder = db.from.mock.results[0].value;
+      expect(builder.update).toHaveBeenCalledWith({ estado: 'Ganado' });
+      expect(builder.eq).toHaveBeenCalledWith('company_id', COMPANY_A);
+      expect(resultado.estado).toBe('Ganado');
+    });
+
+    test('actualizarOportunidad() 400 si no hay campos válidos', async () => {
+      const db = crearMockDb();
+      await expect(actualizarOportunidad(db, COMPANY_A, 'op1', { cliente_id: 999 }))
+        .rejects.toMatchObject({ status: 400 });
+    });
+
+    test('eliminarOportunidad() no lanza si tiene éxito', async () => {
+      const db = crearMockDb({ error: null });
+      await expect(eliminarOportunidad(db, COMPANY_A, 'op1')).resolves.toBeUndefined();
+    });
+
+    test('eliminarOportunidad() lanza si Supabase devuelve error', async () => {
+      const db = crearMockDb({ error: new Error('boom') });
+      await expect(eliminarOportunidad(db, COMPANY_A, 'op1')).rejects.toThrow('No se pudo eliminar la oportunidad');
     });
   });
 });

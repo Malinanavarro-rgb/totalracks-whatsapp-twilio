@@ -9,6 +9,7 @@ const {
   listarHorarios, crearHorario, actualizarHorario, eliminarHorario,
   listarHorarioAtencionBot, guardarHorarioAtencionBot, eliminarHorarioAtencionBot,
   listarServicios, crearServicio, actualizarServicio, eliminarServicio,
+  listarPipelineEtapas, crearPipelineEtapa, actualizarPipelineEtapa, eliminarPipelineEtapa,
   listarCanales,
   estaDentroDeHorarioAtencion, esPrimerContacto,
 } = require('../modules/configuracion');
@@ -167,6 +168,35 @@ describe('configuracion', () => {
     test('eliminarServicio() lanza si Supabase devuelve error', async () => {
       const db = crearMockDb({ error: new Error('boom') });
       await expect(eliminarServicio(db, COMPANY_A, 's1')).rejects.toThrow('No se pudo eliminar el servicio');
+    });
+  });
+
+  describe('pipeline de oportunidades (Pivote a producto, Fase 2.2)', () => {
+    test('crearPipelineEtapa() aplica orden default 0 y activo=true', async () => {
+      const db = crearMockDb({ data: { id: 'pe1' }, error: null });
+      await crearPipelineEtapa(db, COMPANY_A, { nombre: 'Negociación' });
+
+      const builder = db.from.mock.results[0].value;
+      expect(builder.insert).toHaveBeenCalledWith([{ company_id: COMPANY_A, nombre: 'Negociación', orden: 0, activo: true }]);
+    });
+
+    test('actualizarPipelineEtapa() solo aplica campos permitidos', async () => {
+      const db = crearMockDb({ data: { id: 'pe1', activo: false }, error: null });
+      const resultado = await actualizarPipelineEtapa(db, COMPANY_A, 'pe1', { activo: false, company_id: 'otra-empresa' });
+
+      const builder = db.from.mock.results[0].value;
+      expect(builder.update).toHaveBeenCalledWith({ activo: false });
+      expect(resultado.activo).toBe(false);
+    });
+
+    test('eliminarPipelineEtapa() no lanza si tiene éxito', async () => {
+      const db = crearMockDb({ error: null });
+      await expect(eliminarPipelineEtapa(db, COMPANY_A, 'pe1')).resolves.toBeUndefined();
+    });
+
+    test('listarPipelineEtapas() devuelve arreglo vacío en error', async () => {
+      const db = crearMockDb({ data: null, error: new Error('boom') });
+      expect(await listarPipelineEtapas(db, COMPANY_A)).toEqual([]);
     });
   });
 

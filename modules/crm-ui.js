@@ -20,6 +20,15 @@ const { obtenerHistorial } = require('./conversaciones');
 const ROLES_GERENCIALES = ['owner', 'administrador', 'supervisor'];
 const CAMPOS_EDITABLES  = ['nombre', 'empresa', 'ciudad', 'notas', 'estado'];
 const CAMPOS_SEGUIMIENTO = ['texto', 'fecha_programada', 'prioridad', 'completado'];
+// tipo_rack: nombre histórico de la columna (Total Racks, pre-multiempresa) —
+// en realidad es "categoría de producto/servicio", genérico para cualquier
+// giro de negocio. No se renombra: modules/crm.js (congelado, ADR-005)
+// escribe directo a esta columna al crear oportunidades automáticas desde
+// el bot — cambiar el nombre requeriría tocar el write path congelado.
+const CAMPOS_OPORTUNIDAD = [
+  'estado', 'tipo_rack', 'descripcion', 'presupuesto_estimado', 'presupuesto_confirmado',
+  'probabilidad', 'proxima_accion', 'fecha_seguimiento', 'razon_cierre',
+];
 
 /**
  * Lista de clientes visibles para el usuario. Mismo criterio que
@@ -140,6 +149,76 @@ async function actualizarSeguimiento(supabase, company_id, seguimientoId, cambio
   return data;
 }
 
+/**
+ * Todas las oportunidades de la empresa, con datos del cliente embebidos
+ * (para la vista de pipeline/kanban, Fase 2.3) — a diferencia de
+ * obtenerFichaCliente(), que las trae solo para UN cliente.
+ */
+async function listarOportunidades(supabase, company_id) {
+  const { data, error } = await supabase
+    .from('oportunidades')
+    .select('*, clientes(nombre, telefono)')
+    .eq('company_id', company_id)
+    .order('created_at', { ascending: false });
+
+  return error ? [] : (data || []);
+}
+
+/**
+ * CRUD de oportunidades desde el panel (Pivote a producto, Fase 2.1). Antes
+ * solo se creaban automáticamente por triggers de palabras clave del bot
+ * (modules/crm.js::crearOportunidadSiCorresponde, congelado) — esto agrega
+ * la capa de administración manual encima, sin tocar ese write path.
+ */
+async function crearOportunidad(supabase, company_id, clienteId, datos) {
+  const payload = { cliente_id: clienteId, company_id };
+  for (const campo of CAMPOS_OPORTUNIDAD) {
+    if (datos[campo] !== undefined) payload[campo] = datos[campo];
+  }
+
+  const { data, error } = await supabase
+    .from('oportunidades')
+    .insert([payload])
+    .select()
+    .single();
+
+  if (error) throw new Error(`crm-ui.crearOportunidad: ${error.message}`);
+  return data;
+}
+
+async function actualizarOportunidad(supabase, company_id, oportunidadId, cambios) {
+  const payload = {};
+  for (const campo of CAMPOS_OPORTUNIDAD) {
+    if (cambios[campo] !== undefined) payload[campo] = cambios[campo];
+  }
+  if (Object.keys(payload).length === 0) {
+    const err = new Error('Sin campos válidos para actualizar');
+    err.status = 400;
+    throw err;
+  }
+
+  const { data, error } = await supabase
+    .from('oportunidades')
+    .update(payload)
+    .eq('id', oportunidadId)
+    .eq('company_id', company_id)
+    .select()
+    .maybeSingle();
+
+  if (error || !data) throw new Error('No se pudo actualizar la oportunidad');
+  return data;
+}
+
+async function eliminarOportunidad(supabase, company_id, oportunidadId) {
+  const { error } = await supabase
+    .from('oportunidades')
+    .delete()
+    .eq('id', oportunidadId)
+    .eq('company_id', company_id);
+
+  if (error) throw new Error('No se pudo eliminar la oportunidad');
+}
+
 module.exports = {
   listarClientes,
   obtenerFichaCliente,
@@ -147,4 +226,8 @@ module.exports = {
   listarSeguimientos,
   crearSeguimiento,
   actualizarSeguimiento,
+  listarOportunidades,
+  crearOportunidad,
+  actualizarOportunidad,
+  eliminarOportunidad,
 };

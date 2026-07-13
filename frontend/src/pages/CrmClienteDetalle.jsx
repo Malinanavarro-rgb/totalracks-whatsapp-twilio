@@ -13,6 +13,8 @@ export default function CrmClienteDetalle() {
   const [form, setForm] = useState(null);
   const [guardando, setGuardando] = useState(false);
   const [nuevoSeguimiento, setNuevoSeguimiento] = useState({ texto: '', fecha_programada: '', prioridad: 'media' });
+  const [etapasPipeline, setEtapasPipeline] = useState([]);
+  const [nuevaOportunidad, setNuevaOportunidad] = useState({ estado: 'Nuevo', descripcion: '', presupuesto_estimado: '' });
 
   function cargar() {
     Promise.all([api.fichaCliente(clienteId), api.seguimientos(clienteId)])
@@ -31,6 +33,10 @@ export default function CrmClienteDetalle() {
   }
 
   useEffect(cargar, [clienteId]);
+
+  useEffect(() => {
+    api.pipelineEtapas().then((etapas) => setEtapasPipeline(etapas.filter((et) => et.activo)));
+  }, []);
 
   async function guardarEdicion(e) {
     e.preventDefault();
@@ -61,6 +67,40 @@ export default function CrmClienteDetalle() {
   async function toggleCompletado(seguimiento) {
     try {
       await api.actualizarSeguimiento(seguimiento.id, { completado: !seguimiento.completado });
+      cargar();
+    } catch (e2) {
+      setError(e2.message);
+    }
+  }
+
+  async function agregarOportunidad(e) {
+    e.preventDefault();
+    if (!nuevaOportunidad.descripcion.trim()) return;
+    try {
+      await api.crearOportunidad(clienteId, {
+        estado:               nuevaOportunidad.estado,
+        descripcion:          nuevaOportunidad.descripcion.trim(),
+        presupuesto_estimado: nuevaOportunidad.presupuesto_estimado ? Number(nuevaOportunidad.presupuesto_estimado) : null,
+      });
+      setNuevaOportunidad({ estado: 'Nuevo', descripcion: '', presupuesto_estimado: '' });
+      cargar();
+    } catch (e2) {
+      setError(e2.message);
+    }
+  }
+
+  async function actualizarEstadoOportunidad(oportunidadId, estado) {
+    try {
+      await api.actualizarOportunidad(oportunidadId, { estado });
+      cargar();
+    } catch (e2) {
+      setError(e2.message);
+    }
+  }
+
+  async function eliminarOportunidad(oportunidadId) {
+    try {
+      await api.eliminarOportunidad(oportunidadId);
       cargar();
     } catch (e2) {
       setError(e2.message);
@@ -169,16 +209,45 @@ export default function CrmClienteDetalle() {
         )}
       </section>
 
-      {oportunidades.length > 0 && (
-        <section className="crm-seccion">
-          <h2>Oportunidades</h2>
+      <section className="crm-seccion">
+        <h2>Oportunidades</h2>
+        <form className="crm-form-seguimiento" onSubmit={agregarOportunidad}>
+          <input
+            type="text" placeholder="Descripción de la oportunidad…"
+            value={nuevaOportunidad.descripcion}
+            onChange={(e) => setNuevaOportunidad({ ...nuevaOportunidad, descripcion: e.target.value })}
+          />
+          <input
+            type="number" min="0" placeholder="Presupuesto estimado"
+            value={nuevaOportunidad.presupuesto_estimado}
+            onChange={(e) => setNuevaOportunidad({ ...nuevaOportunidad, presupuesto_estimado: e.target.value })}
+          />
+          <select
+            value={nuevaOportunidad.estado}
+            onChange={(e) => setNuevaOportunidad({ ...nuevaOportunidad, estado: e.target.value })}
+          >
+            {etapasPipeline.map((et) => <option key={et.id} value={et.nombre}>{et.nombre}</option>)}
+          </select>
+          <button type="submit">Agregar</button>
+        </form>
+
+        {oportunidades.length === 0 ? (
+          <p className="operaciones-nota">Sin oportunidades.</p>
+        ) : (
           <ul className="crm-oportunidades-lista">
             {oportunidades.map((op) => (
-              <li key={op.id}>{op.descripcion} — <em>{op.estado}</em></li>
+              <li key={op.id}>
+                {op.descripcion || op.tipo_rack || 'Sin descripción'}
+                {op.presupuesto_estimado ? ` — $${op.presupuesto_estimado}` : ''}
+                <select value={op.estado || 'Nuevo'} onChange={(e) => actualizarEstadoOportunidad(op.id, e.target.value)}>
+                  {etapasPipeline.map((et) => <option key={et.id} value={et.nombre}>{et.nombre}</option>)}
+                </select>
+                <button onClick={() => eliminarOportunidad(op.id)}>Eliminar</button>
+              </li>
             ))}
           </ul>
-        </section>
-      )}
+        )}
+      </section>
 
       <section className="crm-seccion">
         <h2>Conversación</h2>

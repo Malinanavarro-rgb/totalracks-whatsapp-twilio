@@ -9,6 +9,7 @@ import ConversacionDetalle from './pages/ConversacionDetalle';
 import Agenda from './pages/Agenda';
 import Crm from './pages/Crm';
 import CrmClienteDetalle from './pages/CrmClienteDetalle';
+import CrmPipeline from './pages/CrmPipeline';
 import Configuracion from './pages/Configuracion';
 import AceptarInvitacion from './pages/AceptarInvitacion';
 import './App.css';
@@ -33,6 +34,7 @@ export default function App() {
             <Route path="/conversaciones/:clienteId" element={<ConversacionDetalle />} />
             <Route path="/agenda" element={<Agenda />} />
             <Route path="/crm" element={<Crm />} />
+            <Route path="/crm/pipeline" element={<CrmPipeline />} />
             <Route path="/crm/clientes/:clienteId" element={<CrmClienteDetalle />} />
             <Route path="/configuracion" element={<Configuracion />} />
           </Route>

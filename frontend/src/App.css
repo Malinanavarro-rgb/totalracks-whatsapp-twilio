@@ -341,6 +341,22 @@ body {
 
 .crm-oportunidades-lista { list-style: none; padding: 0; margin: 0; font-size: 0.9rem; display: flex; flex-direction: column; gap: 0.4rem; }
 
+/* ── Pipeline de oportunidades (Fase 2.3) ─────────────────────────────── */
+
+.crm-pipeline-tablero { display: flex; gap: 1rem; overflow-x: auto; padding-bottom: 1rem; }
+.crm-pipeline-columna {
+  background: #f7f7f8; border-radius: 8px; padding: 0.75rem;
+  min-width: 220px; flex: 1 0 220px;
+}
+.crm-pipeline-columna h2 { font-size: 0.9rem; margin: 0 0 0.75rem; display: flex; justify-content: space-between; }
+.crm-pipeline-contador { color: #888; font-weight: normal; }
+.crm-pipeline-tarjeta {
+  background: #fff; border: 1px solid #e2e2e2; border-radius: 6px;
+  padding: 0.6rem 0.7rem; margin-bottom: 0.5rem; font-size: 0.85rem; cursor: grab;
+}
+.crm-pipeline-tarjeta p { margin: 0.3rem 0 0; color: #555; }
+.crm-pipeline-presupuesto { color: #226a34 !important; font-weight: 600; }
+
 /* ── Configuración (Fase 6) ────────────────────────────────────────────── */
 
 .config-tabs { display: flex; gap: 0.5rem; margin: 1.25rem 0 1.5rem; flex-wrap: wrap; }
