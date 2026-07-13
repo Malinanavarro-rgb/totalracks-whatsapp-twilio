@@ -118,7 +118,7 @@ app.post('/webhook/twilio', async (req, res) => {
     const routeResult = await channelRouter.enrutar(message.incoming_endpoint);
     if (!routeResult) {
       console.warn('⚠️  Endpoint sin empresa registrada:', message.incoming_endpoint);
-      return res.sendStatus(200);
+      return res.status(200).end();
     }
     message.company_id = routeResult.company_id;
 
@@ -130,7 +130,7 @@ app.post('/webhook/twilio', async (req, res) => {
     const cliente = await obtenerOCrearCliente(message.from, message.company_id);
     if (cliente?.atendido_por === 'humano') {
       await registrarMensajeEntranteHumano(supabaseServicio, message.company_id, cliente.id, message.content);
-      return res.sendStatus(200);
+      return res.status(200).end();
     }
 
     // FASE 6 (Configuración — horario de atención del bot): fuera de horario,
@@ -143,7 +143,7 @@ app.post('/webhook/twilio', async (req, res) => {
         'Gracias por tu mensaje. En este momento estamos fuera de horario de atención — te responderemos en cuanto sea posible.',
         numeroOrigen
       );
-      return res.sendStatus(200);
+      return res.status(200).end();
     }
 
     const resultado = await enqueueForPhone(
@@ -165,7 +165,7 @@ app.post('/webhook/twilio', async (req, res) => {
     }
 
     await adapter.enviarMensaje(message.from, textoFinal, numeroOrigen);
-    res.sendStatus(200);
+    res.status(200).end();
   } catch (e) {
     console.error('❌ Error en webhook:', e);
     try {
@@ -176,7 +176,7 @@ app.post('/webhook/twilio', async (req, res) => {
     } catch (e2) {
       console.error('❌ Error enviando mensaje de error:', e2);
     }
-    res.sendStatus(200);
+    res.status(200).end();
   }
 });
 
