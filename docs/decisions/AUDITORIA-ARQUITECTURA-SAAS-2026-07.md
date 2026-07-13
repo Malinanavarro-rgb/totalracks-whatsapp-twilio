@@ -26,7 +26,8 @@
 **Recomendación:** **corregir antes de tener decenas de empresas reales pagando.** No requiere rediseñar nada — se puede activar RLS con políticas que autoricen por `auth.jwt()` (el usuario autenticado) en vez de por rol de conexión, sin depender de `service_role`. Vale la pena una sesión dedicada solo a esto, es la pieza que más se agrava con el tiempo (cada tabla nueva sin RLS es una tabla nueva con el mismo riesgo).
 
 ### 2. Patrón N+1 en los listados de Conversaciones y CRM
-**Dónde:** `modules/conversaciones.js` (`listarConversaciones` → `_obtenerUltimoMensaje` por cliente) y `modules/crm-ui.js` (`listarClientes`).
+**✅ Corregido (2026-07-13):** ver `migrations/040_conversaciones_resumen.sql` — vista `conversaciones_resumen` (`LEFT JOIN LATERAL`, `security_invoker`) reemplaza `_obtenerUltimoMensaje()` por cliente. `listarConversaciones()` pasó de 1+2N queries a 1 sola query, sin importar cuántos clientes tenga la empresa. `modules/crm-ui.js::listarClientes()` se revisó en la misma sesión y ya era una sola query flat — no tenía el patrón N+1 descrito abajo.
+**Dónde (histórico):** `modules/conversaciones.js` (`listarConversaciones` → `_obtenerUltimoMensaje` por cliente) y `modules/crm-ui.js` (`listarClientes`).
 **Riesgo:** por cada cliente en la lista se hacen 2 queries adicionales (conversaciones + mensajes_humanos) en paralelo pero *por cliente*. Con 500 clientes reales, cargar la pantalla de Conversaciones o CRM dispara ~1,000 queries. Esto **no depende de cuántas empresas haya en la plataforma — depende de cuántos clientes tenga UNA empresa exitosa**, y ya es hoy el cuello de botella más cercano.
 **Recomendación:** **corregir pronto, antes de que una empresa real crezca su base de clientes.** La solución es una sola consulta agregada (vista o función RPC de Postgres con `DISTINCT ON` para "último mensaje por cliente") en vez de N consultas en el cliente Node.
 

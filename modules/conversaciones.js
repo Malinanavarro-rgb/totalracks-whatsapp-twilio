@@ -21,68 +21,34 @@ const ROLES_GERENCIALES = ['owner', 'administrador', 'supervisor'];
  * las que ya tomó más el pool sin asignar (para poder tomarlas) — nunca las
  * tomadas por otro asesor.
  *
+ * Consulta única contra la vista `conversaciones_resumen` (migración 040),
+ * que resuelve el "último mensaje" de cada cliente con un JOIN en SQL — antes
+ * hacía 1 query de clientes + 2 queries adicionales POR CLIENTE (N+1),
+ * detectado en la auditoría de arquitectura 2026-07 (hallazgo #2).
+ *
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} company_id
  * @param {{id: string, rol: string}} usuario
  */
 async function listarConversaciones(supabase, company_id, usuario) {
   let query = supabase
-    .from('clientes')
-    .select('id, nombre, telefono, atendido_por, asesor_id, estado')
+    .from('conversaciones_resumen')
+    .select('id, nombre, telefono, atendido_por, asesor_id, estado, ultimo_mensaje_texto, ultimo_mensaje_created_at')
     .eq('company_id', company_id);
 
   if (!ROLES_GERENCIALES.includes(usuario.rol)) {
     query = query.or(`asesor_id.eq.${usuario.id},and(atendido_por.eq.ia,asesor_id.is.null)`);
   }
 
-  const { data, error } = await query;
+  const { data, error } = await query.order('ultimo_mensaje_created_at', { ascending: false, nullsFirst: false });
   if (error || !data) return [];
 
-  const conVista = await Promise.all(
-    data.map(async (cliente) => ({
-      ...cliente,
-      ultimoMensaje: await _obtenerUltimoMensaje(supabase, cliente.id),
-    }))
-  );
-
-  return conVista.sort((a, b) => {
-    const fa = a.ultimoMensaje?.created_at || '';
-    const fb = b.ultimoMensaje?.created_at || '';
-    return fb.localeCompare(fa);
-  });
-}
-
-async function _obtenerUltimoMensaje(supabase, clienteId) {
-  const [conv, hum] = await Promise.all([
-    supabase
-      .from('conversaciones')
-      .select('mensaje_cliente, respuesta_tara, created_at')
-      .eq('cliente_id', clienteId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    supabase
-      .from('mensajes_humanos')
-      .select('contenido, direccion, created_at')
-      .eq('cliente_id', clienteId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-  ]);
-
-  const candidatos = [];
-  if (conv.data) {
-    candidatos.push({
-      texto: conv.data.respuesta_tara || conv.data.mensaje_cliente,
-      created_at: conv.data.created_at,
-    });
-  }
-  if (hum.data) {
-    candidatos.push({ texto: hum.data.contenido, created_at: hum.data.created_at });
-  }
-  if (candidatos.length === 0) return null;
-
-  return candidatos.sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+  return data.map(({ ultimo_mensaje_texto, ultimo_mensaje_created_at, ...cliente }) => ({
+    ...cliente,
+    ultimoMensaje: ultimo_mensaje_texto
+      ? { texto: ultimo_mensaje_texto, created_at: ultimo_mensaje_created_at }
+      : null,
+  }));
 }
 
 /**

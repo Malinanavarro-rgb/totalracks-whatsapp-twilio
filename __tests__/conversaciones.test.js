@@ -19,7 +19,7 @@ function crearBuilder(resultado = { data: null, error: null }) {
     update:      jest.fn().mockReturnThis(),
     eq:          jest.fn().mockReturnThis(),
     or:          jest.fn().mockReturnThis(),
-    order:       jest.fn().mockReturnThis(),
+    order:       jest.fn().mockResolvedValue(resultado),
     limit:       jest.fn().mockReturnThis(),
     maybeSingle: jest.fn().mockResolvedValue(resultado),
     then: (resolve) => resolve(resultado),
@@ -46,17 +46,32 @@ const CLIENTE_ID = 42;
 
 describe('conversaciones', () => {
   describe('listarConversaciones()', () => {
-    test('gerencial (owner) ve todos los clientes de la empresa sin filtro .or()', async () => {
+    test('gerencial (owner) ve todos los clientes de la empresa sin filtro .or(), en una sola query contra conversaciones_resumen', async () => {
       const db = crearMockDb(
-        { data: [{ id: CLIENTE_ID, nombre: 'Juan', telefono: '+52...', atendido_por: 'ia', asesor_id: null }], error: null },
-        { data: { mensaje_cliente: 'hola', respuesta_tara: 'hola, en qué ayudo', created_at: '2026-07-09T10:00:00Z' }, error: null },
-        { data: null, error: null },
+        { data: [{
+            id: CLIENTE_ID, nombre: 'Juan', telefono: '+52...', atendido_por: 'ia', asesor_id: null, estado: null,
+            ultimo_mensaje_texto: 'hola, en qué ayudo', ultimo_mensaje_created_at: '2026-07-09T10:00:00Z',
+          }], error: null },
       );
 
       const resultado = await listarConversaciones(db, COMPANY_A, { id: 'u1', rol: 'owner' });
 
+      expect(db.from).toHaveBeenCalledTimes(1);
+      expect(db.from).toHaveBeenCalledWith('conversaciones_resumen');
       expect(resultado).toHaveLength(1);
       expect(resultado[0].ultimoMensaje.texto).toBe('hola, en qué ayudo');
+    });
+
+    test('cliente sin mensajes previos → ultimoMensaje es null (no truena con LEFT JOIN vacío)', async () => {
+      const db = crearMockDb(
+        { data: [{
+            id: CLIENTE_ID, nombre: 'Juan', telefono: '+52...', atendido_por: 'ia', asesor_id: null, estado: null,
+            ultimo_mensaje_texto: null, ultimo_mensaje_created_at: null,
+          }], error: null },
+      );
+
+      const resultado = await listarConversaciones(db, COMPANY_A, { id: 'u1', rol: 'owner' });
+      expect(resultado[0].ultimoMensaje).toBeNull();
     });
 
     test('asesor ve solo sus conversaciones + el pool sin tomar (usa .or())', async () => {
@@ -72,23 +87,24 @@ describe('conversaciones', () => {
       );
     });
 
-    test('ordena por mensaje más reciente primero', async () => {
+    test('ordena por último mensaje más reciente primero, resuelto en una sola query (sin N+1)', async () => {
       const db = crearMockDb(
         { data: [
-            { id: 1, nombre: 'A', telefono: 'x', atendido_por: 'ia', asesor_id: null },
-            { id: 2, nombre: 'B', telefono: 'y', atendido_por: 'ia', asesor_id: null },
+            { id: 2, nombre: 'B', telefono: 'y', atendido_por: 'ia', asesor_id: null, estado: null,
+              ultimo_mensaje_texto: 'r2', ultimo_mensaje_created_at: '2026-07-09T12:00:00Z' },
+            { id: 1, nombre: 'A', telefono: 'x', atendido_por: 'ia', asesor_id: null, estado: null,
+              ultimo_mensaje_texto: 'r', ultimo_mensaje_created_at: '2026-07-09T08:00:00Z' },
           ], error: null },
-        // cliente 1: conv + hum
-        { data: { mensaje_cliente: 'm', respuesta_tara: 'r', created_at: '2026-07-09T08:00:00Z' }, error: null },
-        { data: null, error: null },
-        // cliente 2: conv + hum (más reciente)
-        { data: { mensaje_cliente: 'm2', respuesta_tara: 'r2', created_at: '2026-07-09T12:00:00Z' }, error: null },
-        { data: null, error: null },
       );
 
       const resultado = await listarConversaciones(db, COMPANY_A, { id: 'u1', rol: 'owner' });
+
+      expect(db.from).toHaveBeenCalledTimes(1);
       expect(resultado[0].id).toBe(2);
       expect(resultado[1].id).toBe(1);
+
+      const builder = db.from.mock.results[0].value;
+      expect(builder.order).toHaveBeenCalledWith('ultimo_mensaje_created_at', { ascending: false, nullsFirst: false });
     });
   });
 
