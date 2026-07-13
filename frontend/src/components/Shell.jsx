@@ -1,5 +1,8 @@
+import { useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { api } from '../lib/api';
+import { iniciales, colorDesdeTexto } from '../lib/avatar';
 
 // Los 7 módulos de la Plataforma SaaS (docs/roadmap — FASE 5). Solo
 // "Centro de Operaciones" está habilitado en Fase 1 — el resto se muestra
@@ -37,10 +40,7 @@ export default function Shell() {
 
       <div className="shell-contenido">
         <header className="shell-header">
-          <div>
-            <strong>{sesion?.empresaActiva?.nombre || 'Empresa'}</strong>
-            <span className="shell-rol"> · {sesion?.empresaActiva?.rol}</span>
-          </div>
+          <SelectorEmpresa empresaActiva={sesion?.empresaActiva} empresas={sesion?.empresas} />
           <div className="shell-usuario">
             {sesion?.usuario?.nombre || sesion?.usuario?.email}
             <button onClick={cerrarSesion}>Cerrar sesión</button>
@@ -51,6 +51,91 @@ export default function Shell() {
           <Outlet />
         </main>
       </div>
+    </div>
+  );
+}
+
+function Avatar({ nombre, logo_url }) {
+  if (logo_url) {
+    return <img className="avatar-empresa" src={logo_url} alt={nombre} />;
+  }
+  return (
+    <span className="avatar-empresa avatar-empresa--iniciales" style={{ background: colorDesdeTexto(nombre) }}>
+      {iniciales(nombre)}
+    </span>
+  );
+}
+
+// Selector de empresa activa (multi-empresa por usuario) — al elegir otra
+// empresa, se recarga la página entera a una ruta neutral: todas las
+// pantallas del panel resuelven su company_id server-side a partir de la
+// cookie tara_company, así que un reload completo basta para que Dashboard/
+// CRM/Conversaciones/Agenda/Configuración se actualicen solos, sin tocar
+// código de esas páginas.
+function SelectorEmpresa({ empresaActiva, empresas }) {
+  const [abierto, setAbierto] = useState(false);
+  const [cambiando, setCambiando] = useState(false);
+  const [error, setError] = useState(null);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    function alClicAfuera(e) {
+      if (ref.current && !ref.current.contains(e.target)) setAbierto(false);
+    }
+    document.addEventListener('mousedown', alClicAfuera);
+    return () => document.removeEventListener('mousedown', alClicAfuera);
+  }, []);
+
+  async function elegir(company_id) {
+    if (company_id === empresaActiva?.company_id) return setAbierto(false);
+    setCambiando(true);
+    setError(null);
+    try {
+      await api.cambiarEmpresa(company_id);
+      window.location.href = '/operaciones';
+    } catch (e) {
+      setError(e.message);
+      setCambiando(false);
+    }
+  }
+
+  if (!empresaActiva) return <div><strong>Empresa</strong></div>;
+
+  return (
+    <div className="selector-empresa" ref={ref}>
+      <button
+        className="selector-empresa-boton"
+        onClick={() => setAbierto(!abierto)}
+        disabled={cambiando}
+      >
+        <Avatar nombre={empresaActiva.nombre} logo_url={empresaActiva.logo_url} />
+        <span className="selector-empresa-texto">
+          <strong>{empresaActiva.nombre}</strong>
+          <span className="shell-rol">{empresaActiva.rol}</span>
+        </span>
+        {empresas?.length > 1 && <span className="selector-empresa-chevron">▾</span>}
+      </button>
+
+      {abierto && empresas?.length > 1 && (
+        <ul className="selector-empresa-menu">
+          {empresas.map((e) => (
+            <li key={e.company_id}>
+              <button
+                className={e.company_id === empresaActiva.company_id ? 'selector-empresa-item selector-empresa-item--activa' : 'selector-empresa-item'}
+                onClick={() => elegir(e.company_id)}
+              >
+                <Avatar nombre={e.nombre} logo_url={e.logo_url} />
+                <span className="selector-empresa-texto">
+                  <strong>{e.nombre}</strong>
+                  <span className="shell-rol">{e.rol}</span>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {error && <p className="login-error">{error}</p>}
     </div>
   );
 }

@@ -29,6 +29,8 @@ export const api = {
 
   logout: () => pedir('/api/auth/logout', { method: 'POST' }),
 
+  cambiarEmpresa: (company_id) => pedir('/api/auth/cambiar-empresa', { method: 'POST', body: JSON.stringify({ company_id }) }),
+
   dashboard: () => pedir('/api/dashboard'),
 
   conversaciones:          () => pedir('/api/conversaciones'),

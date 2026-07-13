@@ -1164,6 +1164,25 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
   }
 });
 
+// Selector de empresa activa (multi-empresa por usuario): revalida
+// pertenencia contra usuarios_empresas antes de mover la cookie — mismo
+// criterio de seguridad que resolverSesion(), nunca se confía en el
+// company_id que manda el cliente sin verificar.
+app.post('/api/auth/cambiar-empresa', requireAuth, async (req, res) => {
+  try {
+    const { company_id } = req.body || {};
+    const empresas = await obtenerEmpresasDeUsuario(req.supabase, req.usuario.id);
+    const nueva = empresas.find(e => e.company_id === company_id);
+
+    if (!nueva) return res.status(403).json({ error: 'No perteneces a esa empresa' });
+
+    res.cookie('tara_company', company_id, COOKIE_OPTS);
+    res.json({ empresaActiva: nueva, empresas });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/api/auth/logout', (req, res) => {
   res.clearCookie('tara_session', COOKIE_OPTS);
   res.clearCookie('tara_company', COOKIE_OPTS);

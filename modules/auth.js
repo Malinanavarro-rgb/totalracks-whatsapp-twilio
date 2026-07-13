@@ -5,9 +5,10 @@
  * frontend nunca habla con Supabase directamente, ni siquiera para login.
  *
  * Usuario↔Empresa es muchos-a-muchos (usuarios_empresas): un usuario puede
- * pertenecer a varias empresas con rol distinto en cada una. El MVP resuelve
- * automáticamente la primera empresa activa como "empresa activa" — no hay
- * selector de empresa en la UI todavía, pero el modelo de datos ya lo soporta.
+ * pertenecer a varias empresas con rol distinto en cada una. `iniciarSesion()`
+ * fija la primera como "empresa activa" al hacer login; cambiar a otra
+ * después es responsabilidad de `POST /api/auth/cambiar-empresa` (server.js)
+ * — ver selector de empresa activa en el panel (Shell.jsx).
  *
  * @module modules/auth
  */
@@ -26,12 +27,12 @@ class ErrorAuth extends Error {
 /**
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} usuarioId - auth.users.id
- * @returns {Promise<Array<{company_id: string, nombre: string, rol: string}>>}
+ * @returns {Promise<Array<{company_id: string, nombre: string, rol: string, logo_url: string|null}>>}
  */
 async function obtenerEmpresasDeUsuario(supabase, usuarioId) {
   const { data, error } = await supabase
     .from('usuarios_empresas')
-    .select('company_id, rol, created_at, companies(nombre)')
+    .select('company_id, rol, created_at, companies(nombre, logo_url)')
     .eq('usuario_id', usuarioId)
     .eq('activo', true)
     .order('created_at', { ascending: true });
@@ -42,6 +43,7 @@ async function obtenerEmpresasDeUsuario(supabase, usuarioId) {
     company_id: fila.company_id,
     nombre: fila.companies?.nombre || null,
     rol: fila.rol,
+    logo_url: fila.companies?.logo_url || null,
   }));
 }
 

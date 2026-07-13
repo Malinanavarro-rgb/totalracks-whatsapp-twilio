@@ -95,7 +95,7 @@ describe('auth', () => {
 
       expect(resultado.token).toBe('tok-123');
       expect(resultado.usuario).toEqual({ id: USUARIO_ID, nombre: 'Alina', email: 'a@b.com' });
-      expect(resultado.empresaActiva).toEqual({ company_id: COMPANY_A, nombre: 'Total Racks', rol: 'owner' });
+      expect(resultado.empresaActiva).toEqual({ company_id: COMPANY_A, nombre: 'Total Racks', rol: 'owner', logo_url: null });
       expect(resultado.empresas).toHaveLength(1);
     });
 
@@ -136,7 +136,20 @@ describe('auth', () => {
 
       const empresas = await obtenerEmpresasDeUsuario(supabase, USUARIO_ID);
 
-      expect(empresas).toEqual([{ company_id: COMPANY_A, nombre: 'Total Racks', rol: 'supervisor' }]);
+      expect(empresas).toEqual([{ company_id: COMPANY_A, nombre: 'Total Racks', rol: 'supervisor', logo_url: null }]);
+    });
+
+    test('incluye logo_url cuando la empresa lo tiene configurado', async () => {
+      const supabase = crearMockSupabase({
+        fromResults: [{
+          data: [{ company_id: COMPANY_A, rol: 'owner', created_at: '2026-01-01', companies: { nombre: 'Tienda Soccer', logo_url: 'https://cdn.example.com/logo.png' } }],
+          error: null,
+        }],
+      });
+
+      const empresas = await obtenerEmpresasDeUsuario(supabase, USUARIO_ID);
+
+      expect(empresas[0].logo_url).toBe('https://cdn.example.com/logo.png');
     });
 
     test('devuelve arreglo vacío si la consulta falla', async () => {

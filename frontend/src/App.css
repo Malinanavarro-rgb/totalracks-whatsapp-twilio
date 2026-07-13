@@ -92,6 +92,40 @@ body {
 }
 .shell-rol { color: #888; font-size: 0.85rem; }
 .shell-usuario { display: flex; align-items: center; gap: 0.75rem; font-size: 0.9rem; }
+
+/* ── Selector de empresa activa (multi-empresa por usuario) ───────────── */
+
+.avatar-empresa {
+  width: 34px; height: 34px; border-radius: 8px; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  object-fit: cover;
+}
+.avatar-empresa--iniciales { color: #fff; font-weight: 600; font-size: 0.85rem; }
+
+.selector-empresa { position: relative; }
+.selector-empresa-boton {
+  display: flex; align-items: center; gap: 0.6rem;
+  background: none; border: none; cursor: pointer; padding: 0.25rem;
+  border-radius: 8px; text-align: left;
+}
+.selector-empresa-boton:hover { background: #f5f5f7; }
+.selector-empresa-boton:disabled { cursor: default; opacity: 0.6; }
+.selector-empresa-texto { display: flex; flex-direction: column; line-height: 1.25; }
+.selector-empresa-chevron { color: #999; margin-left: 0.2rem; }
+
+.selector-empresa-menu {
+  position: absolute; top: calc(100% + 0.4rem); left: 0; z-index: 20;
+  list-style: none; margin: 0; padding: 0.4rem;
+  background: #fff; border-radius: 10px; min-width: 240px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12); border: 1px solid #eee;
+}
+.selector-empresa-item {
+  display: flex; align-items: center; gap: 0.6rem; width: 100%;
+  background: none; border: none; cursor: pointer; padding: 0.5rem;
+  border-radius: 8px; text-align: left; font-size: 0.9rem;
+}
+.selector-empresa-item:hover { background: #f5f5f7; }
+.selector-empresa-item--activa { background: #eef4fc; }
 .shell-usuario button {
   padding: 0.4rem 0.8rem;
   border: 1px solid #ddd;
