@@ -83,4 +83,33 @@ describe('crypto-util', () => {
       expect(() => cifrar({ foo: 'bar' })).toThrow('debe ser 32 bytes');
     });
   });
+
+  describe('clave por dominio de secreto (nombreVariable) — ver ADR-007', () => {
+    const CLAVE_META = 'b'.repeat(64);
+
+    afterEach(() => {
+      delete process.env.META_CREDENTIALS_KEY;
+    });
+
+    test('cifrar()/descifrar() con nombreVariable="META_CREDENTIALS_KEY" usa esa clave, no CALENDAR_CREDENTIALS_KEY', () => {
+      process.env.META_CREDENTIALS_KEY = CLAVE_META;
+      const { cifrar, descifrar } = require('../modules/crypto-util');
+
+      const paquete = cifrar({ access_token: 'token-meta' }, 'META_CREDENTIALS_KEY');
+      expect(descifrar(paquete, 'META_CREDENTIALS_KEY')).toEqual({ access_token: 'token-meta' });
+    });
+
+    test('un paquete cifrado con META_CREDENTIALS_KEY no se puede descifrar con CALENDAR_CREDENTIALS_KEY (dominios separados)', () => {
+      process.env.META_CREDENTIALS_KEY = CLAVE_META;
+      const { cifrar, descifrar } = require('../modules/crypto-util');
+
+      const paquete = cifrar({ access_token: 'token-meta' }, 'META_CREDENTIALS_KEY');
+      expect(() => descifrar(paquete)).toThrow();
+    });
+
+    test('lanza un error legible si META_CREDENTIALS_KEY falta', () => {
+      const { cifrar } = require('../modules/crypto-util');
+      expect(() => cifrar({ foo: 'bar' }, 'META_CREDENTIALS_KEY')).toThrow('falta META_CREDENTIALS_KEY');
+    });
+  });
 });

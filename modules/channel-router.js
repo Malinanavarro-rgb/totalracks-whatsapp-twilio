@@ -27,21 +27,22 @@ class ChannelRouter {
   /**
    * Resuelve un endpoint al registro de empresa correspondiente.
    *
-   * @param {string|null} endpoint - ej: "whatsapp:+14155238886"
-   * @returns {Promise<{ company_id: string, company_slug: string }|null>}
+   * @param {string|null} endpoint - ej: "whatsapp:+14155238886" (Twilio) o un
+   *                                 phone_number_id de Meta (sin prefijo)
+   * @returns {Promise<{ company_id: string, company_slug: string, proveedor: string }|null>}
    */
   async enrutar(endpoint) {
     if (!endpoint) return null;
 
     const cached = this._cache.get(endpoint);
     if (cached && (Date.now() - cached.cachedAt) < CACHE_TTL) {
-      return { company_id: cached.company_id, company_slug: cached.company_slug };
+      return { company_id: cached.company_id, company_slug: cached.company_slug, proveedor: cached.proveedor };
     }
 
     try {
       const { data, error } = await this._db
         .from('channel_endpoints')
-        .select('company_id, companies(slug)')
+        .select('company_id, proveedor, companies(slug)')
         .eq('endpoint', endpoint)
         .eq('activo', true)
         .maybeSingle();
@@ -59,6 +60,7 @@ class ChannelRouter {
       const result = {
         company_id:   data.company_id,
         company_slug: data.companies?.slug || null,
+        proveedor:    data.proveedor || 'twilio',
       };
 
       this._cache.set(endpoint, { ...result, cachedAt: Date.now() });

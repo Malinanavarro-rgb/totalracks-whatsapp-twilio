@@ -16,6 +16,8 @@ const { supabase, supabaseServicio, crearClienteConSesion, twilioClient } = requ
 const { obtenerConfigEmpresa }          = require('./modules/config');
 const { crearOrchestrator }             = require('./modules/orchestrator');
 const { TwilioWhatsAppAdapter }         = require('./adapters/channels/twilio-whatsapp');
+const { MetaCloudWhatsAppAdapter }      = require('./adapters/channels/meta-cloud-whatsapp');
+const { obtenerAdapterMetaParaEmpresa } = require('./modules/meta-auth');
 const { ChannelRouter }                 = require('./modules/channel-router');
 const { generarUrlAutorizacion, manejarCallback } = require('./modules/google-auth');
 const { iniciarSesion, obtenerEmpresasDeUsuario, ErrorAuth } = require('./modules/auth');
@@ -49,6 +51,12 @@ const {
 
 const app           = express();
 const adapter       = new TwilioWhatsAppAdapter(twilioClient);
+// Instancia sin credenciales — solo para parseIncoming/validateSignature/
+// verificarWebhook, que usan META_APP_SECRET/META_VERIFY_TOKEN a nivel
+// plataforma (modelo Tech Provider). El envío (enviarMensaje) SIEMPRE usa la
+// instancia por-empresa resuelta vía obtenerAdapterMetaParaEmpresa(), porque
+// el access_token es propio de cada empresa (ver modules/meta-auth.js).
+const metaAdapterCompartido = new MetaCloudWhatsAppAdapter();
 const orchestrator  = crearOrchestrator();
 // RLS: ChannelRouter resuelve routing/envío de WhatsApp — es infraestructura
 // de sistema (webhook + envío proactivo), no una consulta específica de un
@@ -68,7 +76,13 @@ function soloGerencial(req, res, next) {
 }
 
 app.use(express.urlencoded({ extended: false }));
-app.use(express.json());
+// Migración Meta: se captura el body crudo en req.rawBody para TODA request
+// JSON (barato, inofensivo para las demás rutas) — lo necesita
+// MetaCloudWhatsAppAdapter.validateSignature() (X-Hub-Signature-256 se firma
+// sobre el buffer sin parsear, no sobre el JSON ya parseado). Evita un
+// segundo parser JSON a nivel de ruta, que chocaría con este (el stream del
+// request ya estaría consumido).
+app.use(express.json({ verify: (req, _res, buf) => { req.rawBody = buf; } }));
 app.use(cookieParser());
 
 // ── Cola por conversación ─────────────────────────────────────────────────────
@@ -96,15 +110,63 @@ function enqueueForPhone(phone, fn) {
   return task;
 }
 
-// ── WEBHOOK TWILIO ────────────────────────────────────────────────────────────
+// ── PROCESAMIENTO COMÚN DE MENSAJES ENTRANTES (Twilio + Meta) ────────────────
 
 // Migración Twilio→Meta Cloud API: modelo de envío unificado y asíncrono.
-// El webhook solo acusa recibo (200) — la respuesta real se envía con una
-// llamada API explícita (adapter.enviarMensaje()), igual para cualquier
-// proveedor futuro (Meta no soporta responder síncrono dentro del webhook
-// como Twilio vía TwiML). El número de origen siempre se resuelve por
-// empresa (channelRouter.resolverEndpointDeEmpresa) — nunca un número
-// global — mismo patrón ya usado en recordatorios e intervención humana.
+// Los guards de negocio (intervención humana, horario de atención) y el
+// post-proceso (bienvenida/firma) son idénticos sin importar el proveedor —
+// se comparten aquí para que ambos webhooks no puedan divergir entre sí.
+// `enviar` es una closure que ya conoce cómo mandar el mensaje con el
+// proveedor/credenciales correctos (número "from" para Twilio, o la
+// instancia por-empresa ya autenticada para Meta) — este helper no sabe ni
+// necesita saber cuál proveedor está detrás.
+//
+// @param {import('./adapters/channels/channel-adapter').Message} message - ya con company_id asignado
+// @param {(destinatario: string, texto: string) => Promise<void>} enviar
+async function procesarMensajeEntrante(message, enviar) {
+  // FASE 5 (Fase 3 — intervención humana): si un humano ya tomó esta
+  // conversación, TARA no responde. Se resuelve el cliente aquí (capa de
+  // plataforma) sin tocar el Orchestrator/WorkflowEngine (ADR-005).
+  const cliente = await obtenerOCrearCliente(message.from, message.company_id);
+  if (cliente?.atendido_por === 'humano') {
+    console.log(`📩 ${message.from} — atendido por humano, TARA no responde (cliente ${cliente.id})`);
+    await registrarMensajeEntranteHumano(supabaseServicio, message.company_id, cliente.id, message.content);
+    return;
+  }
+
+  // FASE 6 (Configuración — horario de atención del bot): fuera de horario,
+  // TARA no invoca al motor de IA — responde un mensaje fijo. Guard en la
+  // capa de plataforma, igual que el de intervención humana (ADR-005).
+  const dentroDeHorario = await estaDentroDeHorarioAtencion(supabaseServicio, message.company_id);
+  if (!dentroDeHorario) {
+    await enviar(message.from, 'Gracias por tu mensaje. En este momento estamos fuera de horario de atención — te responderemos en cuanto sea posible.');
+    return;
+  }
+
+  const resultado = await enqueueForPhone(
+    message.from,
+    () => orchestrator.procesarMensaje(message)
+  );
+
+  // FASE 6 (Configuración — mensaje de bienvenida y firma): se aplican en
+  // la capa de plataforma, sobre el texto ya generado por el Orchestrator
+  // — cero cambios al motor de IA/prompt.
+  let textoFinal = resultado.respuesta_texto;
+  const { personality } = await obtenerConfigEmpresa(message.company_id);
+
+  if (personality?.mensaje_bienvenida && await esPrimerContacto(supabaseServicio, cliente.id)) {
+    textoFinal = `${personality.mensaje_bienvenida}\n\n${textoFinal}`;
+  }
+  if (personality?.firma) {
+    textoFinal = `${textoFinal}\n\n${personality.firma}`;
+  }
+
+  await enviar(message.from, textoFinal);
+  console.log(`✅ ${message.from} — respuesta enviada (empresa ${message.company_id})`);
+}
+
+// ── WEBHOOK TWILIO ────────────────────────────────────────────────────────────
+
 app.post('/webhook/twilio', async (req, res) => {
   let message;
   try {
@@ -124,52 +186,11 @@ app.post('/webhook/twilio', async (req, res) => {
 
     const numeroOrigen = await channelRouter.resolverEndpointDeEmpresa(message.company_id);
 
-    // FASE 5 (Fase 3 — intervención humana): si un humano ya tomó esta
-    // conversación, TARA no responde. Se resuelve el cliente aquí (capa de
-    // plataforma) sin tocar el Orchestrator/WorkflowEngine (ADR-005).
-    const cliente = await obtenerOCrearCliente(message.from, message.company_id);
-    if (cliente?.atendido_por === 'humano') {
-      console.log(`📩 ${message.from} — atendido por humano, TARA no responde (cliente ${cliente.id})`);
-      await registrarMensajeEntranteHumano(supabaseServicio, message.company_id, cliente.id, message.content);
-      return res.status(200).end();
-    }
+    await procesarMensajeEntrante(message, (destinatario, texto) => adapter.enviarMensaje(destinatario, texto, numeroOrigen));
 
-    // FASE 6 (Configuración — horario de atención del bot): fuera de horario,
-    // TARA no invoca al motor de IA — responde un mensaje fijo. Guard en la
-    // capa de plataforma, igual que el de intervención humana (ADR-005).
-    const dentroDeHorario = await estaDentroDeHorarioAtencion(supabaseServicio, message.company_id);
-    if (!dentroDeHorario) {
-      await adapter.enviarMensaje(
-        message.from,
-        'Gracias por tu mensaje. En este momento estamos fuera de horario de atención — te responderemos en cuanto sea posible.',
-        numeroOrigen
-      );
-      return res.status(200).end();
-    }
-
-    const resultado = await enqueueForPhone(
-      message.from,
-      () => orchestrator.procesarMensaje(message)
-    );
-
-    // FASE 6 (Configuración — mensaje de bienvenida y firma): se aplican en
-    // la capa de plataforma, sobre el texto ya generado por el Orchestrator
-    // — cero cambios al motor de IA/prompt.
-    let textoFinal = resultado.respuesta_texto;
-    const { personality } = await obtenerConfigEmpresa(message.company_id);
-
-    if (personality?.mensaje_bienvenida && await esPrimerContacto(supabaseServicio, cliente.id)) {
-      textoFinal = `${personality.mensaje_bienvenida}\n\n${textoFinal}`;
-    }
-    if (personality?.firma) {
-      textoFinal = `${textoFinal}\n\n${personality.firma}`;
-    }
-
-    await adapter.enviarMensaje(message.from, textoFinal, numeroOrigen);
-    console.log(`✅ ${message.from} — respuesta enviada (empresa ${message.company_id})`);
     res.status(200).end();
   } catch (e) {
-    console.error('❌ Error en webhook:', e);
+    console.error('❌ Error en webhook Twilio:', e);
     try {
       if (message?.from && message?.company_id) {
         const numeroOrigen = await channelRouter.resolverEndpointDeEmpresa(message.company_id);
@@ -177,6 +198,64 @@ app.post('/webhook/twilio', async (req, res) => {
       }
     } catch (e2) {
       console.error('❌ Error enviando mensaje de error:', e2);
+    }
+    res.status(200).end();
+  }
+});
+
+// ── WEBHOOK META CLOUD API ────────────────────────────────────────────────────
+
+// GET: handshake de verificación (una sola vez, al configurar la app en Meta).
+app.get('/webhook/meta', (req, res) => {
+  const challenge = metaAdapterCompartido.verificarWebhook(req);
+  if (challenge !== null) {
+    return res.status(200).type('text/plain').send(challenge);
+  }
+  res.sendStatus(403);
+});
+
+// POST: mensajes entrantes + estados de entrega. La firma se valida sobre
+// req.rawBody (buffer sin parsear, capturado por el middleware global de
+// express.json() más arriba) — a diferencia de Twilio, Meta firma el body
+// crudo, no URL+parámetros.
+app.post('/webhook/meta', async (req, res) => {
+  let message;
+  try {
+    if (!metaAdapterCompartido.validateSignature(req)) {
+      return res.status(403).type('text/plain').send('Firma inválida');
+    }
+
+    message = metaAdapterCompartido.parseIncoming(req);
+    if (!message) {
+      // Evento de solo-status (delivered/read/failed) — nada que procesar.
+      return res.status(200).end();
+    }
+
+    const routeResult = await channelRouter.enrutar(message.incoming_endpoint);
+    if (!routeResult) {
+      console.warn('⚠️  Endpoint de Meta sin empresa registrada:', message.incoming_endpoint);
+      return res.status(200).end();
+    }
+    message.company_id = routeResult.company_id;
+
+    const metaAdapterEmpresa = await obtenerAdapterMetaParaEmpresa(supabaseServicio, message.company_id);
+    if (!metaAdapterEmpresa) {
+      console.error('❌ Webhook Meta: empresa sin credenciales activas —', message.company_id);
+      return res.status(200).end();
+    }
+
+    await procesarMensajeEntrante(message, (destinatario, texto) => metaAdapterEmpresa.enviarMensaje(destinatario, texto));
+
+    res.status(200).end();
+  } catch (e) {
+    console.error('❌ Error en webhook Meta:', e);
+    try {
+      if (message?.from && message?.company_id) {
+        const metaAdapterEmpresa = await obtenerAdapterMetaParaEmpresa(supabaseServicio, message.company_id);
+        if (metaAdapterEmpresa) await metaAdapterEmpresa.enviarMensaje(message.from, 'Error técnico. Intenta de nuevo.');
+      }
+    } catch (e2) {
+      console.error('❌ Error enviando mensaje de error (Meta):', e2);
     }
     res.status(200).end();
   }

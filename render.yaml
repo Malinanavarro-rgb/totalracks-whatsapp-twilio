@@ -35,6 +35,33 @@ services:
         # Formato: https://tara-matrix.onrender.com/webhook/twilio
         # Debe coincidir EXACTAMENTE con la URL configurada en Twilio
 
+      # ── Meta WhatsApp Cloud API (ADR-007) ───────────────────
+      # Canal principal de producción. Modelo Tech Provider: una sola Meta
+      # App de TARA para todas las empresas — estas variables son de
+      # plataforma, no por empresa (las credenciales por empresa viven en
+      # meta_whatsapp_credentials, cifradas con META_CREDENTIALS_KEY).
+      - key: META_APP_ID
+        sync: false
+
+      - key: META_APP_SECRET
+        sync: false
+
+      - key: META_VERIFY_TOKEN
+        sync: false
+
+      - key: META_GRAPH_API_VERSION
+        value: v19.0
+
+      - key: WEBHOOK_URL_META
+        sync: false
+        # Formato: https://tara-matrix.onrender.com/webhook/meta
+        # Debe coincidir EXACTAMENTE con la URL configurada en Meta
+
+      - key: META_CREDENTIALS_KEY
+        sync: false
+        # 32 bytes en hex (64 caracteres). NUNCA reusar CALENDAR_CREDENTIALS_KEY.
+        # Generar con: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+
       # ── App ────────────────────────────────────────────────
       # COMPANY_SLUG eliminado en FASE 3.
       # El routing ahora es dinámico via tabla channel_endpoints en Supabase.

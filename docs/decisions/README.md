@@ -15,6 +15,8 @@ Los ADRs no se borran. Si una decisión cambia, se crea un nuevo ADR que superse
 | [ADR-003](ADR-003-channel-router.md) | Channel Router: resolución de empresa por número receptor | Aceptada | FASE 3 |
 | [ADR-004](ADR-004-memory-engine.md) | Memory Engine (M9): decisión diferida | Diferida | FASE 5+ |
 | [ADR-005](ADR-005-baseline-v1-core-freeze.md) | Core baseline v1: freeze del motor conversacional y de agenda | Aceptada | Anexo A/B → Plataforma SaaS |
+| [ADR-006](ADR-006-cliente-entidad-central-ficha-360.md) | Cliente como entidad central — Ficha 360 | Aceptada | Plataforma SaaS |
+| [ADR-007](ADR-007-meta-cloud-api-canal-principal.md) | Meta WhatsApp Cloud API como canal principal, Twilio como fallback temporal | Aceptada | Plataforma SaaS |
 
 ---
 

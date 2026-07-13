@@ -23,12 +23,28 @@ const COMPANY_A = 'aaaaaaaa-0000-0000-0000-000000000001';
 
 describe('ChannelRouter', () => {
   describe('enrutar()', () => {
-    test('resuelve un endpoint activo a company_id/company_slug', async () => {
+    test('resuelve un endpoint activo a company_id/company_slug/proveedor', async () => {
+      const db = crearMockDb({ data: { company_id: COMPANY_A, proveedor: 'twilio', companies: { slug: 'total-racks' } }, error: null });
+      const router = new ChannelRouter(db);
+
+      const resultado = await router.enrutar('whatsapp:+14155238886');
+      expect(resultado).toEqual({ company_id: COMPANY_A, company_slug: 'total-racks', proveedor: 'twilio' });
+    });
+
+    test('default proveedor a "twilio" si la fila no lo trae (compatibilidad con datos previos a la migración)', async () => {
       const db = crearMockDb({ data: { company_id: COMPANY_A, companies: { slug: 'total-racks' } }, error: null });
       const router = new ChannelRouter(db);
 
       const resultado = await router.enrutar('whatsapp:+14155238886');
-      expect(resultado).toEqual({ company_id: COMPANY_A, company_slug: 'total-racks' });
+      expect(resultado.proveedor).toBe('twilio');
+    });
+
+    test('resuelve un endpoint de Meta (phone_number_id) con proveedor="meta"', async () => {
+      const db = crearMockDb({ data: { company_id: COMPANY_A, proveedor: 'meta', companies: { slug: 'total-racks' } }, error: null });
+      const router = new ChannelRouter(db);
+
+      const resultado = await router.enrutar('PHONE_NUM_ID_123');
+      expect(resultado.proveedor).toBe('meta');
     });
 
     test('devuelve null si el endpoint no existe', async () => {
