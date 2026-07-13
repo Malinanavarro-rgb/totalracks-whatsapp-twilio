@@ -50,6 +50,10 @@ const {
   listarMiembros, listarInvitacionesPendientes, crearInvitacion,
   obtenerInvitacionPorToken, aceptarInvitacion, actualizarMiembro,
 }                                        = require('./modules/invitaciones');
+const {
+  listarWorkflows, crearWorkflow, actualizarWorkflow, eliminarWorkflow,
+  listarNodos, crearNodo, actualizarNodo, eliminarNodo,
+}                                        = require('./modules/workflow-admin');
 
 const app           = express();
 const adapter       = new TwilioWhatsAppAdapter(twilioClient);
@@ -985,6 +989,76 @@ app.patch('/api/config/usuarios/:usuarioId', requireAuth, soloGerencial, async (
     res.json(await actualizarMiembro(req.supabase, req.usuario.company_id, req.params.usuarioId, req.body));
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// ── WORKFLOWS (Pivote a producto, Fase 3) ────────────────────────────────────
+// CRUD de administración sobre workflows/workflow_nodes (modules/workflow-admin.js).
+// No toca modules/workflow-engine.js ni modules/orchestrator.js (ADR-005).
+
+app.get('/api/config/workflows', requireAuth, async (req, res) => {
+  try {
+    res.json(await listarWorkflows(req.supabase, req.usuario.company_id));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/config/workflows', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    res.status(201).json(await crearWorkflow(req.supabase, req.usuario.company_id, req.body));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/config/workflows/:id', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    res.json(await actualizarWorkflow(req.supabase, req.usuario.company_id, req.params.id, req.body));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/config/workflows/:id', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    await eliminarWorkflow(req.supabase, req.usuario.company_id, req.params.id);
+    res.status(204).send();
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/config/workflows/:workflowId/nodos', requireAuth, async (req, res) => {
+  try {
+    res.json(await listarNodos(req.supabase, req.usuario.company_id, req.params.workflowId));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/config/workflows/:workflowId/nodos', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    res.status(201).json(await crearNodo(req.supabase, req.usuario.company_id, req.params.workflowId, req.body));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/config/nodos/:id', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    res.json(await actualizarNodo(req.supabase, req.usuario.company_id, req.params.id, req.body));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/config/nodos/:id', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    await eliminarNodo(req.supabase, req.usuario.company_id, req.params.id);
+    res.status(204).send();
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
   }
 });
 

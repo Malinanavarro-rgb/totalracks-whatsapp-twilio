@@ -95,6 +95,15 @@ export const api = {
   actualizarPipelineEtapa: (id, datos) => pedir(`/api/config/pipeline-etapas/${id}`, { method: 'PATCH', body: JSON.stringify(datos) }),
   eliminarPipelineEtapa:   (id) => pedir(`/api/config/pipeline-etapas/${id}`, { method: 'DELETE' }),
 
+  workflows:               () => pedir('/api/config/workflows'),
+  crearWorkflow:           (datos) => pedir('/api/config/workflows', { method: 'POST', body: JSON.stringify(datos) }),
+  actualizarWorkflow:      (id, datos) => pedir(`/api/config/workflows/${id}`, { method: 'PATCH', body: JSON.stringify(datos) }),
+  eliminarWorkflow:        (id) => pedir(`/api/config/workflows/${id}`, { method: 'DELETE' }),
+  nodosWorkflow:           (workflowId) => pedir(`/api/config/workflows/${workflowId}/nodos`),
+  crearNodo:               (workflowId, datos) => pedir(`/api/config/workflows/${workflowId}/nodos`, { method: 'POST', body: JSON.stringify(datos) }),
+  actualizarNodo:          (id, datos) => pedir(`/api/config/nodos/${id}`, { method: 'PATCH', body: JSON.stringify(datos) }),
+  eliminarNodo:            (id) => pedir(`/api/config/nodos/${id}`, { method: 'DELETE' }),
+
   canalesConfig:           () => pedir('/api/config/canales'),
 
   usuariosConfig:          () => pedir('/api/config/usuarios'),

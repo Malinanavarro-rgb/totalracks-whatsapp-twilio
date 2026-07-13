@@ -403,6 +403,16 @@ body {
   background: #fff; cursor: pointer; font-size: 0.8rem;
 }
 
+.config-workflow-item {
+  background: #fff; border-radius: 8px; padding: 0.75rem 1rem;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06); font-size: 0.9rem;
+}
+.config-workflow-item button {
+  margin-left: 0.4rem; padding: 0.3rem 0.7rem; border: 1px solid #ddd; border-radius: 6px;
+  background: #fff; cursor: pointer; font-size: 0.8rem;
+}
+.config-workflow-nodos { margin-top: 0.75rem; padding-left: 1rem; border-left: 2px solid #eee; }
+
 .config-usuarios-lista { list-style: none; padding: 0; margin: 0 0 1.5rem; display: flex; flex-direction: column; gap: 0.5rem; }
 .config-usuario-item {
   display: flex; align-items: center; gap: 0.75rem; background: #fff; border-radius: 8px;

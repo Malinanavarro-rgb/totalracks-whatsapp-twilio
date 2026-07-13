@@ -7,6 +7,7 @@ import HorariosTab from './configuracion/HorariosTab';
 import ServiciosTab from './configuracion/ServiciosTab';
 import PipelineTab from './configuracion/PipelineTab';
 import CanalesTab from './configuracion/CanalesTab';
+import WorkflowsTab from './configuracion/WorkflowsTab';
 
 const TABS = [
   { id: 'personalidad',  etiqueta: 'Personalidad',    Componente: PersonalidadTab },
@@ -17,6 +18,7 @@ const TABS = [
   { id: 'servicios',     etiqueta: 'Servicios',        Componente: ServiciosTab },
   { id: 'pipeline',      etiqueta: 'Pipeline',         Componente: PipelineTab },
   { id: 'canales',       etiqueta: 'Canales',          Componente: CanalesTab },
+  { id: 'workflows',     etiqueta: 'Workflows',        Componente: WorkflowsTab },
 ];
 
 export default function Configuracion() {
