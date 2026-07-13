@@ -7,7 +7,7 @@ jest.mock('../modules/conversaciones', () => ({
 }));
 
 const {
-  listarClientes, obtenerFichaCliente, actualizarCliente,
+  listarClientes, obtenerFichaCliente, actualizarCliente, eliminarCliente,
   listarSeguimientos, crearSeguimiento, actualizarSeguimiento,
   listarOportunidades, crearOportunidad, actualizarOportunidad, eliminarOportunidad,
 } = require('../modules/crm-ui');
@@ -22,6 +22,7 @@ function crearBuilder(resultado = { data: null, error: null }) {
     delete:      jest.fn().mockReturnThis(),
     eq:          jest.fn().mockReturnThis(),
     or:          jest.fn().mockReturnThis(),
+    gte:         jest.fn().mockReturnThis(),
     order:       jest.fn().mockReturnThis(),
     single:      jest.fn().mockResolvedValue(resultado),
     maybeSingle: jest.fn().mockResolvedValue(resultado),
@@ -58,6 +59,39 @@ describe('crm-ui', () => {
       expect(builder.or).toHaveBeenCalledWith(
         `asesor_id.eq.${USUARIO_ASESOR.id},and(atendido_por.eq.ia,asesor_id.is.null)`
       );
+    });
+
+    test('filtro nombre busca por nombre O teléfono (Pivote a producto, Fase 2.4)', async () => {
+      const db = crearMockDb({ data: [], error: null });
+      await listarClientes(db, COMPANY_A, USUARIO_OWNER, { nombre: 'Juan' });
+
+      const builder = db.from.mock.results[0].value;
+      expect(builder.or).toHaveBeenCalledWith('nombre.ilike.%Juan%,telefono.ilike.%Juan%');
+    });
+
+    test('filtro estado usa .eq()', async () => {
+      const db = crearMockDb({ data: [], error: null });
+      await listarClientes(db, COMPANY_A, USUARIO_OWNER, { estado: 'Ganado' });
+
+      const builder = db.from.mock.results[0].value;
+      expect(builder.eq).toHaveBeenCalledWith('estado', 'Ganado');
+    });
+
+    test('filtro score_min usa .gte()', async () => {
+      const db = crearMockDb({ data: [], error: null });
+      await listarClientes(db, COMPANY_A, USUARIO_OWNER, { score_min: '50' });
+
+      const builder = db.from.mock.results[0].value;
+      expect(builder.gte).toHaveBeenCalledWith('score_interes', 50);
+    });
+
+    test('sin filtros no llama a .gte() ni agrega .or() de búsqueda', async () => {
+      const db = crearMockDb({ data: [], error: null });
+      await listarClientes(db, COMPANY_A, USUARIO_OWNER, {});
+
+      const builder = db.from.mock.results[0].value;
+      expect(builder.gte).not.toHaveBeenCalled();
+      expect(builder.or).not.toHaveBeenCalled();
     });
   });
 
@@ -96,6 +130,26 @@ describe('crm-ui', () => {
     test('400 si no hay campos válidos', async () => {
       const db = crearMockDb();
       await expect(actualizarCliente(db, COMPANY_A, 5, { telefono: '+52111' })).rejects.toMatchObject({ status: 400 });
+    });
+  });
+
+  describe('eliminarCliente() (Pivote a producto, Fase 2.5)', () => {
+    test('no lanza si tiene éxito', async () => {
+      const db = crearMockDb({ error: null });
+      await expect(eliminarCliente(db, COMPANY_A, 5)).resolves.toBeUndefined();
+    });
+
+    test('traduce foreign_key_violation (23503) a un 409 legible', async () => {
+      const db = crearMockDb({ error: { code: '23503', message: 'violates foreign key constraint' } });
+      await expect(eliminarCliente(db, COMPANY_A, 5)).rejects.toMatchObject({
+        status: 409,
+        message: expect.stringContaining('historial asociado'),
+      });
+    });
+
+    test('otros errores de Supabase se traducen a un mensaje genérico sin status', async () => {
+      const db = crearMockDb({ error: { code: '42501', message: 'permission denied' } });
+      await expect(eliminarCliente(db, COMPANY_A, 5)).rejects.toThrow('No se pudo eliminar el cliente');
     });
   });
 

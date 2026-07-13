@@ -46,10 +46,15 @@ export const api = {
     pedir(`/api/agenda/citas/${citaId}`, { method: 'PATCH', body: JSON.stringify({ inicio, fin }) }),
   cancelarCita:  (citaId) => pedir(`/api/agenda/citas/${citaId}/cancelar`, { method: 'POST' }),
 
-  clientesCrm:        () => pedir('/api/crm/clientes'),
+  clientesCrm:        (filtros = {}) => {
+    const params = new URLSearchParams(Object.entries(filtros).filter(([, v]) => v !== '' && v != null));
+    const qs = params.toString();
+    return pedir(`/api/crm/clientes${qs ? `?${qs}` : ''}`);
+  },
   fichaCliente:       (clienteId) => pedir(`/api/crm/clientes/${clienteId}`),
   actualizarCliente:  (clienteId, cambios) =>
     pedir(`/api/crm/clientes/${clienteId}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
+  eliminarClienteCrm: (clienteId) => pedir(`/api/crm/clientes/${clienteId}`, { method: 'DELETE' }),
   seguimientos:       (clienteId) => pedir(`/api/crm/clientes/${clienteId}/seguimientos`),
   crearSeguimiento:   (clienteId, datos) =>
     pedir(`/api/crm/clientes/${clienteId}/seguimientos`, { method: 'POST', body: JSON.stringify(datos) }),

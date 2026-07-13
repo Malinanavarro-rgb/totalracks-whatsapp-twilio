@@ -33,7 +33,7 @@ const {
   crearCita, reagendarCita, cancelarCita, vincularUsuarioAAsesor,
 }                                        = require('./modules/agenda');
 const {
-  listarClientes, obtenerFichaCliente, actualizarCliente,
+  listarClientes, obtenerFichaCliente, actualizarCliente, eliminarCliente,
   listarSeguimientos, crearSeguimiento, actualizarSeguimiento,
   listarOportunidades, crearOportunidad, actualizarOportunidad, eliminarOportunidad,
 }                                        = require('./modules/crm-ui');
@@ -666,7 +666,8 @@ app.patch('/api/agenda/asesores/:id/vincular', requireAuth, async (req, res) => 
 
 app.get('/api/crm/clientes', requireAuth, async (req, res) => {
   try {
-    const clientes = await listarClientes(req.supabase, req.usuario.company_id, req.usuario);
+    const { nombre, estado, score_min } = req.query;
+    const clientes = await listarClientes(req.supabase, req.usuario.company_id, req.usuario, { nombre, estado, score_min });
     res.json(clientes);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -695,6 +696,15 @@ app.patch('/api/crm/clientes/:id', requireAuth, async (req, res) => {
   try {
     const cliente = await actualizarCliente(req.supabase, req.usuario.company_id, req.params.id, req.body);
     res.json(cliente);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/crm/clientes/:id', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    await eliminarCliente(req.supabase, req.usuario.company_id, req.params.id);
+    res.status(204).send();
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
   }

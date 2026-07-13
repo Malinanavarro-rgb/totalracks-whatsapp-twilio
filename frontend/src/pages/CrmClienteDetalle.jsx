@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api } from '../lib/api';
 
 const ESTADOS = ['Nuevo', 'Calificacion', 'Negociacion', 'Calificado', 'Ganado', 'Perdido'];
 
 export default function CrmClienteDetalle() {
   const { clienteId } = useParams();
+  const navigate = useNavigate();
   const [ficha, setFicha] = useState(null);
   const [seguimientos, setSeguimientos] = useState([]);
   const [error, setError] = useState(null);
@@ -49,6 +50,15 @@ export default function CrmClienteDetalle() {
       setError(e2.message);
     } finally {
       setGuardando(false);
+    }
+  }
+
+  async function eliminarClienteActual() {
+    try {
+      await api.eliminarClienteCrm(clienteId);
+      navigate('/crm');
+    } catch (e2) {
+      setError(e2.message);
     }
   }
 
@@ -120,7 +130,13 @@ export default function CrmClienteDetalle() {
       <section className="crm-seccion">
         <div className="crm-seccion-header">
           <h2>Datos generales</h2>
-          {!editando && <button onClick={() => setEditando(true)}>Editar</button>}
+          {!editando && (
+            <div>
+              <button onClick={() => setEditando(true)}>Editar</button>
+              {' '}
+              <button onClick={eliminarClienteActual}>Eliminar cliente</button>
+            </div>
+          )}
         </div>
 
         {editando ? (

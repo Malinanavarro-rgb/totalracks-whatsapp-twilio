@@ -34,7 +34,14 @@ const CAMPOS_OPORTUNIDAD = [
  * Lista de clientes visibles para el usuario. Mismo criterio que
  * conversaciones (Fase 3): un Asesor ve los suyos + el pool sin asignar.
  */
-async function listarClientes(supabase, company_id, usuario) {
+/**
+ * @param {Object} [filtros] - Pivote a producto, Fase 2.4: búsqueda/filtros
+ *   server-side en vez de traer siempre toda la lista visible.
+ * @param {string} [filtros.nombre]    - coincidencia parcial, insensible a mayúsculas (nombre o teléfono)
+ * @param {string} [filtros.estado]
+ * @param {number} [filtros.score_min]
+ */
+async function listarClientes(supabase, company_id, usuario, filtros = {}) {
   let query = supabase
     .from('clientes')
     .select('id, nombre, telefono, empresa, ciudad, estado, atendido_por, asesor_id, score_interes')
@@ -42,6 +49,16 @@ async function listarClientes(supabase, company_id, usuario) {
 
   if (!ROLES_GERENCIALES.includes(usuario.rol)) {
     query = query.or(`asesor_id.eq.${usuario.id},and(atendido_por.eq.ia,asesor_id.is.null)`);
+  }
+
+  if (filtros.nombre) {
+    query = query.or(`nombre.ilike.%${filtros.nombre}%,telefono.ilike.%${filtros.nombre}%`);
+  }
+  if (filtros.estado) {
+    query = query.eq('estado', filtros.estado);
+  }
+  if (filtros.score_min !== undefined && filtros.score_min !== null && filtros.score_min !== '') {
+    query = query.gte('score_interes', Number(filtros.score_min));
   }
 
   const { data, error } = await query.order('id', { ascending: false });
@@ -99,6 +116,32 @@ async function actualizarCliente(supabase, company_id, clienteId, cambios) {
 
   if (error || !data) throw new Error('No se pudo actualizar el cliente');
   return data;
+}
+
+/**
+ * Elimina un cliente (Pivote a producto, Fase 2.5). Solo funciona si el
+ * cliente no tiene historial asociado — citas, seguimientos y mensajes
+ * humanos referencian clientes SIN "ON DELETE CASCADE" (a diferencia de
+ * conversaciones/oportunidades, que sí cascadean), a propósito: no se debe
+ * poder borrar en silencio el historial de conversación de WhatsApp de un
+ * cliente real. Postgres rechaza el delete con foreign_key_violation
+ * (23503) — se traduce a un mensaje claro en vez de un 500 genérico.
+ */
+async function eliminarCliente(supabase, company_id, clienteId) {
+  const { error } = await supabase
+    .from('clientes')
+    .delete()
+    .eq('id', clienteId)
+    .eq('company_id', company_id);
+
+  if (error) {
+    if (error.code === '23503') {
+      const err = new Error('No se puede eliminar: este cliente tiene historial asociado (citas o seguimientos). Solo se pueden eliminar clientes sin actividad registrada.');
+      err.status = 409;
+      throw err;
+    }
+    throw new Error('No se pudo eliminar el cliente');
+  }
 }
 
 async function listarSeguimientos(supabase, company_id, clienteId) {
@@ -223,6 +266,7 @@ module.exports = {
   listarClientes,
   obtenerFichaCliente,
   actualizarCliente,
+  eliminarCliente,
   listarSeguimientos,
   crearSeguimiento,
   actualizarSeguimiento,
