@@ -44,6 +44,12 @@ export default function Conversaciones() {
               <p className="conversacion-item-preview">
                 {c.ultimoMensaje?.texto || 'Sin mensajes'}
               </p>
+              {(c.score_interes != null || c.oportunidad_estado) && (
+                <p className="conversacion-item-contexto-crm">
+                  {c.score_interes != null && <span>Score: {c.score_interes}</span>}
+                  {c.oportunidad_estado && <span>{c.oportunidad_estado}</span>}
+                </p>
+              )}
             </NavLink>
           ))}
         </ul>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../lib/api';
 
@@ -51,6 +52,19 @@ export default function Operaciones() {
             <ul className="alertas-lista">
               {metricas.alertas.map((a, i) => (
                 <li key={i} className={`alerta alerta--${a.tipo}`}>{a.mensaje}</li>
+              ))}
+            </ul>
+          )}
+
+          <h2 className="alertas-titulo">Actividad reciente</h2>
+          {!metricas.actividadReciente || metricas.actividadReciente.length === 0 ? (
+            <p className="operaciones-nota">Sin actividad reciente.</p>
+          ) : (
+            <ul className="actividad-reciente-lista">
+              {metricas.actividadReciente.map((ev, i) => (
+                <li key={i} className={`actividad-item actividad-item--${ev.tipo}`}>
+                  <Link to={ev.recurso}>{ev.mensaje}</Link>
+                </li>
               ))}
             </ul>
           )}

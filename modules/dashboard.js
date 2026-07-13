@@ -42,6 +42,7 @@ async function obtenerMetricas(supabase, company_id) {
     citasAgendadas,
     erroresRecientes,
     citasSinConfirmar,
+    actividadReciente,
   ] = await Promise.all([
     _contarClientesConActividad(supabase, company_id, hace30min),
     _contarDesde(supabase, 'conversaciones', company_id, 'created_at', inicioHoy),
@@ -52,6 +53,7 @@ async function obtenerMetricas(supabase, company_id) {
     _contarCitasFuturas(supabase, company_id, ahoraIso),
     _contarErroresRecientes(supabase, company_id, hace24h),
     _contarCitasSinConfirmar(supabase, company_id, ahoraIso, en24h),
+    obtenerActividadReciente(supabase, company_id, hace24h, ahoraIso, en24h),
   ]);
 
   const alertas = [];
@@ -71,7 +73,100 @@ async function obtenerMetricas(supabase, company_id) {
     tiempoPromedioRespuestaMs,
     citasAgendadas,
     alertas,
+    actividadReciente,
   };
+}
+
+/**
+ * Pivote a producto, Fase 4.5: feed de eventos accionables recientes, con
+ * link directo al recurso — antes el Centro de Operaciones solo tenía
+ * contadores agregados (arriba) sin nada clickeable por evento individual.
+ * Aproximación deliberadamente simple (no rastrea "no leído" de forma
+ * exacta): cliente nuevo, mensaje entrante mientras un humano ya tomó la
+ * conversación, y cita próxima sin confirmar — cada uno con su recurso.
+ *
+ * @returns {Promise<Array<{tipo: string, mensaje: string, recurso: string, created_at: string}>>}
+ */
+async function obtenerActividadReciente(supabase, company_id, hace24h, ahoraIso, en24h, limite = 8) {
+  const [clientesNuevosRes, mensajesRes, citasRes] = await Promise.all([
+    supabase
+      .from('clientes')
+      .select('id, nombre, telefono, created_at')
+      .eq('company_id', company_id)
+      .gte('created_at', hace24h)
+      .order('created_at', { ascending: false })
+      .limit(limite),
+    _obtenerMensajesSinResponder(supabase, company_id, hace24h, limite),
+    supabase
+      .from('citas')
+      .select('id, cliente_id, inicio, clientes(nombre, telefono)')
+      .eq('company_id', company_id)
+      .eq('estado', 'agendada')
+      .gte('inicio', ahoraIso)
+      .lte('inicio', en24h)
+      .order('inicio', { ascending: true })
+      .limit(limite),
+  ]);
+
+  const eventos = [];
+
+  for (const c of clientesNuevosRes.data || []) {
+    eventos.push({
+      tipo:       'cliente_nuevo',
+      mensaje:    `Cliente nuevo: ${c.nombre || c.telefono}`,
+      recurso:    `/crm/clientes/${c.id}`,
+      created_at: c.created_at,
+    });
+  }
+
+  for (const m of mensajesRes) {
+    eventos.push({
+      tipo:       'mensaje_sin_responder',
+      mensaje:    `Mensaje sin responder: ${m.clientes?.nombre || m.clientes?.telefono || 'cliente'}`,
+      recurso:    `/conversaciones/${m.cliente_id}`,
+      created_at: m.created_at,
+    });
+  }
+
+  for (const cita of citasRes.data || []) {
+    eventos.push({
+      tipo:       'cita_sin_confirmar',
+      mensaje:    `Cita sin confirmar: ${cita.clientes?.nombre || cita.clientes?.telefono || 'cliente'} — ${new Date(cita.inicio).toLocaleString('es-MX')}`,
+      recurso:    `/crm/clientes/${cita.cliente_id}`,
+      created_at: cita.inicio,
+    });
+  }
+
+  return eventos
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+    .slice(0, limite);
+}
+
+/**
+ * Clientes actualmente tomados por un humano cuyo último mensaje registrado
+ * fue del cliente (entrante) — aproximación a "mensaje sin responder" sin
+ * rastrear estado de lectura exacto.
+ */
+async function _obtenerMensajesSinResponder(supabase, company_id, desde, limite) {
+  const { data: humanos, error: errHumanos } = await supabase
+    .from('clientes')
+    .select('id')
+    .eq('company_id', company_id)
+    .eq('atendido_por', 'humano');
+
+  if (errHumanos || !humanos || humanos.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from('mensajes_humanos')
+    .select('cliente_id, created_at, clientes(nombre, telefono)')
+    .eq('company_id', company_id)
+    .eq('direccion', 'entrante')
+    .in('cliente_id', humanos.map(c => c.id))
+    .gte('created_at', desde)
+    .order('created_at', { ascending: false })
+    .limit(limite);
+
+  return error ? [] : (data || []);
 }
 
 async function _contarClientesConActividad(supabase, company_id, desde) {
@@ -153,4 +248,4 @@ async function _contarCitasSinConfirmar(supabase, company_id, ahoraIso, hasta) {
   return error ? 0 : (count || 0);
 }
 
-module.exports = { obtenerMetricas };
+module.exports = { obtenerMetricas, obtenerActividadReciente };

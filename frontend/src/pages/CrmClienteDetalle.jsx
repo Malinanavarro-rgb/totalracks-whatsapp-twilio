@@ -16,6 +16,9 @@ export default function CrmClienteDetalle() {
   const [nuevoSeguimiento, setNuevoSeguimiento] = useState({ texto: '', fecha_programada: '', prioridad: 'media' });
   const [etapasPipeline, setEtapasPipeline] = useState([]);
   const [nuevaOportunidad, setNuevaOportunidad] = useState({ estado: 'Nuevo', descripcion: '', presupuesto_estimado: '' });
+  const [asesores, setAsesores] = useState([]);
+  const [mostrarNuevaCita, setMostrarNuevaCita] = useState(false);
+  const [nuevaCita, setNuevaCita] = useState({ asesorId: '', fecha: '', hora: '09:00', duracionMinutos: 30 });
 
   function cargar() {
     Promise.all([api.fichaCliente(clienteId), api.seguimientos(clienteId)])
@@ -37,6 +40,7 @@ export default function CrmClienteDetalle() {
 
   useEffect(() => {
     api.pipelineEtapas().then((etapas) => setEtapasPipeline(etapas.filter((et) => et.activo)));
+    api.asesores().then(setAsesores).catch(() => {});
   }, []);
 
   async function guardarEdicion(e) {
@@ -111,6 +115,42 @@ export default function CrmClienteDetalle() {
   async function eliminarOportunidad(oportunidadId) {
     try {
       await api.eliminarOportunidad(oportunidadId);
+      cargar();
+    } catch (e2) {
+      setError(e2.message);
+    }
+  }
+
+  async function crearCitaActual(e) {
+    e.preventDefault();
+    if (!nuevaCita.fecha) return;
+    try {
+      const inicio = new Date(`${nuevaCita.fecha}T${nuevaCita.hora}:00`);
+      const fin = new Date(inicio.getTime() + nuevaCita.duracionMinutos * 60000);
+      await api.crearCita({
+        clienteId, asesorId: nuevaCita.asesorId || undefined,
+        inicio: inicio.toISOString(), fin: fin.toISOString(),
+      });
+      setMostrarNuevaCita(false);
+      setNuevaCita({ asesorId: '', fecha: '', hora: '09:00', duracionMinutos: 30 });
+      cargar();
+    } catch (e2) {
+      setError(e2.message);
+    }
+  }
+
+  async function cancelarCitaActual(citaId) {
+    try {
+      await api.cancelarCita(citaId);
+      cargar();
+    } catch (e2) {
+      setError(e2.message);
+    }
+  }
+
+  async function tomarConversacionActual() {
+    try {
+      await api.tomarConversacion(clienteId);
       cargar();
     } catch (e2) {
       setError(e2.message);
@@ -209,7 +249,28 @@ export default function CrmClienteDetalle() {
       </section>
 
       <section className="crm-seccion">
-        <h2>Citas</h2>
+        <div className="crm-seccion-header">
+          <h2>Citas</h2>
+          <button onClick={() => setMostrarNuevaCita(!mostrarNuevaCita)}>{mostrarNuevaCita ? 'Cancelar' : 'Nueva cita'}</button>
+        </div>
+
+        {mostrarNuevaCita && (
+          <form className="config-form-inline" onSubmit={crearCitaActual}>
+            <select value={nuevaCita.asesorId} onChange={(e) => setNuevaCita({ ...nuevaCita, asesorId: e.target.value })}>
+              <option value="">Automático</option>
+              {asesores.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+            </select>
+            <input type="date" required value={nuevaCita.fecha} onChange={(e) => setNuevaCita({ ...nuevaCita, fecha: e.target.value })} />
+            <input type="time" required value={nuevaCita.hora} onChange={(e) => setNuevaCita({ ...nuevaCita, hora: e.target.value })} />
+            <input
+              type="number" min="5" step="5" placeholder="Minutos"
+              value={nuevaCita.duracionMinutos}
+              onChange={(e) => setNuevaCita({ ...nuevaCita, duracionMinutos: Number(e.target.value) })}
+            />
+            <button type="submit">Guardar</button>
+          </form>
+        )}
+
         {citas.length === 0 ? (
           <p className="operaciones-nota">Sin citas.</p>
         ) : (
@@ -219,6 +280,7 @@ export default function CrmClienteDetalle() {
                 <span>{new Date(cita.inicio).toLocaleString('es-MX')}</span>
                 <span>{cita.asesores?.nombre || 'Sin asignar'}</span>
                 <span className={`agenda-estado agenda-estado--${cita.estado}`}>{cita.estado}</span>
+                {cita.estado !== 'cancelada' && <button onClick={() => cancelarCitaActual(cita.id)}>Cancelar</button>}
               </li>
             ))}
           </ul>
@@ -266,7 +328,14 @@ export default function CrmClienteDetalle() {
       </section>
 
       <section className="crm-seccion">
-        <h2>Conversación</h2>
+        <div className="crm-seccion-header">
+          <h2>Conversación</h2>
+          <div>
+            {cliente.atendido_por === 'ia' && <button onClick={tomarConversacionActual}>Tomar conversación</button>}
+            {' '}
+            <Link to={`/conversaciones/${clienteId}`}>Ver y responder &rarr;</Link>
+          </div>
+        </div>
         {historial.length === 0 ? (
           <p className="operaciones-nota">Sin mensajes.</p>
         ) : (

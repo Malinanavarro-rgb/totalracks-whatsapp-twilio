@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 
 function hoyISO() {
@@ -23,7 +24,10 @@ export default function Agenda() {
 
   useEffect(() => {
     api.asesores().then(setAsesores).catch(() => {});
-    api.conversaciones().then(setClientesExistentes).catch(() => {});
+    // Pivote a producto, Fase 4.4: antes usaba api.conversaciones() — CRM es
+    // la fuente única de verdad de "cliente", Conversaciones no debería
+    // serlo solo porque comparte una forma de datos similar.
+    api.clientesCrm().then(setClientesExistentes).catch(() => {});
   }, []);
 
   useEffect(() => { cargarCitas(); }, [fecha]);
@@ -69,7 +73,7 @@ export default function Agenda() {
             {lista.map((cita) => (
               <li key={cita.id} className="agenda-cita-item">
                 <span>{formatearHora(cita.inicio)}–{formatearHora(cita.fin)}</span>
-                <span>{cita.clientes?.nombre || cita.clientes?.telefono}</span>
+                <span><Link to={`/crm/clientes/${cita.cliente_id}`}>{cita.clientes?.nombre || cita.clientes?.telefono}</Link></span>
                 <span className={`agenda-estado agenda-estado--${cita.estado}`}>{cita.estado}</span>
                 {cita.estado !== 'cancelada' && (
                   <button onClick={() => cancelar(cita.id)}>Cancelar</button>

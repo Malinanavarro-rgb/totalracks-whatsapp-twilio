@@ -62,6 +62,24 @@ describe('conversaciones', () => {
       expect(resultado[0].ultimoMensaje.texto).toBe('hola, en qué ayudo');
     });
 
+    test('incluye score_interes y oportunidad_estado (Pivote a producto, Fase 4.3: contexto de CRM en Conversaciones)', async () => {
+      const db = crearMockDb(
+        { data: [{
+            id: CLIENTE_ID, nombre: 'Juan', telefono: '+52...', atendido_por: 'ia', asesor_id: null, estado: null,
+            score_interes: 45, oportunidad_estado: 'Negociacion',
+            ultimo_mensaje_texto: 'hola', ultimo_mensaje_created_at: '2026-07-09T10:00:00Z',
+          }], error: null },
+      );
+
+      const resultado = await listarConversaciones(db, COMPANY_A, { id: 'u1', rol: 'owner' });
+
+      const builder = db.from.mock.results[0].value;
+      expect(builder.select).toHaveBeenCalledWith(expect.stringContaining('score_interes'));
+      expect(builder.select).toHaveBeenCalledWith(expect.stringContaining('oportunidad_estado'));
+      expect(resultado[0].score_interes).toBe(45);
+      expect(resultado[0].oportunidad_estado).toBe('Negociacion');
+    });
+
     test('cliente sin mensajes previos → ultimoMensaje es null (no truena con LEFT JOIN vacío)', async () => {
       const db = crearMockDb(
         { data: [{

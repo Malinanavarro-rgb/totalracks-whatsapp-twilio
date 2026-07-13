@@ -80,6 +80,13 @@ export default function ConversacionDetalle() {
       <p><Link to="/conversaciones">&larr; Conversaciones</Link></p>
       <h1>{conversacion?.nombre || conversacion?.telefono || 'Conversación'}</h1>
 
+      <p className="conversacion-item-contexto-crm">
+        {conversacion?.score_interes != null && <span>Score: {conversacion.score_interes}</span>}
+        {conversacion?.oportunidad_estado && <span>{conversacion.oportunidad_estado}</span>}
+        {' '}
+        <Link to={`/crm/clientes/${clienteId}`}>Ver ficha completa →</Link>
+      </p>
+
       <div className="conversacion-acciones">
         {conversacion?.atendido_por === 'ia' && (
           <button onClick={tomar}>Tomar conversación</button>

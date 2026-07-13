@@ -143,6 +143,17 @@ body {
 
 .alerta--error_tecnico { background: #fdecea; border-color: #e0a3a0; color: #a03a34; }
 
+.actividad-reciente-lista { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+.actividad-item {
+  padding: 0.6rem 1rem; border-radius: 8px; font-size: 0.85rem;
+  background: #fff; border: 1px solid #eee;
+}
+.actividad-item a { color: #1a1a2e; text-decoration: none; }
+.actividad-item a:hover { text-decoration: underline; }
+.actividad-item--cliente_nuevo { border-left: 3px solid #4a90d9; }
+.actividad-item--mensaje_sin_responder { border-left: 3px solid #d9954a; }
+.actividad-item--cita_sin_confirmar { border-left: 3px solid #a04ad9; }
+
 /* ── Conversaciones ────────────────────────────────────────────────────── */
 
 .conversaciones-lista { list-style: none; padding: 0; margin: 1.5rem 0 0; display: flex; flex-direction: column; gap: 0.5rem; }
@@ -175,6 +186,13 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.conversacion-item-contexto-crm {
+  margin: 0.3rem 0 0; font-size: 0.78rem; color: #888; display: flex; gap: 0.6rem; align-items: center;
+}
+.conversacion-item-contexto-crm span {
+  background: #f0f0f2; border-radius: 999px; padding: 0.1rem 0.6rem;
 }
 
 .conversacion-acciones { margin: 1rem 0; }

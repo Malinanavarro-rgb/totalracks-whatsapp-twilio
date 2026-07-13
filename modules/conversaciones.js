@@ -21,7 +21,9 @@ const ROLES_GERENCIALES = ['owner', 'administrador', 'supervisor'];
  * las que ya tomó más el pool sin asignar (para poder tomarlas) — nunca las
  * tomadas por otro asesor.
  *
- * Consulta única contra la vista `conversaciones_resumen` (migración 040),
+ * Consulta única contra la vista `conversaciones_resumen` (migración 040,
+ * extendida en 043 con score_interes/oportunidad_estado — Pivote a
+ * producto, Fase 4.3: contexto de CRM visible sin salir de Conversaciones),
  * que resuelve el "último mensaje" de cada cliente con un JOIN en SQL — antes
  * hacía 1 query de clientes + 2 queries adicionales POR CLIENTE (N+1),
  * detectado en la auditoría de arquitectura 2026-07 (hallazgo #2).
@@ -33,7 +35,7 @@ const ROLES_GERENCIALES = ['owner', 'administrador', 'supervisor'];
 async function listarConversaciones(supabase, company_id, usuario) {
   let query = supabase
     .from('conversaciones_resumen')
-    .select('id, nombre, telefono, atendido_por, asesor_id, estado, ultimo_mensaje_texto, ultimo_mensaje_created_at')
+    .select('id, nombre, telefono, atendido_por, asesor_id, estado, score_interes, oportunidad_estado, ultimo_mensaje_texto, ultimo_mensaje_created_at')
     .eq('company_id', company_id);
 
   if (!ROLES_GERENCIALES.includes(usuario.rol)) {
