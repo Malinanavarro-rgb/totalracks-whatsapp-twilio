@@ -256,7 +256,14 @@ async function procesarMensajeEntrante(message, enviar) {
   let textoFinal = resultado.respuesta_texto + textoCotizacion;
 
   if (personality?.mensaje_bienvenida && eraPrimerContacto) {
-    textoFinal = `${personality.mensaje_bienvenida}\n\n${textoFinal}`;
+    // Fase Demo Comercial: si el cliente saluda ("Hola"), la IA suele
+    // contestar también con un saludo propio — anteponer mensaje_bienvenida
+    // tal cual sonaba como "dos hola seguidos". Se recorta el saludo
+    // redundante de la respuesta de la IA, no el mensaje_bienvenida
+    // configurado (que trae el nombre/rol del asesor, más valioso aquí).
+    const SALUDO_INICIAL = /^¡?(hola|buen[oa]s?\s+(d[ií]as|tardes|noches)|qu[ée]\s+tal)[,.!¡\s]*/i;
+    const sinSaludoRedundante = textoFinal.replace(SALUDO_INICIAL, '').trim();
+    textoFinal = `${personality.mensaje_bienvenida}\n\n${sinSaludoRedundante || textoFinal}`;
   }
   if (personality?.firma) {
     textoFinal = `${textoFinal}\n\n${personality.firma}`;
