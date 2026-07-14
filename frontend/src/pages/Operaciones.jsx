@@ -113,41 +113,24 @@ export default function Operaciones() {
           </section>
 
           {esUniformesDeportivos && (
-            <>
-              {metricas.recomendaciones && metricas.recomendaciones.length > 0 && (
-                <ul className="recomendaciones-lista">
-                  {metricas.recomendaciones.map((r, i) => (
-                    <li key={i} className={`recomendacion-tarjeta recomendacion-tarjeta--${r.severidad || 'info'}`}>
-                      <span className="recomendacion-punto"></span>
-                      <div className="recomendacion-cuerpo">
-                        <p className="recomendacion-texto">{r.texto}</p>
-                        <p className="recomendacion-detalle">{r.detalle}</p>
-                      </div>
-                      <Link to={r.recurso} className="recomendacion-accion">{r.accion}</Link>
-                    </li>
-                  ))}
-                </ul>
-              )}
-
-              <div className="pregunta-tara-caja">
-                <div className="pregunta-tara-input">
-                  <input type="text" readOnly placeholder="¿Qué quieres saber?" />
-                  <span className="pregunta-tara-enviar"><IconoA /></span>
-                </div>
-                <div className="pregunta-tara-sugerencias">
-                  {PREGUNTAS_UNIFORMES_DEPORTIVOS.map((p) => (
-                    <button key={p} className="pregunta-tara-chip" onClick={() => setPreguntaActiva(p)}>
-                      {p}
-                    </button>
-                  ))}
-                </div>
-                {preguntaActiva && (
-                  <p className="pregunta-tara-respuesta">
-                    {responderPregunta(preguntaActiva, metricas)}
-                  </p>
-                )}
+            <div className="pregunta-tara-caja">
+              <div className="pregunta-tara-input">
+                <input type="text" readOnly placeholder="¿Qué quieres saber?" />
+                <span className="pregunta-tara-enviar"><IconoA /></span>
               </div>
-            </>
+              <div className="pregunta-tara-sugerencias">
+                {PREGUNTAS_UNIFORMES_DEPORTIVOS.map((p) => (
+                  <button key={p} className="pregunta-tara-chip" onClick={() => setPreguntaActiva(p)}>
+                    {p}
+                  </button>
+                ))}
+              </div>
+              {preguntaActiva && (
+                <p className="pregunta-tara-respuesta">
+                  {responderPregunta(preguntaActiva, metricas)}
+                </p>
+              )}
+            </div>
           )}
 
           <h2 className="alertas-titulo alertas-titulo--secundario">Métricas</h2>
@@ -159,6 +142,49 @@ export default function Operaciones() {
               </div>
             ))}
           </div>
+
+          {esUniformesDeportivos && (
+            <div className="dos-columnas">
+              <div>
+                <h2 className="alertas-titulo alertas-titulo--secundario">Recomendaciones de TARA</h2>
+                {metricas.recomendaciones && metricas.recomendaciones.length > 0 ? (
+                  <ul className="recomendaciones-lista">
+                    {metricas.recomendaciones.map((r, i) => (
+                      <li key={i} className={`recomendacion-tarjeta recomendacion-tarjeta--${r.severidad || 'info'}`}>
+                        <span className="recomendacion-punto"></span>
+                        <div className="recomendacion-cuerpo">
+                          <p className="recomendacion-texto">{r.texto}</p>
+                          <p className="recomendacion-detalle">{r.detalle}</p>
+                        </div>
+                        <Link to={r.recurso} className="recomendacion-accion">{r.accion}</Link>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="operaciones-nota">Sin recomendaciones — todo al día.</p>
+                )}
+              </div>
+
+              <div>
+                <h2 className="alertas-titulo alertas-titulo--secundario">Estado de ventas</h2>
+                {metricas.panelVentas && metricas.panelVentas.length > 0 ? (
+                  <ul className="panel-ventas-lista">
+                    {metricas.panelVentas.map((v, i) => (
+                      <li key={i} className="panel-ventas-fila">
+                        <div>
+                          <p className="panel-ventas-cliente">{v.cliente}</p>
+                          <p className="panel-ventas-estado">{v.estado}</p>
+                        </div>
+                        {v.monto != null && <span className="panel-ventas-monto">${Number(v.monto).toLocaleString('es-MX')}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="operaciones-nota">Sin actividad todavía.</p>
+                )}
+              </div>
+            </div>
+          )}
 
           {!esUniformesDeportivos && (
             <>

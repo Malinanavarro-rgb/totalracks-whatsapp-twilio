@@ -126,13 +126,14 @@ async function obtenerMetricasUniformesDeportivos(supabase, company_id) {
   const hace48h    = new Date(ahora.getTime() - 48 * 3600 * 1000).toISOString();
   const inicioMes  = new Date(Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth(), 1)).toISOString();
 
-  const [solicitudes, cotizaciones, produccion, entregas, ventasDelMes, recomendaciones] = await Promise.all([
+  const [solicitudes, cotizaciones, produccion, entregas, ventasDelMes, recomendaciones, panelVentas] = await Promise.all([
     _contarOportunidadesPorEstado(supabase, company_id, 'Solicitud nueva'),
     _contarOportunidadesPorEstado(supabase, company_id, 'Cotización enviada'),
     _contarOportunidadesPorEstado(supabase, company_id, 'En producción'),
     _contarOportunidadesPorEstado(supabase, company_id, 'Listo para entrega'),
     _sumarVentasDelMes(supabase, company_id, inicioMes),
     _obtenerRecomendacionesUniformesDeportivos(supabase, company_id, hace48h),
+    _panelVentasUniformesDeportivos(supabase, company_id),
   ]);
 
   return {
@@ -146,7 +147,31 @@ async function obtenerMetricasUniformesDeportivos(supabase, company_id) {
     alertas: [],
     actividadReciente: [],
     recomendaciones,
+    panelVentas,
   };
+}
+
+/**
+ * Fase Premium V1.1: "Estado de ventas" — snapshot de las 3 oportunidades
+ * con actividad más reciente (cualquier etapa), con el monto real de cada
+ * una. Complementa a las recomendaciones (que son solo lo urgente) con una
+ * vista general de qué se está moviendo en el negocio.
+ */
+async function _panelVentasUniformesDeportivos(supabase, company_id) {
+  const { data, error } = await supabase
+    .from('oportunidades')
+    .select('estado, presupuesto_confirmado, presupuesto_estimado, updated_at, clientes(nombre)')
+    .eq('company_id', company_id)
+    .order('updated_at', { ascending: false })
+    .limit(3);
+
+  if (error || !data) return [];
+
+  return data.map(op => ({
+    cliente: op.clientes?.nombre || 'Cliente',
+    estado: op.estado,
+    monto: op.presupuesto_confirmado ?? op.presupuesto_estimado ?? null,
+  }));
 }
 
 async function _contarOportunidadesPorEstado(supabase, company_id, estado) {

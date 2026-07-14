@@ -273,6 +273,30 @@ describe('dashboard.obtenerMetricasUniformesDeportivos()', () => {
     expect(metricas.kpis.every(k => k.valor === 0 || k.valor === '$0')).toBe(true);
     expect(metricas.recomendaciones).toEqual([]);
   });
+
+  test('Fase Premium V1.1: panelVentas trae las 3 oportunidades con actividad más reciente', async () => {
+    const db = crearMockDb(
+      { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null },
+      { data: [], error: null },
+      { data: [], error: null },
+      { data: [], error: null },
+      { data: [], error: null },
+      {
+        data: [
+          { estado: 'En producción', presupuesto_confirmado: null, presupuesto_estimado: 45000, updated_at: '2026-07-09T00:00:00Z', clientes: { nombre: 'Club Cumbres' } },
+          { estado: 'Entregado', presupuesto_confirmado: 45000, presupuesto_estimado: 45000, updated_at: '2026-07-04T00:00:00Z', clientes: { nombre: 'Deportivo Anáhuac' } },
+        ],
+        error: null,
+      },
+    );
+
+    const metricas = await obtenerMetricasUniformesDeportivos(db, COMPANY_A);
+
+    expect(metricas.panelVentas).toEqual([
+      { cliente: 'Club Cumbres', estado: 'En producción', monto: 45000 },
+      { cliente: 'Deportivo Anáhuac', estado: 'Entregado', monto: 45000 },
+    ]);
+  });
 });
 
 describe('dashboard.obtenerMetricas() — enruta a la industria correcta', () => {
