@@ -86,7 +86,7 @@ async function aplicarPlantilla(supabase, company_id, plantilla) {
     modelo:                p.modelo || 'gpt-4o-mini',
     temperatura:           p.temperatura ?? 0.7,
     max_tokens:            p.max_tokens ?? 500,
-    skills:                '[]',
+    skills:                [],
     campos_requeridos:     p.campos_requeridos || [],
     reglas:                p.reglas || [],
     max_turnos_memoria:    6,

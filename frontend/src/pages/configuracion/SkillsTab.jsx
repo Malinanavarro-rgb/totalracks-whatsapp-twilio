@@ -13,7 +13,7 @@ export default function SkillsTab() {
   const [error, setError] = useState(null);
 
   function cargar() {
-    api.personalidad().then((p) => setSkills(p.skills || [])).catch((e) => setError(e.message));
+    api.personalidad().then((p) => setSkills(Array.isArray(p?.skills) ? p.skills : [])).catch((e) => setError(e.message));
   }
 
   useEffect(cargar, []);

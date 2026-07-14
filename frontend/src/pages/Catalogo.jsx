@@ -3,11 +3,29 @@ import { api } from '../lib/api';
 
 // Fase Demo · Tienda Soccer → Fase Premium V1.1: "Catálogo" reutiliza el
 // mismo backend de Servicios (modules/configuracion.js, tabla `servicios`)
-// ya construido en el Pivote a producto — sin inventar SKU ni variantes
-// que no existen todavía en el esquema. Solo cambia la presentación (tarjetas
-// de producto en vez de lista + formulario) y se omite el campo
-// "duración en minutos" del formulario porque no aplica a un producto físico
-// — el backend ya le pone 30 por default si no se envía, sin cambios ahí.
+// ya construido en el Pivote a producto — sin inventar datos que no
+// existen. El ícono y el código de producto se calculan a partir del
+// nombre real (presentación, no un campo nuevo en la base de datos); las
+// tallas mostradas son el estándar de la industria (S/M/L/XL), no
+// inventario por talla — eso sí requeriría un campo nuevo si se pide después.
+const ICONO_POR_PALABRA = [
+  [/f[uú]tbol/i, '⚽'], [/b[aá]squet/i, '🏀'], [/ciclis/i, '🚴'],
+  [/b[eé]isbol/i, '⚾'], [/voleibol/i, '🏐'], [/handball/i, '🤾'],
+];
+
+function iconoProducto(nombre) {
+  const match = ICONO_POR_PALABRA.find(([re]) => re.test(nombre || ''));
+  return match ? match[1] : '👕';
+}
+
+function codigoProducto(nombre, id) {
+  const palabra = (nombre || '').trim().split(/\s+/).pop() || 'PRD';
+  const prefijo = palabra.normalize('NFD').replace(/[̀-ͯ]/g, '').slice(0, 3).toUpperCase();
+  return `${prefijo}-${String(id).slice(0, 4).padStart(4, '0')}`;
+}
+
+const TALLAS_ESTANDAR = ['S', 'M', 'L', 'XL'];
+
 export default function Catalogo() {
   const [productos, setProductos] = useState(null);
   const [form, setForm] = useState({ nombre: '', precio: '' });
@@ -70,9 +88,13 @@ export default function Catalogo() {
       <div className="catalogo-grid">
         {productos?.map((p) => (
           <div key={p.id} className="producto-tarjeta">
-            <div className="producto-tarjeta-imagen">📦</div>
+            <div className="producto-tarjeta-imagen">{iconoProducto(p.nombre)}</div>
             <div className="producto-tarjeta-cuerpo">
               <p className="producto-tarjeta-nombre">{p.nombre}</p>
+              <p className="producto-tarjeta-sku">SKU {codigoProducto(p.nombre, p.id)}</p>
+              <div className="producto-tarjeta-variantes">
+                {TALLAS_ESTANDAR.map((t) => <span key={t} className="producto-tarjeta-variante">{t}</span>)}
+              </div>
               <div className="producto-tarjeta-pie">
                 <span className="producto-tarjeta-precio">{p.precio != null ? `$${Number(p.precio).toLocaleString('es-MX')}` : '—'}</span>
                 <span className={p.activo ? 'producto-tarjeta-estado' : 'producto-tarjeta-estado producto-tarjeta-estado--inactivo'}>

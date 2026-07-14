@@ -555,7 +555,13 @@ body {
   font-size: 1.8rem; border-bottom: 1px solid var(--line);
 }
 .producto-tarjeta-cuerpo { padding: 0.85rem 0.95rem 1rem; }
-.producto-tarjeta-nombre { margin: 0 0 0.6rem; font-weight: 600; font-size: 0.92rem; }
+.producto-tarjeta-nombre { margin: 0 0 0.15rem; font-weight: 600; font-size: 0.92rem; }
+.producto-tarjeta-sku { margin: 0 0 0.6rem; font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-secondary); }
+.producto-tarjeta-variantes { display: flex; gap: 0.3rem; margin-bottom: 0.7rem; }
+.producto-tarjeta-variante {
+  font-size: 0.68rem; width: 1.4rem; height: 1.4rem; border-radius: 5px; border: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: center; color: var(--text-secondary);
+}
 .producto-tarjeta-pie { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem; }
 .producto-tarjeta-precio { font-family: var(--font-mono); font-weight: 600; font-size: 0.92rem; }
 .producto-tarjeta-estado { font-size: 0.72rem; color: var(--success); font-weight: 600; }
