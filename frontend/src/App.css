@@ -658,6 +658,7 @@ body {
   padding: 0.5rem 0.65rem; border: 1px solid #ddd; border-radius: 6px; font-size: 0.9rem; font-family: inherit;
 }
 .config-form-inline textarea { flex: 2; min-width: 200px; resize: vertical; }
+.config-form-separador { align-self: center; font-size: 0.8rem; color: var(--text-secondary); }
 .config-form-inline button {
   padding: 0.5rem 1rem; border: none; border-radius: 6px; background: var(--acento); color: #fff; cursor: pointer;
 }

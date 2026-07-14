@@ -16,6 +16,15 @@ const PREGUNTAS_UNIFORMES_DEPORTIVOS = [
   '¿Qué clientes llevan más de 48 horas sin responder?',
 ];
 
+// Preguntas sugeridas para salon_belleza (Fase Premium) — mismo patrón,
+// mismos datos reales de modules/dashboard.js::obtenerMetricasSalonBelleza.
+const PREGUNTAS_SALON_BELLEZA = [
+  '¿Qué citas debo confirmar?',
+  '¿Cuántas citas tengo hoy?',
+  '¿Cuántas clientas nuevas llevo esta semana?',
+  '¿Qué clientas no visitan hace tiempo?',
+];
+
 // Match por palabras clave (no un backend de IA en vivo) — permite escribir
 // libremente en vez de solo elegir de las 4 sugeridas, reusando los mismos
 // datos reales del dashboard. Si no reconoce el tema, lo dice honestamente
@@ -44,6 +53,38 @@ function responderPregunta(texto, metricas) {
   return 'Por ahora solo puedo responder sobre seguimiento de clientes, cotizaciones y entregas — prueba con una de las preguntas sugeridas abajo.';
 }
 
+// Misma lógica de match por palabras clave, sobre los datos reales de
+// obtenerMetricasSalonBelleza (KPIs y recomendaciones de citas).
+function responderPreguntaSalonBelleza(texto, metricas) {
+  const t = (texto || '').toLowerCase();
+  const confirmar = metricas.recomendaciones.filter(r => r.accion === 'Confirmar cita');
+  const retoque = metricas.recomendaciones.filter(r => r.accion === 'Enviar recordatorio');
+  const citasHoy = metricas.kpis.find(k => k.etiqueta === 'Citas de hoy');
+  const nuevasSemana = metricas.kpis.find(k => k.etiqueta === 'Clientas nuevas (semana)');
+
+  if (t.includes('confirm')) {
+    return confirmar.length === 0
+      ? 'No hay citas pendientes de confirmar en las próximas 48 horas.'
+      : confirmar.map(r => r.texto).join(' ');
+  }
+  if (t.includes('retoque') || t.includes('visita') || t.includes('tiempo')) {
+    return retoque.length === 0
+      ? 'Ninguna clienta lleva más de 45 días sin visitarnos en este momento.'
+      : retoque.map(r => r.texto).join(' ');
+  }
+  if (t.includes('hoy')) {
+    return citasHoy
+      ? `Tienes ${citasHoy.valor} citas agendadas para hoy.`
+      : 'No encontré citas para hoy.';
+  }
+  if (t.includes('nueva') || t.includes('semana')) {
+    return nuevasSemana
+      ? `Llevas ${nuevasSemana.valor} clientas nuevas esta semana.`
+      : 'No encontré clientas nuevas esta semana.';
+  }
+  return 'Por ahora solo puedo responder sobre citas de hoy, confirmaciones pendientes y clientas nuevas — prueba con una de las preguntas sugeridas abajo.';
+}
+
 function saludoPorHora() {
   const hora = new Date().getHours();
   if (hora < 12) return 'Buenos días';
@@ -61,10 +102,37 @@ function IconoA() {
 // Filosofía del hero (pedido explícito): "Buenos días, Luis. Encontré 4
 // prioridades para hoy. Nada más." — un conteo, no un párrafo. El detalle
 // de cada prioridad vive únicamente en las tarjetas de recomendación.
-function contarPrioridades(metricas, esUniformesDeportivos) {
-  return esUniformesDeportivos
+function contarPrioridades(metricas, tieneRecomendacionesRicas) {
+  return tieneRecomendacionesRicas
     ? (metricas.recomendaciones || []).length
     : (metricas.alertas || []).length;
+}
+
+// Lista de recomendaciones de TARA — misma tarjeta para uniformes_deportivos
+// (junto a "Estado de ventas") y salon_belleza (a todo el ancho), sin
+// duplicar el JSX entre ambas industrias.
+function ListaRecomendaciones({ recomendaciones }) {
+  return (
+    <>
+      <h2 className="alertas-titulo alertas-titulo--secundario">Recomendaciones de TARA</h2>
+      {recomendaciones && recomendaciones.length > 0 ? (
+        <ul className="recomendaciones-lista">
+          {recomendaciones.map((r, i) => (
+            <li key={i} className={`recomendacion-tarjeta recomendacion-tarjeta--${r.severidad || 'info'}`}>
+              <span className="recomendacion-punto"></span>
+              <div className="recomendacion-cuerpo">
+                <p className="recomendacion-texto">{r.texto}</p>
+                <p className="recomendacion-detalle">{r.detalle}</p>
+              </div>
+              <Link to={r.recurso} className="recomendacion-accion">{r.accion}</Link>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="operaciones-nota">Sin recomendaciones — todo al día.</p>
+      )}
+    </>
+  );
 }
 
 // Fase 2: Centro de Operaciones real. Sin lógica de negocio aquí — solo
@@ -92,6 +160,10 @@ export default function Operaciones() {
   }
 
   const esUniformesDeportivos = sesion?.empresaActiva?.industria_slug === 'uniformes_deportivos';
+  const esSalonBelleza = sesion?.empresaActiva?.industria_slug === 'salon_belleza';
+  const tieneRecomendacionesRicas = esUniformesDeportivos || esSalonBelleza;
+  const preguntasSugeridas = esSalonBelleza ? PREGUNTAS_SALON_BELLEZA : PREGUNTAS_UNIFORMES_DEPORTIVOS;
+  const responder = esSalonBelleza ? responderPreguntaSalonBelleza : responderPregunta;
   const empresa = sesion?.empresaActiva?.nombre || 'tu empresa';
   // Si el usuario no tiene nombre configurado (solo email), se omite del
   // saludo en vez de mostrar el email como si fuera un nombre.
@@ -109,13 +181,13 @@ export default function Operaciones() {
             <h1 className="tara-hero-saludo">{saludoPorHora()}{nombreUsuario ? `, ${nombreUsuario}` : ''}.</h1>
             <p className="tara-hero-encontre">
               <span className="tara-hero-pulso"></span>
-              {contarPrioridades(metricas, esUniformesDeportivos) === 0
+              {contarPrioridades(metricas, tieneRecomendacionesRicas) === 0
                 ? `No encontré pendientes urgentes en ${empresa}.`
-                : `Encontré ${contarPrioridades(metricas, esUniformesDeportivos)} prioridades para hoy en ${empresa}.`}
+                : `Encontré ${contarPrioridades(metricas, tieneRecomendacionesRicas)} prioridades para hoy en ${empresa}.`}
             </p>
           </section>
 
-          {esUniformesDeportivos && (
+          {tieneRecomendacionesRicas && (
             <div className="pregunta-tara-caja">
               <form className="pregunta-tara-input" onSubmit={enviarPregunta}>
                 <input
@@ -125,7 +197,7 @@ export default function Operaciones() {
                 <button type="submit" className="pregunta-tara-enviar"><IconoA /></button>
               </form>
               <div className="pregunta-tara-sugerencias">
-                {PREGUNTAS_UNIFORMES_DEPORTIVOS.map((p) => (
+                {preguntasSugeridas.map((p) => (
                   <button key={p} className="pregunta-tara-chip" onClick={() => elegirSugerencia(p)}>
                     {p}
                   </button>
@@ -133,7 +205,7 @@ export default function Operaciones() {
               </div>
               {preguntaActiva && (
                 <p className="pregunta-tara-respuesta">
-                  {responderPregunta(preguntaActiva, metricas)}
+                  {responder(preguntaActiva, metricas)}
                 </p>
               )}
             </div>
@@ -152,23 +224,7 @@ export default function Operaciones() {
           {esUniformesDeportivos && (
             <div className="dos-columnas">
               <div>
-                <h2 className="alertas-titulo alertas-titulo--secundario">Recomendaciones de TARA</h2>
-                {metricas.recomendaciones && metricas.recomendaciones.length > 0 ? (
-                  <ul className="recomendaciones-lista">
-                    {metricas.recomendaciones.map((r, i) => (
-                      <li key={i} className={`recomendacion-tarjeta recomendacion-tarjeta--${r.severidad || 'info'}`}>
-                        <span className="recomendacion-punto"></span>
-                        <div className="recomendacion-cuerpo">
-                          <p className="recomendacion-texto">{r.texto}</p>
-                          <p className="recomendacion-detalle">{r.detalle}</p>
-                        </div>
-                        <Link to={r.recurso} className="recomendacion-accion">{r.accion}</Link>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="operaciones-nota">Sin recomendaciones — todo al día.</p>
-                )}
+                <ListaRecomendaciones recomendaciones={metricas.recomendaciones} />
               </div>
 
               <div>
@@ -192,7 +248,11 @@ export default function Operaciones() {
             </div>
           )}
 
-          {!esUniformesDeportivos && (
+          {esSalonBelleza && (
+            <ListaRecomendaciones recomendaciones={metricas.recomendaciones} />
+          )}
+
+          {!tieneRecomendacionesRicas && (
             <>
               <h2 className="alertas-titulo alertas-titulo--secundario">Alertas importantes</h2>
               {metricas.alertas.length === 0 ? (

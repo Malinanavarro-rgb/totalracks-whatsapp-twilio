@@ -175,6 +175,12 @@ class SchedulingEngine {
   /**
    * Función pura: dado un horario laboral y las citas ya ocupadas, devuelve
    * los bloques libres del día partidos en incrementos de duracionMinutos.
+   *
+   * Fase Premium · Salón de Belleza: horarios_laborales.hora_inicio_descanso/
+   * hora_fin_descanso (nullable) representan el horario de comida — se tratan
+   * como una franja ocupada más, para no romper ningún horario existente que
+   * no las use (ambas quedan null y este bloque se salta por completo).
+   *
    * @returns {Array<{inicio: Date, fin: Date, zona_horaria: string}>}
    */
   _calcularSlotsLibres(horario, ocupadas, fecha, duracionMinutos) {
@@ -183,6 +189,14 @@ class SchedulingEngine {
     const inicioJornada = _horaLocalAUTC(base, horario.hora_inicio, horario.zona_horaria);
     const finJornada    = _horaLocalAUTC(base, horario.hora_fin, horario.zona_horaria);
 
+    const bloqueadas = [...ocupadas];
+    if (horario.hora_inicio_descanso && horario.hora_fin_descanso) {
+      bloqueadas.push({
+        inicio: _horaLocalAUTC(base, horario.hora_inicio_descanso, horario.zona_horaria),
+        fin:    _horaLocalAUTC(base, horario.hora_fin_descanso, horario.zona_horaria),
+      });
+    }
+
     const slots = [];
     const pasoMs = duracionMinutos * 60 * 1000;
 
@@ -190,7 +204,7 @@ class SchedulingEngine {
       const inicioSlot = new Date(t);
       const finSlot     = new Date(t + pasoMs);
 
-      const chocaConOcupada = ocupadas.some(o => inicioSlot < o.fin && finSlot > o.inicio);
+      const chocaConOcupada = bloqueadas.some(o => inicioSlot < o.fin && finSlot > o.inicio);
       if (!chocaConOcupada) {
         slots.push({ inicio: inicioSlot, fin: finSlot, zona_horaria: horario.zona_horaria });
       }

@@ -12,7 +12,7 @@ export default function HorariosTab() {
   const [horariosCitas, setHorariosCitas] = useState(null);
   const [horarioBot, setHorarioBot] = useState(null);
   const [error, setError] = useState(null);
-  const [formCita, setFormCita] = useState({ dia_semana: 1, hora_inicio: '09:00', hora_fin: '19:00' });
+  const [formCita, setFormCita] = useState({ dia_semana: 1, hora_inicio: '09:00', hora_fin: '19:00', hora_inicio_descanso: '', hora_fin_descanso: '' });
 
   function cargar() {
     api.horariosConfig().then(setHorariosCitas).catch((e) => setError(e.message));
@@ -32,6 +32,8 @@ export default function HorariosTab() {
         dia_semana:  Number(formCita.dia_semana),
         hora_inicio: formCita.hora_inicio,
         hora_fin:    formCita.hora_fin,
+        hora_inicio_descanso: formCita.hora_inicio_descanso || undefined,
+        hora_fin_descanso:    formCita.hora_fin_descanso || undefined,
       });
       cargar();
     } catch (e2) {
@@ -106,7 +108,7 @@ export default function HorariosTab() {
 
       <section className="crm-seccion">
         <h2>Horarios de citas (Agenda)</h2>
-        <p className="operaciones-nota">Usados por Agenda para calcular disponibilidad — no afectan si TARA responde o no. Puedes agregar más de un horario para el mismo día (ej. turno mañana y turno tarde).</p>
+        <p className="operaciones-nota">Usados por Agenda para calcular disponibilidad — no afectan si TARA responde o no. Puedes agregar más de un horario para el mismo día (ej. turno mañana y turno tarde). El horario de comida (opcional) bloquea esa franja para citas, sin cerrar el día completo.</p>
 
         <form className="config-form-inline" onSubmit={agregarHorarioCita}>
           <select value={formCita.dia_semana} onChange={(e) => setFormCita({ ...formCita, dia_semana: e.target.value })}>
@@ -114,6 +116,9 @@ export default function HorariosTab() {
           </select>
           <input type="time" value={formCita.hora_inicio} onChange={(e) => setFormCita({ ...formCita, hora_inicio: e.target.value })} />
           <input type="time" value={formCita.hora_fin} onChange={(e) => setFormCita({ ...formCita, hora_fin: e.target.value })} />
+          <span className="config-form-separador">Comida (opcional):</span>
+          <input type="time" placeholder="Inicio" value={formCita.hora_inicio_descanso} onChange={(e) => setFormCita({ ...formCita, hora_inicio_descanso: e.target.value })} />
+          <input type="time" placeholder="Fin" value={formCita.hora_fin_descanso} onChange={(e) => setFormCita({ ...formCita, hora_fin_descanso: e.target.value })} />
           <button type="submit">Agregar</button>
         </form>
 
@@ -160,11 +165,16 @@ function FilaHorarioCita({ horario, nombreDia, onGuardar, onEliminar }) {
   const [editando, setEditando] = useState(false);
   const [inicio, setInicio] = useState(horario.hora_inicio.slice(0, 5));
   const [fin, setFin] = useState(horario.hora_fin.slice(0, 5));
+  const [inicioComida, setInicioComida] = useState(horario.hora_inicio_descanso?.slice(0, 5) || '');
+  const [finComida, setFinComida] = useState(horario.hora_fin_descanso?.slice(0, 5) || '');
 
   if (!editando) {
     return (
       <li className="config-kb-item">
         {nombreDia}: {horario.hora_inicio}–{horario.hora_fin} ({horario.zona_horaria})
+        {horario.hora_inicio_descanso && horario.hora_fin_descanso && (
+          <span className="config-form-separador"> · Comida {horario.hora_inicio_descanso}–{horario.hora_fin_descanso}</span>
+        )}
         <button onClick={() => setEditando(true)}>Editar</button>
         <button onClick={() => onEliminar(horario.id)}>Eliminar</button>
       </li>
@@ -176,7 +186,16 @@ function FilaHorarioCita({ horario, nombreDia, onGuardar, onEliminar }) {
       {nombreDia}:
       <input type="time" value={inicio} onChange={(e) => setInicio(e.target.value)} />
       <input type="time" value={fin} onChange={(e) => setFin(e.target.value)} />
-      <button onClick={() => { onGuardar(horario.id, { hora_inicio: inicio, hora_fin: fin }); setEditando(false); }}>Guardar</button>
+      <span className="config-form-separador">Comida (opcional):</span>
+      <input type="time" placeholder="Inicio" value={inicioComida} onChange={(e) => setInicioComida(e.target.value)} />
+      <input type="time" placeholder="Fin" value={finComida} onChange={(e) => setFinComida(e.target.value)} />
+      <button onClick={() => {
+        onGuardar(horario.id, {
+          hora_inicio: inicio, hora_fin: fin,
+          hora_inicio_descanso: inicioComida || null, hora_fin_descanso: finComida || null,
+        });
+        setEditando(false);
+      }}>Guardar</button>
       <button onClick={() => setEditando(false)}>Cancelar</button>
     </li>
   );

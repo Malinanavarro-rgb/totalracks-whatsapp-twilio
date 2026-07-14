@@ -131,7 +131,7 @@ async function listarHorarios(supabase, company_id) {
   return error ? [] : (data || []);
 }
 
-async function crearHorario(supabase, company_id, { asesor_id, dia_semana, hora_inicio, hora_fin, zona_horaria }) {
+async function crearHorario(supabase, company_id, { asesor_id, dia_semana, hora_inicio, hora_fin, hora_inicio_descanso, hora_fin_descanso, zona_horaria }) {
   const { data, error } = await supabase
     .from('horarios_laborales')
     .insert([{
@@ -140,6 +140,8 @@ async function crearHorario(supabase, company_id, { asesor_id, dia_semana, hora_
       dia_semana,
       hora_inicio,
       hora_fin,
+      hora_inicio_descanso: hora_inicio_descanso || null,
+      hora_fin_descanso:    hora_fin_descanso || null,
       zona_horaria: zona_horaria || 'America/Monterrey',
     }])
     .select()
@@ -150,7 +152,7 @@ async function crearHorario(supabase, company_id, { asesor_id, dia_semana, hora_
 }
 
 async function actualizarHorario(supabase, company_id, id, cambios) {
-  const campos = ['dia_semana', 'hora_inicio', 'hora_fin', 'zona_horaria', 'asesor_id'];
+  const campos = ['dia_semana', 'hora_inicio', 'hora_fin', 'hora_inicio_descanso', 'hora_fin_descanso', 'zona_horaria', 'asesor_id'];
   const payload = {};
   for (const campo of campos) if (cambios[campo] !== undefined) payload[campo] = cambios[campo];
 

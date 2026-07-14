@@ -113,6 +113,19 @@ describe('configuracion', () => {
       expect(builder.insert).toHaveBeenCalledWith([expect.objectContaining({ zona_horaria: 'America/Monterrey' })]);
     });
 
+    test('crearHorario() pasa el horario de comida (descanso) cuando se especifica', async () => {
+      const db = crearMockDb({ data: { id: 'h1' }, error: null });
+      await crearHorario(db, COMPANY_A, {
+        dia_semana: 1, hora_inicio: '09:00', hora_fin: '19:00',
+        hora_inicio_descanso: '14:00', hora_fin_descanso: '15:00',
+      });
+
+      const builder = db.from.mock.results[0].value;
+      expect(builder.insert).toHaveBeenCalledWith([expect.objectContaining({
+        hora_inicio_descanso: '14:00', hora_fin_descanso: '15:00',
+      })]);
+    });
+
     test('actualizarHorario() solo aplica campos permitidos', async () => {
       const db = crearMockDb({ data: { id: 'h1' }, error: null });
       await actualizarHorario(db, COMPANY_A, 'h1', { hora_inicio: '10:00', otroCampo: 'x' });

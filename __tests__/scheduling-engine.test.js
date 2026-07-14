@@ -156,6 +156,37 @@ describe('SchedulingEngine', () => {
       expect(db.from).not.toHaveBeenCalledWith('citas');
     });
 
+    test('Fase Premium · Salón de Belleza: excluye el horario de comida (hora_inicio_descanso/hora_fin_descanso)', async () => {
+      const horarioConComida = { ...horario, hora_inicio: '09:00:00', hora_fin: '11:00:00', hora_inicio_descanso: '10:00:00', hora_fin_descanso: '10:30:00' };
+      const db = crearMockDb(
+        { data: horarioConComida, error: null },
+        { data: [], error: null },
+      );
+      const engine = new SchedulingEngine(db, crearMockCalendar());
+
+      const slots = await engine.consultarDisponibilidad(COMPANY_A, {
+        asesorId: ASESOR_1, fecha: FECHA, duracionMinutos: 30,
+      });
+
+      // 09:00-11:00 partido en 30 min = 4 slots; el de 10:00-10:30 (comida) se excluye.
+      expect(slots).toHaveLength(3);
+      expect(slots.some(s => s.inicio.toISOString() === '2026-07-06T16:00:00.000Z')).toBe(false);
+    });
+
+    test('horarios sin descanso configurado (null) no excluyen nada — comportamiento sin cambios', async () => {
+      const db = crearMockDb(
+        { data: horario, error: null }, // horario fixture no trae hora_inicio_descanso/hora_fin_descanso
+        { data: [], error: null },
+      );
+      const engine = new SchedulingEngine(db, crearMockCalendar());
+
+      const slots = await engine.consultarDisponibilidad(COMPANY_A, {
+        asesorId: ASESOR_1, fecha: FECHA, duracionMinutos: 30,
+      });
+
+      expect(slots).toHaveLength(2);
+    });
+
     test('sin asesorId específico, evalúa todos los asesores activos y etiqueta cada slot', async () => {
       const db = crearMockDb(
         { data: [{ id: ASESOR_1 }, { id: ASESOR_2 }], error: null }, // asesores activos
