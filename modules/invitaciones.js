@@ -146,6 +146,40 @@ async function actualizarMiembro(supabase, company_id, usuarioId, { rol, activo 
   return data;
 }
 
+/**
+ * Fase Premium V1.1: editar el nombre de un miembro ya existente (ej. la
+ * cuenta admin@uprise.com.mx, creada directo en Supabase antes de que
+ * existiera el flujo de invitación, sin `nombre` — usado en el saludo de
+ * TARA en Inicio). `nombre` vive en `usuarios`, no en `usuarios_empresas`
+ * (tabla compartida entre empresas) — se verifica primero que el usuario
+ * pertenezca a esta empresa antes de tocarla, mismo criterio de
+ * aislamiento que el resto del módulo.
+ */
+async function actualizarNombreMiembro(supabase, company_id, usuarioId, nombre) {
+  const { data: pertenece } = await supabase
+    .from('usuarios_empresas')
+    .select('usuario_id')
+    .eq('usuario_id', usuarioId)
+    .eq('company_id', company_id)
+    .maybeSingle();
+
+  if (!pertenece) {
+    const err = new Error('Ese usuario no pertenece a tu empresa');
+    err.status = 404;
+    throw err;
+  }
+
+  const { data, error } = await supabase
+    .from('usuarios')
+    .update({ nombre })
+    .eq('id', usuarioId)
+    .select()
+    .maybeSingle();
+
+  if (error || !data) throw new Error('No se pudo actualizar el nombre');
+  return data;
+}
+
 module.exports = {
   listarMiembros,
   listarInvitacionesPendientes,
@@ -153,4 +187,5 @@ module.exports = {
   obtenerInvitacionPorToken,
   aceptarInvitacion,
   actualizarMiembro,
+  actualizarNombreMiembro,
 };

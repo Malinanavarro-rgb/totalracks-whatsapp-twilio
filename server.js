@@ -48,7 +48,7 @@ const {
 }                                        = require('./modules/configuracion');
 const {
   listarMiembros, listarInvitacionesPendientes, crearInvitacion,
-  obtenerInvitacionPorToken, aceptarInvitacion, actualizarMiembro,
+  obtenerInvitacionPorToken, aceptarInvitacion, actualizarMiembro, actualizarNombreMiembro,
 }                                        = require('./modules/invitaciones');
 const {
   listarWorkflows, crearWorkflow, actualizarWorkflow, eliminarWorkflow,
@@ -986,9 +986,17 @@ app.post('/api/config/usuarios/invitar', requireAuth, soloGerencial, async (req,
 
 app.patch('/api/config/usuarios/:usuarioId', requireAuth, soloGerencial, async (req, res) => {
   try {
-    res.json(await actualizarMiembro(req.supabase, req.usuario.company_id, req.params.usuarioId, req.body));
+    const { nombre, ...resto } = req.body;
+    let resultado;
+    if (nombre !== undefined) {
+      resultado = await actualizarNombreMiembro(req.supabase, req.usuario.company_id, req.params.usuarioId, nombre);
+    }
+    if (Object.keys(resto).length > 0) {
+      resultado = await actualizarMiembro(req.supabase, req.usuario.company_id, req.params.usuarioId, resto);
+    }
+    res.json(resultado);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(e.status || 500).json({ error: e.message });
   }
 });
 

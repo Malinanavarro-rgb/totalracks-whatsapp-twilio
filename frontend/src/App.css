@@ -651,9 +651,14 @@ body {
   padding: 0.6rem 1rem; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06); font-size: 0.9rem;
 }
 .config-usuario-item select { padding: 0.3rem 0.5rem; border: 1px solid #ddd; border-radius: 6px; }
+.config-usuario-item span { margin-right: auto; }
 .config-usuario-item button {
-  margin-left: auto; padding: 0.3rem 0.7rem; border: 1px solid #ddd; border-radius: 6px;
+  padding: 0.3rem 0.7rem; border: 1px solid #ddd; border-radius: 6px;
   background: #fff; cursor: pointer; font-size: 0.8rem;
+}
+.config-usuario-form-nombre { display: flex; align-items: center; gap: 0.5rem; flex: 1; }
+.config-usuario-form-nombre input {
+  flex: 1; padding: 0.3rem 0.5rem; border: 1px solid #ddd; border-radius: 6px; font-size: 0.85rem;
 }
 
 .config-link-invitacion {

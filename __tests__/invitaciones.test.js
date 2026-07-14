@@ -2,7 +2,7 @@
 
 const {
   listarMiembros, listarInvitacionesPendientes, crearInvitacion,
-  obtenerInvitacionPorToken, aceptarInvitacion, actualizarMiembro,
+  obtenerInvitacionPorToken, aceptarInvitacion, actualizarMiembro, actualizarNombreMiembro,
 } = require('../modules/invitaciones');
 
 // ─── Mock Builder ─────────────────────────────────────────────────────────────
@@ -111,6 +111,23 @@ describe('invitaciones', () => {
       const db = crearMockDb({ data: { usuario_id: 'u1', rol: 'supervisor', activo: true }, error: null });
       const resultado = await actualizarMiembro(db, COMPANY_A, 'u1', { rol: 'supervisor' });
       expect(resultado.rol).toBe('supervisor');
+    });
+  });
+
+  describe('actualizarNombreMiembro() (Fase Premium V1.1)', () => {
+    test('404 si el usuario no pertenece a la empresa', async () => {
+      const db = crearMockDb({ data: null, error: null });
+      await expect(actualizarNombreMiembro(db, COMPANY_A, 'u1', 'Luis')).rejects.toMatchObject({ status: 404 });
+    });
+
+    test('éxito: actualiza el nombre en `usuarios` tras verificar pertenencia', async () => {
+      const db = crearMockDb(
+        { data: { usuario_id: 'u1' }, error: null },
+        { data: { id: 'u1', nombre: 'Luis' }, error: null },
+      );
+      const resultado = await actualizarNombreMiembro(db, COMPANY_A, 'u1', 'Luis');
+      expect(resultado.nombre).toBe('Luis');
+      expect(db._llamadas).toEqual(['usuarios_empresas', 'usuarios']);
     });
   });
 

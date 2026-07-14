@@ -9,6 +9,8 @@ export default function UsuariosTab() {
   const [linkGenerado, setLinkGenerado] = useState(null);
   const [error, setError] = useState(null);
   const [enviando, setEnviando] = useState(false);
+  const [editandoId, setEditandoId] = useState(null);
+  const [nombreEdicion, setNombreEdicion] = useState('');
 
   function cargar() {
     api.usuariosConfig().then(setDatos).catch((e) => setError(e.message));
@@ -51,6 +53,23 @@ export default function UsuariosTab() {
     }
   }
 
+  function empezarEdicionNombre(m) {
+    setEditandoId(m.usuario_id);
+    setNombreEdicion(m.usuarios?.nombre || '');
+  }
+
+  async function guardarNombre(e, usuarioId) {
+    e.preventDefault();
+    if (!nombreEdicion.trim()) return;
+    try {
+      await api.actualizarMiembro(usuarioId, { nombre: nombreEdicion.trim() });
+      setEditandoId(null);
+      cargar();
+    } catch (e2) {
+      setError(e2.message);
+    }
+  }
+
   return (
     <div>
       <h2>Agregar usuario</h2>
@@ -85,13 +104,24 @@ export default function UsuariosTab() {
           <ul className="config-usuarios-lista">
             {datos.miembros.map((m) => (
               <li key={m.usuario_id} className="config-usuario-item">
-                <span>{m.usuarios?.nombre || m.usuarios?.email}</span>
-                <select value={m.rol} onChange={(e) => cambiarRol(m.usuario_id, e.target.value)}>
-                  {['owner', ...ROLES].map((r) => <option key={r} value={r}>{r}</option>)}
-                </select>
-                <button onClick={() => toggleActivo(m.usuario_id, m.activo)}>
-                  {m.activo ? 'Desactivar' : 'Activar'}
-                </button>
+                {editandoId === m.usuario_id ? (
+                  <form className="config-usuario-form-nombre" onSubmit={(e) => guardarNombre(e, m.usuario_id)}>
+                    <input value={nombreEdicion} onChange={(e) => setNombreEdicion(e.target.value)} autoFocus />
+                    <button type="submit">Guardar</button>
+                    <button type="button" onClick={() => setEditandoId(null)}>Cancelar</button>
+                  </form>
+                ) : (
+                  <>
+                    <span>{m.usuarios?.nombre || m.usuarios?.email}</span>
+                    <button onClick={() => empezarEdicionNombre(m)}>Editar nombre</button>
+                    <select value={m.rol} onChange={(e) => cambiarRol(m.usuario_id, e.target.value)}>
+                      {['owner', ...ROLES].map((r) => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                    <button onClick={() => toggleActivo(m.usuario_id, m.activo)}>
+                      {m.activo ? 'Desactivar' : 'Activar'}
+                    </button>
+                  </>
+                )}
               </li>
             ))}
           </ul>
