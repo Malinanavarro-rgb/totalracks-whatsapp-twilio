@@ -242,7 +242,9 @@ async function procesarMensajeEntrante(message, enviar) {
 
           await supabaseServicio.from('oportunidades').update(cambios).eq('id', oportunidad.id);
 
-          textoCotizacion = `\n\n📋 Cotización: ${cotizacion.cantidad} x ${cotizacion.servicio} — $${cotizacion.precioUnitario.toLocaleString('es-MX')} c/u = $${cotizacion.total.toLocaleString('es-MX')} MXN. Un asesor confirmará el total final.`;
+          const rangoTotal = `$${(cotizacion.precioMin * cotizacion.cantidad).toLocaleString('es-MX')}–$${(cotizacion.precioMax * cotizacion.cantidad).toLocaleString('es-MX')}`;
+          const envio = cotizacion.envioGratis ? ' 🚚 Envío gratis a todo México incluido.' : '';
+          textoCotizacion = `\n\n📋 Cotización estimada: ${cotizacion.cantidad} uniformes × $${cotizacion.precioMin.toLocaleString('es-MX')}–$${cotizacion.precioMax.toLocaleString('es-MX')} c/u = ${rangoTotal} MXN, según diseño genérico o totalmente personalizado.${envio} Un asesor te confirma el total exacto.`;
         }
       }
     }

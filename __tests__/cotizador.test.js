@@ -15,54 +15,49 @@ function crearMockSupabase(resultado) {
 const COMPANY_A = 'aaaaaaaa-0000-0000-0000-000000000001';
 
 describe('cotizador.calcularCotizacion()', () => {
-  test('calcula el total con el precio real del catálogo y la cantidad capturada', async () => {
+  test('calcula el rango real (mín–máx del catálogo activo) × cantidad', async () => {
     const supabase = crearMockSupabase({
-      data: [
-        { nombre: 'Uniforme de fútbol — Local', precio: 1850 },
-        { nombre: 'Uniforme de básquetbol', precio: 1350 },
-      ],
+      data: [{ precio: 299 }, { precio: 399 }],
       error: null,
     });
 
     const resultado = await calcularCotizacion(supabase, COMPANY_A, {
-      deporte: 'fútbol', cantidad: '100 talla 12 (niño) y las demás talla 14',
+      cantidad: '100 talla 12 (niño) y las demás talla 14',
     });
 
     expect(resultado).toEqual({
-      servicio: 'Uniforme de fútbol — Local',
-      precioUnitario: 1850,
       cantidad: 100,
-      total: 185000,
+      precioMin: 299,
+      precioMax: 399,
+      total: 34900, // punto medio (349) × 100
+      envioGratis: true,
     });
   });
 
-  test('sin deporte o cantidad capturados, devuelve null', async () => {
-    const supabase = crearMockSupabase({ data: [], error: null });
-    expect(await calcularCotizacion(supabase, COMPANY_A, { deporte: 'fútbol' })).toBeNull();
-    expect(await calcularCotizacion(supabase, COMPANY_A, { cantidad: '100' })).toBeNull();
+  test('cantidad menor al mínimo de envío gratis, envioGratis es false', async () => {
+    const supabase = crearMockSupabase({ data: [{ precio: 299 }, { precio: 399 }], error: null });
+    const resultado = await calcularCotizacion(supabase, COMPANY_A, { cantidad: '5' });
+    expect(resultado.envioGratis).toBe(false);
   });
 
-  test('deporte capturado sin producto equivalente en el catálogo, devuelve null', async () => {
-    const supabase = crearMockSupabase({
-      data: [{ nombre: 'Uniforme de básquetbol', precio: 1350 }],
-      error: null,
-    });
-    const resultado = await calcularCotizacion(supabase, COMPANY_A, { deporte: 'rugby', cantidad: '20' });
-    expect(resultado).toBeNull();
+  test('sin cantidad capturada, devuelve null', async () => {
+    const supabase = crearMockSupabase({ data: [{ precio: 299 }], error: null });
+    expect(await calcularCotizacion(supabase, COMPANY_A, {})).toBeNull();
   });
 
   test('cantidad sin ningún número reconocible, devuelve null', async () => {
-    const supabase = crearMockSupabase({
-      data: [{ nombre: 'Uniforme de fútbol — Local', precio: 1850 }],
-      error: null,
-    });
-    const resultado = await calcularCotizacion(supabase, COMPANY_A, { deporte: 'fútbol', cantidad: 'varios' });
-    expect(resultado).toBeNull();
+    const supabase = crearMockSupabase({ data: [{ precio: 299 }], error: null });
+    expect(await calcularCotizacion(supabase, COMPANY_A, { cantidad: 'varios' })).toBeNull();
   });
 
   test('catálogo vacío o con error, devuelve null', async () => {
     const supabase = crearMockSupabase({ data: [], error: null });
-    const resultado = await calcularCotizacion(supabase, COMPANY_A, { deporte: 'fútbol', cantidad: '10' });
-    expect(resultado).toBeNull();
+    expect(await calcularCotizacion(supabase, COMPANY_A, { cantidad: '10' })).toBeNull();
+  });
+
+  test('un solo producto activo: min y max son el mismo precio', async () => {
+    const supabase = crearMockSupabase({ data: [{ precio: 350 }], error: null });
+    const resultado = await calcularCotizacion(supabase, COMPANY_A, { cantidad: '20' });
+    expect(resultado).toEqual({ cantidad: 20, precioMin: 350, precioMax: 350, total: 7000, envioGratis: true });
   });
 });
