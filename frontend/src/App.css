@@ -1,17 +1,42 @@
-/* TARA — Plataforma SaaS, Fase 1. Estilos mínimos, sin librería de UI. */
+/* TARA — Plataforma SaaS. Estilos mínimos, sin librería de UI. */
 
-/* --acento: color de marca por empresa (Shell.jsx lo sobreescribe con
-   companies.color_acento vía inline style en .shell — Fase Demo Tienda
-   Soccer). Sin empresa activa (login) usa este default. */
-:root { --acento: #1a1a2e; }
+/* TARA Brand Guidelines V1.0 (aprobado) — identidad congelada.
+   --acento es lo único que cambia por empresa (Shell.jsx lo sobreescribe
+   con companies.color_acento vía inline style en .shell); todo lo demás
+   es fijo para todo el producto. */
+:root {
+  --ink: #0b0f19;
+  --text: #111827;
+  --text-secondary: #6b7280;
+  --bg: #fafbfc;
+  --surface: #ffffff;
+  --line: #e5e7eb;
+  --tint: #f3f4f6;
+
+  --brand-teal: #22c7b8;
+
+  --success: #16a34a;
+  --success-soft: #e9f8ee;
+  --warning: #f59e0b;
+  --warning-soft: #fef3e2;
+  --error: #dc2626;
+  --error-soft: #fce8e8;
+  --info: #2563eb;
+  --info-soft: #eaf1fd;
+
+  --acento: #1a1a2e;
+  --acento-soft: color-mix(in srgb, var(--acento) 12%, white);
+
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+}
 
 * { box-sizing: border-box; }
 
 body {
   margin: 0;
   font-family: -apple-system, 'Segoe UI', Roboto, sans-serif;
-  background: #f5f6fa;
-  color: #1a1a1a;
+  background: var(--bg);
+  color: var(--text);
 }
 
 /* ── Login ─────────────────────────────────────────────────────────────── */
@@ -57,55 +82,56 @@ body {
 }
 .login-tarjeta button:disabled { opacity: 0.6; cursor: default; }
 
-.login-error { color: #c0392b; font-size: 0.85rem; margin: -0.5rem 0 1rem; }
+.login-error { color: var(--error); font-size: 0.85rem; margin: -0.5rem 0 1rem; }
 
 /* ── Shell ─────────────────────────────────────────────────────────────── */
+/* Sidebar en Ink (marca fija, no cambia por empresa — Brand Guidelines V1.0) */
 
 .shell { display: flex; min-height: 100vh; }
 
 .shell-sidebar {
-  width: 220px;
-  background: var(--acento);
-  color: #fff;
-  padding: 1.5rem 0;
+  width: 236px;
+  flex-shrink: 0;
+  background: var(--ink);
+  color: #b9bec8;
+  padding: 2rem 1.4rem;
   display: flex;
   flex-direction: column;
 }
 
-.shell-logo { padding: 0 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 0.15rem; }
-.shell-logo-marca {
-  font-size: 1.35rem; font-weight: 800; letter-spacing: 0.01em; color: #fff;
-  position: relative;
-}
-/* Icono aprobado: punto acento sobre la "A" — no rediseñar (Fase Demo Tienda Soccer). */
-.shell-logo-marca::after {
-  content: ''; position: absolute; top: -0.15rem; right: -0.05rem;
-  width: 5px; height: 5px; border-radius: 50%; background: #2dd4bf;
-}
-.shell-logo-tagline { font-size: 0.68rem; color: #2dd4bf; font-weight: 500; }
+.shell-logo { padding: 0.2rem 0.1rem 2.6rem; display: flex; align-items: center; gap: 0.75rem; }
+.shell-logo-icono { width: 40px; height: 40px; border-radius: 11px; flex-shrink: 0; display: block; }
+.shell-logo-marca { font-size: 1.3rem; font-weight: 800; letter-spacing: -0.01em; color: #fff; line-height: 1.05; }
+.shell-logo-tagline { font-size: 0.68rem; color: var(--brand-teal); font-weight: 500; margin: 0.15rem 0 0; }
 
 .shell-nav-item {
-  display: block;
-  padding: 0.6rem 1.25rem;
-  color: #cfd2e3;
+  display: flex; align-items: center; gap: 0.7rem;
+  padding: 0.5rem 0.7rem;
+  color: #b9bec8;
   text-decoration: none;
   font-size: 0.9rem;
+  font-weight: 500;
+  border-left: 2px solid transparent;
+  margin-left: -0.15rem;
+  border-radius: 0 6px 6px 0;
+  transition: background 150ms, color 150ms;
 }
-.shell-nav-item.active { background: rgba(255,255,255,0.08); color: #fff; }
-.shell-nav-item--deshabilitado { color: #6a6d85; cursor: default; }
+.shell-nav-item:hover { background: rgba(255,255,255,0.06); color: #fff; }
+.shell-nav-item.active { background: rgba(255,255,255,0.06); color: #fff; border-left-color: var(--acento); font-weight: 650; }
+.shell-nav-item--deshabilitado { color: #565b66; cursor: default; }
 .shell-nav-item--deshabilitado small { display: block; font-size: 0.7rem; }
 
 .shell-contenido { flex: 1; display: flex; flex-direction: column; }
 
 .shell-header {
-  background: #fff;
+  background: var(--surface);
   padding: 1rem 1.5rem;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid #e5e5e5;
+  border-bottom: 1px solid var(--line);
 }
-.shell-rol { color: #888; font-size: 0.85rem; }
+.shell-rol { color: var(--text-secondary); font-size: 0.85rem; }
 .shell-usuario { display: flex; align-items: center; gap: 0.75rem; font-size: 0.9rem; }
 
 /* ── Selector de empresa activa (multi-empresa por usuario) ───────────── */
@@ -153,37 +179,32 @@ body {
 
 .pantalla-cargando { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
 
-.operaciones-nota { color: #888; font-size: 0.9rem; }
+.operaciones-nota { color: var(--text-secondary); font-size: 0.9rem; }
 
 /* ── Centro de Operaciones ─────────────────────────────────────────────── */
 
-/* TARA como protagonista: primero el saludo + qué encontró, las métricas
-   quedan de respaldo más abajo (ver Operaciones.jsx). */
-.tara-hero { margin: 0 0 1.75rem; max-width: 640px; }
-.tara-hero-saludo { margin: 0 0 0.35rem; font-size: 1.5rem; font-weight: 700; color: #1a1a1a; }
-.tara-hero-resumen { margin: 0; font-size: 1.1rem; line-height: 1.5; color: #333; }
-
-.alertas-titulo--secundario { color: #888; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; margin-top: 2rem; }
-
-.metricas-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 1rem;
-  margin: 1.5rem 0;
+/* TARA como protagonista: primero el saludo + cuántas prioridades
+   encontró, las métricas quedan de respaldo más abajo (Operaciones.jsx). */
+.tara-hero { margin: 0 0 2rem; max-width: 640px; }
+.tara-hero-tagline { font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-secondary); font-weight: 600; margin: 0 0 0.9rem; }
+.tara-hero-saludo { margin: 0 0 0.5rem; font-size: 1.7rem; font-weight: 700; color: var(--ink); letter-spacing: -0.01em; }
+.tara-hero-encontre { display: flex; align-items: center; gap: 0.5rem; margin: 0; font-size: 1.05rem; color: var(--text-secondary); }
+.tara-hero-pulso { width: 8px; height: 8px; border-radius: 50%; background: var(--acento); flex-shrink: 0; animation: tara-pulso 2s infinite; }
+@keyframes tara-pulso {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--acento) 45%, transparent); }
+  70%  { box-shadow: 0 0 0 7px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
 }
+@media (prefers-reduced-motion: reduce) { .tara-hero-pulso { animation: none; } }
 
-.metrica-tarjeta {
-  background: #fff;
-  border-radius: 10px;
-  padding: 1.25rem;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
+.alertas-titulo--secundario { color: var(--text-secondary); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 2.5rem; font-weight: 650; }
 
-.metrica-valor { font-size: 1.8rem; font-weight: 700; color: var(--acento); }
-.metrica-etiqueta { font-size: 0.85rem; color: #666; }
+/* KPIs estilo Stripe: números, no widgets — sin tarjeta ni sombra. */
+.kpi-strip { display: flex; flex-wrap: wrap; margin: 1.1rem 0 2rem; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.kpi { flex: 1; min-width: 120px; padding: 1.4rem 1.1rem; position: relative; }
+.kpi:not(:last-child)::after { content: ''; position: absolute; right: 0; top: 22%; bottom: 22%; width: 1px; background: var(--line); }
+.kpi-valor { font-family: var(--font-mono); font-size: 1.9rem; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--ink); }
+.kpi-etiqueta { font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.3rem; }
 
 .alertas-titulo { font-size: 1.1rem; margin: 1.5rem 0 0.75rem; }
 
@@ -193,52 +214,73 @@ body {
   padding: 0.75rem 1rem;
   border-radius: 8px;
   font-size: 0.9rem;
-  background: #fff7e6;
-  border: 1px solid #f0c36d;
-  color: #7a5b00;
+  background: var(--warning-soft);
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, white);
+  color: color-mix(in srgb, var(--warning) 70%, black);
 }
 
-.alerta--error_tecnico { background: #fdecea; border-color: #e0a3a0; color: #a03a34; }
+.alerta--error_tecnico { background: var(--error-soft); border-color: color-mix(in srgb, var(--error) 35%, white); color: var(--error); }
 
 /* ── Recomendaciones de TARA + Pregúntale a TARA (Fase Demo · Tienda Soccer) ── */
+/* Jerarquía visual por severidad — no todas las recomendaciones pesan igual. */
 
-.recomendaciones-lista { list-style: none; padding: 0; margin: 0 0 1rem; display: flex; flex-direction: column; gap: 0.6rem; }
-.recomendacion-tarjeta {
-  display: flex; justify-content: space-between; align-items: center; gap: 1rem;
-  background: #fff; border-radius: 10px; padding: 0.9rem 1.1rem;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06); border-left: 3px solid var(--acento);
-}
-.recomendacion-tarjeta p { margin: 0.2rem 0 0; }
+.recomendaciones-lista { list-style: none; padding: 0; margin: 0 0 1.5rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.recomendacion-tarjeta { display: flex; align-items: flex-start; gap: 0.7rem; padding: 0.85rem 0.9rem; border-radius: 10px; }
+.recomendacion-punto { width: 8px; height: 8px; border-radius: 50%; margin-top: 0.45rem; flex-shrink: 0; }
+.recomendacion-cuerpo { flex: 1; }
+.recomendacion-texto { margin: 0; }
+.recomendacion-detalle { margin: 0.2rem 0 0; font-size: 0.82rem; color: var(--text-secondary); }
 .recomendacion-accion {
-  flex-shrink: 0; padding: 0.45rem 0.9rem; border-radius: 6px; font-size: 0.85rem;
-  background: var(--acento); color: #fff; text-decoration: none; white-space: nowrap;
+  flex-shrink: 0; padding: 0.45rem 0.9rem; border-radius: 999px; font-size: 0.82rem; font-weight: 650;
+  text-decoration: none; white-space: nowrap;
 }
 
-.pregunta-tara-caja {
-  background: #fff; border-radius: 10px; padding: 1.1rem;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+.recomendacion-tarjeta--critica { background: var(--error-soft); }
+.recomendacion-tarjeta--critica .recomendacion-punto { background: var(--error); }
+.recomendacion-tarjeta--critica .recomendacion-texto { font-weight: 700; }
+.recomendacion-tarjeta--critica .recomendacion-accion { background: var(--error); color: #fff; }
+
+.recomendacion-tarjeta--media { background: var(--warning-soft); }
+.recomendacion-tarjeta--media .recomendacion-punto { background: var(--warning); }
+.recomendacion-tarjeta--media .recomendacion-texto { font-weight: 600; }
+.recomendacion-tarjeta--media .recomendacion-accion { background: transparent; border: 1px solid var(--warning); color: color-mix(in srgb, var(--warning) 70%, black); }
+
+.recomendacion-tarjeta--info { background: transparent; border: 1px solid var(--line); }
+.recomendacion-tarjeta--info .recomendacion-punto { background: var(--info); }
+.recomendacion-tarjeta--info .recomendacion-texto { font-weight: 500; color: var(--text-secondary); }
+.recomendacion-tarjeta--info .recomendacion-accion { background: transparent; color: var(--text-secondary); }
+
+.pregunta-tara-caja { background: var(--acento-soft); border-radius: 20px; padding: 0.5rem; margin-bottom: 2rem; }
+.pregunta-tara-input {
+  background: var(--surface); border-radius: 16px; padding: 1rem 1.2rem;
+  display: flex; align-items: center; gap: 0.8rem; box-shadow: 0 1px 2px rgba(0,0,0,0.03);
 }
-.pregunta-tara-etiqueta { margin: 0 0 0.7rem; font-size: 0.85rem; font-weight: 600; color: #666; }
-.pregunta-tara-sugerencias { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.pregunta-tara-input input { flex: 1; border: none; outline: none; font-size: 1rem; font-family: inherit; background: transparent; color: var(--text); }
+.pregunta-tara-input input::placeholder { color: var(--text-secondary); }
+.pregunta-tara-enviar {
+  width: 32px; height: 32px; border-radius: 10px; background: var(--acento);
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.pregunta-tara-sugerencias { display: flex; flex-wrap: wrap; gap: 0.4rem; padding: 0.8rem 0.5rem 0.3rem; }
 .pregunta-tara-chip {
-  border: 1px solid #e2e2e2; background: #f7f7f8; border-radius: 999px;
-  padding: 0.5rem 0.9rem; font-size: 0.85rem; cursor: pointer; color: #333;
+  border: 1px solid transparent; background: transparent; border-radius: 999px;
+  padding: 0.32rem 0.7rem; font-size: 0.78rem; cursor: pointer; color: var(--text-secondary);
 }
-.pregunta-tara-chip:hover { background: #eef0f7; }
+.pregunta-tara-chip:hover { background: var(--surface); }
 .pregunta-tara-respuesta {
-  margin: 1rem 0 0; padding: 0.9rem 1rem; border-radius: 8px;
-  background: #f7f7f8; border-left: 3px solid var(--acento); font-size: 0.9rem;
+  margin: 0 0.5rem 0.6rem; padding: 0.9rem 1rem; border-radius: 12px;
+  background: var(--surface); font-size: 0.9rem; color: var(--text-secondary); line-height: 1.55;
 }
 
 .actividad-reciente-lista { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.4rem; }
 .actividad-item {
   padding: 0.6rem 1rem; border-radius: 8px; font-size: 0.85rem;
-  background: #fff; border: 1px solid #eee;
+  background: var(--surface); border: 1px solid var(--line);
 }
 .actividad-item a { color: var(--acento); text-decoration: none; }
 .actividad-item a:hover { text-decoration: underline; }
-.actividad-item--cliente_nuevo { border-left: 3px solid #4a90d9; }
-.actividad-item--mensaje_sin_responder { border-left: 3px solid #d9954a; }
+.actividad-item--cliente_nuevo { border-left: 3px solid var(--info); }
+.actividad-item--mensaje_sin_responder { border-left: 3px solid var(--warning); }
 .actividad-item--cita_sin_confirmar { border-left: 3px solid #a04ad9; }
 
 /* ── Conversaciones ────────────────────────────────────────────────────── */
@@ -397,6 +439,48 @@ body {
 .modal-acciones button[type="submit"] { border: none; background: var(--acento); color: #fff; }
 .modal-acciones button[type="button"] { border: 1px solid #ddd; background: #fff; }
 
+/* ── Clientes (Fase Premium V1.1) ──────────────────────────────────────── */
+/* Cada fila cuenta una historia: nombre, última actividad, monto, próxima
+   acción y estado — no solo nombre/teléfono. */
+
+.clientes-header {
+  display: grid; grid-template-columns: 2.4rem 1.4fr 1fr 0.9fr 1.3fr auto; gap: 1rem;
+  padding: 0 0.4rem 0.6rem; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-secondary); border-bottom: 1px solid var(--line); margin-top: 1.25rem;
+}
+.clientes-header span:first-child { grid-column: 1 / span 2; }
+.clientes-lista { display: flex; flex-direction: column; }
+.cliente-fila {
+  display: grid; grid-template-columns: 2.4rem 1.4fr 1fr 0.9fr 1.3fr auto;
+  align-items: center; gap: 1rem; padding: 0.9rem 0.4rem;
+  border-bottom: 1px solid var(--line); text-decoration: none; color: inherit;
+}
+.cliente-fila:last-child { border-bottom: none; }
+.cliente-fila:hover { background: var(--tint); }
+
+.cliente-logo {
+  width: 2.4rem; height: 2.4rem; border-radius: 10px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; object-fit: cover;
+}
+.cliente-logo--iniciales { color: #fff; font-weight: 700; font-size: 0.78rem; }
+
+.cliente-fila-nombre { display: flex; flex-direction: column; }
+.cliente-fila-detalle { font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.1rem; }
+.cliente-fila-actividad { font-size: 0.85rem; color: var(--text); }
+.cliente-fila-monto { font-family: var(--font-mono); font-size: 0.9rem; }
+.cliente-fila-accion { font-size: 0.85rem; color: var(--text-secondary); }
+
+.pill { display: inline-block; font-size: 0.74rem; padding: 0.25rem 0.6rem; border-radius: 999px; font-weight: 600; justify-self: start; white-space: nowrap; }
+.pill--success  { background: var(--success-soft); color: var(--success); }
+.pill--warning  { background: var(--warning-soft); color: color-mix(in srgb, var(--warning) 70%, black); }
+.pill--error    { background: var(--error-soft); color: var(--error); }
+.pill--neutral  { background: var(--tint); color: var(--text-secondary); }
+
+@media (max-width: 760px) {
+  .cliente-fila { grid-template-columns: 2.4rem 1fr auto; }
+  .cliente-fila-actividad, .cliente-fila-monto, .cliente-fila-accion { display: none; }
+}
+
 /* ── CRM ───────────────────────────────────────────────────────────────── */
 
 .crm-seccion {
@@ -461,6 +545,26 @@ body {
 }
 .crm-pipeline-tarjeta p { margin: 0.3rem 0 0; color: #555; }
 .crm-pipeline-presupuesto { color: #226a34 !important; font-weight: 600; }
+
+/* ── Catálogo (Fase Premium V1.1) ──────────────────────────────────────── */
+
+.catalogo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 1.1rem; margin-top: 1.25rem; }
+.producto-tarjeta { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--surface); }
+.producto-tarjeta-imagen {
+  aspect-ratio: 4 / 3; background: var(--tint); display: flex; align-items: center; justify-content: center;
+  font-size: 1.8rem; border-bottom: 1px solid var(--line);
+}
+.producto-tarjeta-cuerpo { padding: 0.85rem 0.95rem 1rem; }
+.producto-tarjeta-nombre { margin: 0 0 0.6rem; font-weight: 600; font-size: 0.92rem; }
+.producto-tarjeta-pie { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem; }
+.producto-tarjeta-precio { font-family: var(--font-mono); font-weight: 600; font-size: 0.92rem; }
+.producto-tarjeta-estado { font-size: 0.72rem; color: var(--success); font-weight: 600; }
+.producto-tarjeta-estado--inactivo { color: var(--text-secondary); }
+.producto-tarjeta-acciones { display: flex; gap: 0.4rem; }
+.producto-tarjeta-acciones button {
+  flex: 1; padding: 0.35rem 0.5rem; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--surface); cursor: pointer; font-size: 0.76rem; color: var(--text-secondary);
+}
 
 /* ── Configuración (Fase 6) ────────────────────────────────────────────── */
 

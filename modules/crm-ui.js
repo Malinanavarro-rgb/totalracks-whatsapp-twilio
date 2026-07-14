@@ -44,7 +44,7 @@ const CAMPOS_OPORTUNIDAD = [
 async function listarClientes(supabase, company_id, usuario, filtros = {}) {
   let query = supabase
     .from('clientes')
-    .select('id, nombre, telefono, empresa, ciudad, estado, atendido_por, asesor_id, score_interes')
+    .select('id, nombre, telefono, empresa, ciudad, estado, atendido_por, asesor_id, score_interes, logo_url')
     .eq('company_id', company_id);
 
   if (!ROLES_GERENCIALES.includes(usuario.rol)) {
@@ -62,7 +62,44 @@ async function listarClientes(supabase, company_id, usuario, filtros = {}) {
   }
 
   const { data, error } = await query.order('id', { ascending: false });
-  return error ? [] : (data || []);
+  if (error || !data || data.length === 0) return error ? [] : (data || []);
+
+  return _adjuntarUltimaOportunidad(supabase, company_id, data);
+}
+
+/**
+ * Pivote a producto, Fase Premium V1.1: "cada cliente debe contar una
+ * historia" — la lista deja de mostrar solo nombre/teléfono y adjunta la
+ * oportunidad más reciente de cada cliente (estado, monto, próxima acción,
+ * última actividad). Una sola consulta adicional agrupada por cliente_id,
+ * no N+1 — mismo patrón que obtenerActividadReciente().
+ */
+async function _adjuntarUltimaOportunidad(supabase, company_id, clientes) {
+  const ids = clientes.map(c => c.id);
+  const { data: oportunidades } = await supabase
+    .from('oportunidades')
+    .select('cliente_id, estado, presupuesto_confirmado, presupuesto_estimado, proxima_accion, updated_at')
+    .eq('company_id', company_id)
+    .in('cliente_id', ids)
+    .order('updated_at', { ascending: false });
+
+  const masReciente = new Map();
+  for (const op of oportunidades || []) {
+    if (!masReciente.has(op.cliente_id)) masReciente.set(op.cliente_id, op);
+  }
+
+  return clientes.map(c => {
+    const op = masReciente.get(c.id);
+    return {
+      ...c,
+      ultima_oportunidad: op ? {
+        estado: op.estado,
+        monto: op.presupuesto_confirmado ?? op.presupuesto_estimado ?? null,
+        proxima_accion: op.proxima_accion,
+        actualizado: op.updated_at,
+      } : null,
+    };
+  });
 }
 
 /**

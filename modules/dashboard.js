@@ -202,28 +202,31 @@ async function _obtenerRecomendacionesUniformesDeportivos(supabase, company_id, 
 
   for (const op of estancadas.data || []) {
     recos.push({
-      texto:    `${op.clientes?.nombre || 'Un cliente'} lleva más de 48 horas sin seguimiento.`,
-      detalle:  'Cotización enviada sin respuesta.',
-      accion:   'Dar seguimiento ahora',
-      recurso:  `/crm/clientes/${op.cliente_id}`,
+      texto:     `${op.clientes?.nombre || 'Un cliente'} lleva más de 48 horas sin seguimiento.`,
+      detalle:   'Cotización enviada sin respuesta.',
+      accion:    'Dar seguimiento ahora',
+      recurso:   `/crm/clientes/${op.cliente_id}`,
+      severidad: 'critica',
     });
   }
 
   for (const op of enPreparacion.data || []) {
     recos.push({
-      texto:    `Confirma tallas de ${op.clientes?.nombre || 'este pedido'} antes de enviarlo a producción.`,
-      detalle:  'Cotización en preparación.',
-      accion:   'Ver detalle',
-      recurso:  `/crm/clientes/${op.cliente_id}`,
+      texto:     `Confirma tallas de ${op.clientes?.nombre || 'este pedido'} antes de enviarlo a producción.`,
+      detalle:   'Cotización en preparación.',
+      accion:    'Ver detalle',
+      recurso:   `/crm/clientes/${op.cliente_id}`,
+      severidad: 'media',
     });
   }
 
   for (const op of listas.data || []) {
     recos.push({
-      texto:    `El pedido de ${op.clientes?.nombre || 'un cliente'} está listo para entrega.`,
-      detalle:  'Listo para entrega.',
-      accion:   'Ver pedido',
-      recurso:  `/crm/clientes/${op.cliente_id}`,
+      texto:     `El pedido de ${op.clientes?.nombre || 'un cliente'} está listo para entrega.`,
+      detalle:   'Listo para entrega.',
+      accion:    'Ver pedido',
+      recurso:   `/crm/clientes/${op.cliente_id}`,
+      severidad: 'info',
     });
   }
 

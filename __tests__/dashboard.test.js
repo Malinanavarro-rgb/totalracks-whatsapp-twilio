@@ -215,6 +215,27 @@ describe('dashboard.obtenerMetricasUniformesDeportivos()', () => {
       detalle: 'Cotización enviada sin respuesta.',
       accion: 'Dar seguimiento ahora',
       recurso: '/crm/clientes/10',
+      severidad: 'critica',
+    }]);
+  });
+
+  test('genera una recomendación media por cada oportunidad en Cotización en preparación', async () => {
+    const db = crearMockDb(
+      { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null },
+      { data: [], error: null },
+      { data: [], error: null },
+      { data: [{ id: 3, cliente_id: 12, clientes: { nombre: 'Prepa Tec' } }], error: null },
+      { data: [], error: null },
+    );
+
+    const metricas = await obtenerMetricasUniformesDeportivos(db, COMPANY_A);
+
+    expect(metricas.recomendaciones).toEqual([{
+      texto: 'Confirma tallas de Prepa Tec antes de enviarlo a producción.',
+      detalle: 'Cotización en preparación.',
+      accion: 'Ver detalle',
+      recurso: '/crm/clientes/12',
+      severidad: 'media',
     }]);
   });
 
@@ -234,6 +255,7 @@ describe('dashboard.obtenerMetricasUniformesDeportivos()', () => {
       detalle: 'Listo para entrega.',
       accion: 'Ver pedido',
       recurso: '/crm/clientes/11',
+      severidad: 'info',
     }]);
   });
 

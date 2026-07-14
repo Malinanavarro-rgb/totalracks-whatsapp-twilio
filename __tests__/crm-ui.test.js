@@ -23,6 +23,7 @@ function crearBuilder(resultado = { data: null, error: null }) {
     eq:          jest.fn().mockReturnThis(),
     or:          jest.fn().mockReturnThis(),
     gte:         jest.fn().mockReturnThis(),
+    in:          jest.fn().mockReturnThis(),
     order:       jest.fn().mockReturnThis(),
     single:      jest.fn().mockResolvedValue(resultado),
     maybeSingle: jest.fn().mockResolvedValue(resultado),
@@ -92,6 +93,34 @@ describe('crm-ui', () => {
       const builder = db.from.mock.results[0].value;
       expect(builder.gte).not.toHaveBeenCalled();
       expect(builder.or).not.toHaveBeenCalled();
+    });
+
+    test('Fase Premium V1.1: adjunta la oportunidad más reciente de cada cliente', async () => {
+      const db = crearMockDb(
+        { data: [{ id: 1, nombre: 'Rayados FC' }, { id: 2, nombre: 'Colegio Oxford' }], error: null },
+        {
+          data: [
+            { cliente_id: 1, estado: 'Cotización enviada', presupuesto_confirmado: null, presupuesto_estimado: 62000, proxima_accion: 'Dar seguimiento', updated_at: '2026-07-11T00:00:00Z' },
+            { cliente_id: 1, estado: 'Solicitud nueva', presupuesto_confirmado: null, presupuesto_estimado: 1000, proxima_accion: null, updated_at: '2026-07-01T00:00:00Z' },
+          ],
+          error: null,
+        },
+      );
+
+      const resultado = await listarClientes(db, COMPANY_A, USUARIO_OWNER);
+
+      expect(resultado[0].ultima_oportunidad).toEqual({
+        estado: 'Cotización enviada', monto: 62000, proxima_accion: 'Dar seguimiento', actualizado: '2026-07-11T00:00:00Z',
+      });
+      expect(resultado[1].ultima_oportunidad).toBeNull();
+    });
+
+    test('lista vacía no dispara la consulta de oportunidades', async () => {
+      const db = crearMockDb({ data: [], error: null });
+      const resultado = await listarClientes(db, COMPANY_A, USUARIO_OWNER);
+
+      expect(resultado).toEqual([]);
+      expect(db.from).toHaveBeenCalledTimes(1);
     });
   });
 

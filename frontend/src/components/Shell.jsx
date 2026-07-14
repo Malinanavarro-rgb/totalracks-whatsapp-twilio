@@ -3,17 +3,39 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../lib/api';
 import { iniciales, colorDesdeTexto } from '../lib/avatar';
+import taraIcono from '../assets/tara-icon.png';
+
+// Íconos de línea, mismo trazo (stroke-width 1.6) para todo el menú —
+// Brand Guidelines V1.0: el menú existe para navegar, no para llamar la
+// atención, por eso son minimalistas y heredan color del texto del link.
+const ICONOS = {
+  inicio:        <path d="M4 11l8-7 8 7M6 10v10h12V10"/>,
+  conversaciones: <path d="M4 4h16v12H8l-4 4V4z"/>,
+  agenda:        <><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></>,
+  ventas:        <><path d="M20 12l-8 8-9-9V4h7l10 8z"/><circle cx="7.5" cy="7.5" r="1.2" fill="currentColor" stroke="none"/></>,
+  clientes:      <><circle cx="9" cy="8" r="3"/><path d="M2 20c0-4 3-6 7-6s7 2 7 6M16 8a3 3 0 100-6M17 14c3 0 5 2 5 6"/></>,
+  catalogo:      <path d="M3 8l9-5 9 5-9 5-9-5zm0 0v8l9 5 9-5V8"/>,
+  configuracion: <><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.2-1.6l2-1.5-2-3.4-2.3.9a7 7 0 00-2.7-1.6L13.4 2h-2.8l-.4 2.8a7 7 0 00-2.7 1.6l-2.3-.9-2 3.4 2 1.5A7 7 0 005 12c0 .5 0 1.1.2 1.6l-2 1.5 2 3.4 2.3-.9c.8.7 1.7 1.3 2.7 1.6l.4 2.8h2.8l.4-2.8c1-.3 1.9-.9 2.7-1.6l2.3.9 2-3.4-2-1.5c.1-.5.2-1 .2-1.6z"/></>,
+};
+
+function Icono({ nombre }) {
+  return (
+    <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.6">
+      {ICONOS[nombre]}
+    </svg>
+  );
+}
 
 // Los 7 módulos de la Plataforma SaaS (docs/roadmap — FASE 5). Solo
 // "Centro de Operaciones" está habilitado en Fase 1 — el resto se muestra
 // para no rediseñar la navegación en cada fase futura.
 const MODULOS = [
-  { ruta: '/operaciones',   etiqueta: 'Centro de Operaciones', habilitado: true },
-  { ruta: '/conversaciones', etiqueta: 'Conversaciones',        habilitado: true },
-  { ruta: '/agenda',         etiqueta: 'Agenda TARA',           habilitado: true },
-  { ruta: '/crm',            etiqueta: 'Ventas',                habilitado: true },
-  { ruta: '/configuracion',  etiqueta: 'Configuración',         habilitado: true },
-  { ruta: '/reportes',       etiqueta: 'Reportes',              habilitado: false },
+  { ruta: '/operaciones',   etiqueta: 'Centro de Operaciones', icono: 'inicio',         habilitado: true },
+  { ruta: '/conversaciones', etiqueta: 'Conversaciones',        icono: 'conversaciones', habilitado: true },
+  { ruta: '/agenda',         etiqueta: 'Agenda TARA',           icono: 'agenda',         habilitado: true },
+  { ruta: '/crm',            etiqueta: 'Ventas',                icono: 'ventas',         habilitado: true },
+  { ruta: '/configuracion',  etiqueta: 'Configuración',         icono: 'configuracion',  habilitado: true },
+  { ruta: '/reportes',       etiqueta: 'Reportes',              icono: 'catalogo',       habilitado: false },
 ];
 
 // Fase Demo · Tienda Soccer: esta industria vende por cotización (no agenda
@@ -22,12 +44,12 @@ const MODULOS = [
 // de una sola entrada "CRM". "Catálogo" reusa el CRUD de Servicios ya
 // existente en Configuración, solo con otra etiqueta/ruta en el menú.
 const MODULOS_UNIFORMES_DEPORTIVOS = [
-  { ruta: '/operaciones',    etiqueta: 'Inicio',         habilitado: true },
-  { ruta: '/conversaciones', etiqueta: 'Conversaciones', habilitado: true },
-  { ruta: '/crm/pipeline',   etiqueta: 'Ventas',         habilitado: true },
-  { ruta: '/crm',            etiqueta: 'Clientes',       habilitado: true },
-  { ruta: '/catalogo',       etiqueta: 'Catálogo',       habilitado: true },
-  { ruta: '/configuracion',  etiqueta: 'Configuración',  habilitado: true },
+  { ruta: '/operaciones',    etiqueta: 'Inicio',         icono: 'inicio',         habilitado: true },
+  { ruta: '/conversaciones', etiqueta: 'Conversaciones', icono: 'conversaciones', habilitado: true },
+  { ruta: '/crm/pipeline',   etiqueta: 'Ventas',         icono: 'ventas',         habilitado: true },
+  { ruta: '/crm',            etiqueta: 'Clientes',       icono: 'clientes',       habilitado: true },
+  { ruta: '/catalogo',       etiqueta: 'Catálogo',       icono: 'catalogo',       habilitado: true },
+  { ruta: '/configuracion',  etiqueta: 'Configuración',  icono: 'configuracion',  habilitado: true },
 ];
 
 function modulosParaEmpresa(empresaActiva) {
@@ -44,17 +66,22 @@ export default function Shell() {
     <div className="shell" style={{ '--acento': sesion?.empresaActiva?.color_acento || '#1a1a2e' }}>
       <aside className="shell-sidebar">
         <div className="shell-logo">
-          <span className="shell-logo-marca">TARA</span>
-          <span className="shell-logo-tagline">Business, made easy.</span>
+          <img className="shell-logo-icono" src={taraIcono} alt="TARA" />
+          <div>
+            <div className="shell-logo-marca">TARA</div>
+            <p className="shell-logo-tagline">Business, made easy.</p>
+          </div>
         </div>
         <nav>
           {modulos.map(m => (
             m.habilitado ? (
               <NavLink key={m.ruta} to={m.ruta} className="shell-nav-item">
+                <Icono nombre={m.icono} />
                 {m.etiqueta}
               </NavLink>
             ) : (
               <span key={m.ruta} className="shell-nav-item shell-nav-item--deshabilitado">
+                <Icono nombre={m.icono} />
                 {m.etiqueta} <small>próximamente</small>
               </span>
             )

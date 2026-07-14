@@ -45,27 +45,33 @@ function saludoPorHora() {
   return 'Buenas noches';
 }
 
-// TARA siempre habla en primera persona ("Encontré/Revisé"), nunca como
-// "el sistema" — mismo criterio ya definido para el resto del producto.
-function resumenTara(metricas, empresa, esUniformesDeportivos) {
-  if (esUniformesDeportivos) {
-    const recos = metricas.recomendaciones || [];
-    if (recos.length === 0) return `Ya revisé ${empresa} y no encontré pendientes urgentes — todo está al día.`;
-    if (recos.length === 1) return `Ya revisé ${empresa}. Encontré algo que necesita tu atención: ${recos[0].texto}`;
-    return `Ya revisé ${empresa}. Encontré ${recos.length} cosas que necesitan tu atención: ${recos.map(r => r.texto).join(' ')}`;
-  }
-  const alertas = metricas.alertas || [];
-  if (alertas.length === 0) return `Ya revisé ${empresa} y no encontré pendientes urgentes — todo está en orden.`;
-  return `Ya revisé ${empresa}. Encontré ${alertas.length} alerta${alertas.length > 1 ? 's' : ''} que requiere${alertas.length > 1 ? 'n' : ''} tu atención.`;
+// El ícono "A" del isotipo — reutilizado como botón de envío de Pregúntale
+// a TARA (Brand Guidelines V1.0: "eso hace marca", en vez de una flecha genérica).
+function IconoA() {
+  return (
+    <svg viewBox="0 0 100 100" fill="none" width="15" height="15">
+      <path d="M50 16 L80 82 M50 16 L20 82" stroke="#fff" strokeWidth="15" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="50" cy="68" r="10" fill="#22c7b8" />
+    </svg>
+  );
+}
+
+// Filosofía del hero (pedido explícito): "Buenos días, Luis. Encontré 4
+// prioridades para hoy. Nada más." — un conteo, no un párrafo. El detalle
+// de cada prioridad vive únicamente en las tarjetas de recomendación.
+function contarPrioridades(metricas, esUniformesDeportivos) {
+  return esUniformesDeportivos
+    ? (metricas.recomendaciones || []).length
+    : (metricas.alertas || []).length;
 }
 
 // Fase 2: Centro de Operaciones real. Sin lógica de negocio aquí — solo
 // pide /api/dashboard y pinta lo que regresa el backend (modules/dashboard.js).
 //
 // Orden de la pantalla (pedido explícito del producto): primero TARA habla
-// — saludo + qué encontró y qué recomienda —, después las acciones
-// sugeridas, y solo al final las métricas como respaldo. El valor no son
-// los KPIs; es que TARA entiende el negocio y dice qué hacer.
+// — saludo + cuántas prioridades encontró —, después las recomendaciones y
+// Pregúntale a TARA, y solo al final las métricas como respaldo. El valor
+// no son los KPIs; es que TARA entiende el negocio y dice qué hacer.
 export default function Operaciones() {
   const { sesion } = useAuth();
   const [metricas, setMetricas] = useState(null);
@@ -93,20 +99,27 @@ export default function Operaciones() {
 
       {metricas && (
         <>
-          <div className="tara-hero">
-            <p className="tara-hero-saludo">{saludoPorHora()}{nombreUsuario ? `, ${nombreUsuario}` : ''}.</p>
-            <p className="tara-hero-resumen">{resumenTara(metricas, empresa, esUniformesDeportivos)}</p>
-          </div>
+          <section className="tara-hero">
+            <p className="tara-hero-tagline">Powered by TARA AI</p>
+            <h1 className="tara-hero-saludo">{saludoPorHora()}{nombreUsuario ? `, ${nombreUsuario}` : ''}.</h1>
+            <p className="tara-hero-encontre">
+              <span className="tara-hero-pulso"></span>
+              {contarPrioridades(metricas, esUniformesDeportivos) === 0
+                ? `No encontré pendientes urgentes en ${empresa}.`
+                : `Encontré ${contarPrioridades(metricas, esUniformesDeportivos)} prioridades para hoy en ${empresa}.`}
+            </p>
+          </section>
 
           {esUniformesDeportivos && (
             <>
               {metricas.recomendaciones && metricas.recomendaciones.length > 0 && (
                 <ul className="recomendaciones-lista">
                   {metricas.recomendaciones.map((r, i) => (
-                    <li key={i} className="recomendacion-tarjeta">
-                      <div>
-                        <strong>{r.texto}</strong>
-                        <p className="operaciones-nota">{r.detalle}</p>
+                    <li key={i} className={`recomendacion-tarjeta recomendacion-tarjeta--${r.severidad || 'info'}`}>
+                      <span className="recomendacion-punto"></span>
+                      <div className="recomendacion-cuerpo">
+                        <p className="recomendacion-texto">{r.texto}</p>
+                        <p className="recomendacion-detalle">{r.detalle}</p>
                       </div>
                       <Link to={r.recurso} className="recomendacion-accion">{r.accion}</Link>
                     </li>
@@ -115,7 +128,10 @@ export default function Operaciones() {
               )}
 
               <div className="pregunta-tara-caja">
-                <p className="pregunta-tara-etiqueta">Pregúntale a TARA</p>
+                <div className="pregunta-tara-input">
+                  <input type="text" readOnly placeholder="¿Qué quieres saber?" />
+                  <span className="pregunta-tara-enviar"><IconoA /></span>
+                </div>
                 <div className="pregunta-tara-sugerencias">
                   {PREGUNTAS_UNIFORMES_DEPORTIVOS.map((p) => (
                     <button key={p} className="pregunta-tara-chip" onClick={() => setPreguntaActiva(p)}>
@@ -133,9 +149,12 @@ export default function Operaciones() {
           )}
 
           <h2 className="alertas-titulo alertas-titulo--secundario">Métricas</h2>
-          <div className="metricas-grid">
+          <div className="kpi-strip">
             {(metricas.kpis || []).map((k, i) => (
-              <TarjetaMetrica key={i} etiqueta={k.etiqueta} valor={k.valor} />
+              <div className="kpi" key={i}>
+                <div className="kpi-valor">{k.valor ?? '—'}</div>
+                <div className="kpi-etiqueta">{k.etiqueta}</div>
+              </div>
             ))}
           </div>
 
@@ -168,15 +187,6 @@ export default function Operaciones() {
           )}
         </>
       )}
-    </div>
-  );
-}
-
-function TarjetaMetrica({ etiqueta, valor }) {
-  return (
-    <div className="metrica-tarjeta">
-      <span className="metrica-valor">{valor ?? '—'}</span>
-      <span className="metrica-etiqueta">{etiqueta}</span>
     </div>
   );
 }
