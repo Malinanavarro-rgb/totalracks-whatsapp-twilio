@@ -14,28 +14,32 @@ const PREGUNTAS_UNIFORMES_DEPORTIVOS = [
   '¿Qué clientes llevan más de 48 horas sin responder?',
 ];
 
-function responderPregunta(pregunta, metricas) {
+// Match por palabras clave (no un backend de IA en vivo) — permite escribir
+// libremente en vez de solo elegir de las 4 sugeridas, reusando los mismos
+// datos reales del dashboard. Si no reconoce el tema, lo dice honestamente
+// en vez de inventar una respuesta.
+function responderPregunta(texto, metricas) {
+  const t = (texto || '').toLowerCase();
   const seguimiento = metricas.recomendaciones.filter(r => r.accion === 'Dar seguimiento ahora');
   const entregas = metricas.recomendaciones.filter(r => r.accion === 'Ver pedido');
   const cotizaciones = metricas.kpis.find(k => k.etiqueta === 'Cotizaciones enviadas');
 
-  switch (pregunta) {
-    case '¿Qué clientes necesitan seguimiento?':
-    case '¿Qué clientes llevan más de 48 horas sin responder?':
-      return seguimiento.length === 0
-        ? 'Ningún cliente lleva más de 48 horas sin seguimiento en este momento.'
-        : `${seguimiento.map(r => r.texto).join(' ')}`;
-    case '¿Cuántas cotizaciones llevo esta semana?':
-      return cotizaciones
-        ? `Llevas ${cotizaciones.valor} cotizaciones enviadas activas en este momento.`
-        : 'No encontré cotizaciones enviadas en este momento.';
-    case '¿Qué pedidos debo entregar hoy?':
-      return entregas.length === 0
-        ? 'No tienes pedidos marcados como listos para entrega en este momento.'
-        : `${entregas.map(r => r.texto).join(' ')}`;
-    default:
-      return null;
+  if (t.includes('seguimiento') || t.includes('48') || t.includes('respond')) {
+    return seguimiento.length === 0
+      ? 'Ningún cliente lleva más de 48 horas sin seguimiento en este momento.'
+      : seguimiento.map(r => r.texto).join(' ');
   }
+  if (t.includes('cotiza')) {
+    return cotizaciones
+      ? `Llevas ${cotizaciones.valor} cotizaciones enviadas activas en este momento.`
+      : 'No encontré cotizaciones enviadas en este momento.';
+  }
+  if (t.includes('entreg') || t.includes('pedido')) {
+    return entregas.length === 0
+      ? 'No tienes pedidos marcados como listos para entrega en este momento.'
+      : entregas.map(r => r.texto).join(' ');
+  }
+  return 'Por ahora solo puedo responder sobre seguimiento de clientes, cotizaciones y entregas — prueba con una de las preguntas sugeridas abajo.';
 }
 
 function saludoPorHora() {
@@ -77,7 +81,19 @@ export default function Operaciones() {
   const [metricas, setMetricas] = useState(null);
   const [error, setError] = useState(null);
   const [cargando, setCargando] = useState(true);
+  const [preguntaInput, setPreguntaInput] = useState('');
   const [preguntaActiva, setPreguntaActiva] = useState(null);
+
+  function enviarPregunta(e) {
+    e.preventDefault();
+    if (!preguntaInput.trim()) return;
+    setPreguntaActiva(preguntaInput.trim());
+  }
+
+  function elegirSugerencia(p) {
+    setPreguntaInput(p);
+    setPreguntaActiva(p);
+  }
 
   const esUniformesDeportivos = sesion?.empresaActiva?.industria_slug === 'uniformes_deportivos';
   const empresa = sesion?.empresaActiva?.nombre || 'tu empresa';
@@ -114,13 +130,16 @@ export default function Operaciones() {
 
           {esUniformesDeportivos && (
             <div className="pregunta-tara-caja">
-              <div className="pregunta-tara-input">
-                <input type="text" readOnly placeholder="¿Qué quieres saber?" />
-                <span className="pregunta-tara-enviar"><IconoA /></span>
-              </div>
+              <form className="pregunta-tara-input" onSubmit={enviarPregunta}>
+                <input
+                  type="text" value={preguntaInput} placeholder="¿Qué quieres saber?"
+                  onChange={(e) => setPreguntaInput(e.target.value)}
+                />
+                <button type="submit" className="pregunta-tara-enviar"><IconoA /></button>
+              </form>
               <div className="pregunta-tara-sugerencias">
                 {PREGUNTAS_UNIFORMES_DEPORTIVOS.map((p) => (
-                  <button key={p} className="pregunta-tara-chip" onClick={() => setPreguntaActiva(p)}>
+                  <button key={p} className="pregunta-tara-chip" onClick={() => elegirSugerencia(p)}>
                     {p}
                   </button>
                 ))}

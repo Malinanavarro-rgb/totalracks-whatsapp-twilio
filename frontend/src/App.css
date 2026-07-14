@@ -271,7 +271,7 @@ body {
 .pregunta-tara-input input { flex: 1; border: none; outline: none; font-size: 1rem; font-family: inherit; background: transparent; color: var(--text); }
 .pregunta-tara-input input::placeholder { color: var(--text-secondary); }
 .pregunta-tara-enviar {
-  width: 32px; height: 32px; border-radius: 10px; background: var(--acento);
+  width: 32px; height: 32px; border-radius: 10px; background: var(--acento); border: none; cursor: pointer;
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
 .pregunta-tara-sugerencias { display: flex; flex-wrap: wrap; gap: 0.4rem; padding: 0.8rem 0.5rem 0.3rem; }
