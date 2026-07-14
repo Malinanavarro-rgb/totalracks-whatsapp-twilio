@@ -55,6 +55,7 @@ const {
   listarNodos, crearNodo, actualizarNodo, eliminarNodo,
 }                                        = require('./modules/workflow-admin');
 const { responderSobreCliente }         = require('./modules/asistente-consultas');
+const { calcularCotizacion }             = require('./modules/cotizador');
 
 const app           = express();
 const adapter       = new TwilioWhatsAppAdapter(twilioClient);
@@ -197,10 +198,62 @@ async function procesarMensajeEntrante(message, enviar) {
     }
   }
 
+  // Fase Demo Comercial: cotización automática — si el intake de la
+  // industria acaba de completarse (workflow_sessions.status='completado')
+  // y la oportunidad todavía no tiene un monto real, se calcula con los
+  // precios del Catálogo (modules/cotizador.js) y se agrega a esta misma
+  // respuesta. presupuesto_confirmado ya asignado es la señal de "ya se
+  // cotizó" — evita recalcular/reenviar en turnos siguientes. También
+  // avanza la etapa a "Cotización enviada" cuando existe esa etapa
+  // configurada, en vez de quedarse en la etapa inicial genérica.
+  let textoCotizacion = '';
+  try {
+    const { data: sesion } = await supabaseServicio
+      .from('workflow_sessions')
+      .select('status, captured_fields')
+      .eq('cliente_id', cliente.id)
+      .eq('company_id', message.company_id)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (sesion?.status === 'completado') {
+      const { data: oportunidad } = await supabaseServicio
+        .from('oportunidades')
+        .select('id, presupuesto_confirmado')
+        .eq('cliente_id', cliente.id)
+        .eq('company_id', message.company_id)
+        .neq('estado', 'Perdido')
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (oportunidad && oportunidad.presupuesto_confirmado == null) {
+        const cotizacion = await calcularCotizacion(supabaseServicio, message.company_id, sesion.captured_fields);
+        if (cotizacion) {
+          const cambios = { presupuesto_confirmado: cotizacion.total };
+          const { data: etapaCotizada } = await supabaseServicio
+            .from('pipeline_etapas')
+            .select('nombre')
+            .eq('company_id', message.company_id)
+            .ilike('nombre', '%cotización enviada%')
+            .maybeSingle();
+          if (etapaCotizada?.nombre) cambios.estado = etapaCotizada.nombre;
+
+          await supabaseServicio.from('oportunidades').update(cambios).eq('id', oportunidad.id);
+
+          textoCotizacion = `\n\n📋 Cotización: ${cotizacion.cantidad} x ${cotizacion.servicio} — $${cotizacion.precioUnitario.toLocaleString('es-MX')} c/u = $${cotizacion.total.toLocaleString('es-MX')} MXN. Un asesor confirmará el total final.`;
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Error calculando cotización automática:', e.message);
+  }
+
   // FASE 6 (Configuración — mensaje de bienvenida y firma): se aplican en
   // la capa de plataforma, sobre el texto ya generado por el Orchestrator
   // — cero cambios al motor de IA/prompt.
-  let textoFinal = resultado.respuesta_texto;
+  let textoFinal = resultado.respuesta_texto + textoCotizacion;
 
   if (personality?.mensaje_bienvenida && eraPrimerContacto) {
     textoFinal = `${personality.mensaje_bienvenida}\n\n${textoFinal}`;
