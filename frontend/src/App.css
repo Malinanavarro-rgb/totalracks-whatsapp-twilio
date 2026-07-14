@@ -157,6 +157,14 @@ body {
 
 /* ── Centro de Operaciones ─────────────────────────────────────────────── */
 
+/* TARA como protagonista: primero el saludo + qué encontró, las métricas
+   quedan de respaldo más abajo (ver Operaciones.jsx). */
+.tara-hero { margin: 0 0 1.75rem; max-width: 640px; }
+.tara-hero-saludo { margin: 0 0 0.35rem; font-size: 1.5rem; font-weight: 700; color: #1a1a1a; }
+.tara-hero-resumen { margin: 0; font-size: 1.1rem; line-height: 1.5; color: #333; }
+
+.alertas-titulo--secundario { color: #888; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; margin-top: 2rem; }
+
 .metricas-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -194,7 +202,7 @@ body {
 
 /* ── Recomendaciones de TARA + Pregúntale a TARA (Fase Demo · Tienda Soccer) ── */
 
-.recomendaciones-lista { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.6rem; }
+.recomendaciones-lista { list-style: none; padding: 0; margin: 0 0 1rem; display: flex; flex-direction: column; gap: 0.6rem; }
 .recomendacion-tarjeta {
   display: flex; justify-content: space-between; align-items: center; gap: 1rem;
   background: #fff; border-radius: 10px; padding: 0.9rem 1.1rem;
@@ -210,6 +218,7 @@ body {
   background: #fff; border-radius: 10px; padding: 1.1rem;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
 }
+.pregunta-tara-etiqueta { margin: 0 0 0.7rem; font-size: 0.85rem; font-weight: 600; color: #666; }
 .pregunta-tara-sugerencias { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .pregunta-tara-chip {
   border: 1px solid #e2e2e2; background: #f7f7f8; border-radius: 999px;

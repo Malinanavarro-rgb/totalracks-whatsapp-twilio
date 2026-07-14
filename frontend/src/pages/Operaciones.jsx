@@ -38,8 +38,34 @@ function responderPregunta(pregunta, metricas) {
   }
 }
 
+function saludoPorHora() {
+  const hora = new Date().getHours();
+  if (hora < 12) return 'Buenos días';
+  if (hora < 19) return 'Buenas tardes';
+  return 'Buenas noches';
+}
+
+// TARA siempre habla en primera persona ("Encontré/Revisé"), nunca como
+// "el sistema" — mismo criterio ya definido para el resto del producto.
+function resumenTara(metricas, empresa, esUniformesDeportivos) {
+  if (esUniformesDeportivos) {
+    const recos = metricas.recomendaciones || [];
+    if (recos.length === 0) return `Ya revisé ${empresa} y no encontré pendientes urgentes — todo está al día.`;
+    if (recos.length === 1) return `Ya revisé ${empresa}. Encontré algo que necesita tu atención: ${recos[0].texto}`;
+    return `Ya revisé ${empresa}. Encontré ${recos.length} cosas que necesitan tu atención: ${recos.map(r => r.texto).join(' ')}`;
+  }
+  const alertas = metricas.alertas || [];
+  if (alertas.length === 0) return `Ya revisé ${empresa} y no encontré pendientes urgentes — todo está en orden.`;
+  return `Ya revisé ${empresa}. Encontré ${alertas.length} alerta${alertas.length > 1 ? 's' : ''} que requiere${alertas.length > 1 ? 'n' : ''} tu atención.`;
+}
+
 // Fase 2: Centro de Operaciones real. Sin lógica de negocio aquí — solo
 // pide /api/dashboard y pinta lo que regresa el backend (modules/dashboard.js).
+//
+// Orden de la pantalla (pedido explícito del producto): primero TARA habla
+// — saludo + qué encontró y qué recomienda —, después las acciones
+// sugeridas, y solo al final las métricas como respaldo. El valor no son
+// los KPIs; es que TARA entiende el negocio y dice qué hacer.
 export default function Operaciones() {
   const { sesion } = useAuth();
   const [metricas, setMetricas] = useState(null);
@@ -48,6 +74,8 @@ export default function Operaciones() {
   const [preguntaActiva, setPreguntaActiva] = useState(null);
 
   const esUniformesDeportivos = sesion?.empresaActiva?.industria_slug === 'uniformes_deportivos';
+  const empresa = sesion?.empresaActiva?.nombre || 'tu empresa';
+  const nombreUsuario = (sesion?.usuario?.nombre || sesion?.usuario?.email || '').split(' ')[0];
 
   useEffect(() => {
     let activo = true;
@@ -60,28 +88,19 @@ export default function Operaciones() {
 
   return (
     <div>
-      <h1>{esUniformesDeportivos ? 'Inicio' : 'Centro de Operaciones'}</h1>
-      <p className="operaciones-nota">
-        {sesion?.empresaActiva?.nombre} — vista general de la operación de hoy
-      </p>
-
-      {cargando && <p className="operaciones-nota">Cargando métricas…</p>}
+      {cargando && <p className="operaciones-nota">TARA está revisando {empresa}…</p>}
       {error && <p className="login-error">No se pudieron cargar las métricas: {error}</p>}
 
       {metricas && (
         <>
-          <div className="metricas-grid">
-            {(metricas.kpis || []).map((k, i) => (
-              <TarjetaMetrica key={i} etiqueta={k.etiqueta} valor={k.valor} />
-            ))}
+          <div className="tara-hero">
+            <p className="tara-hero-saludo">{saludoPorHora()}{nombreUsuario ? `, ${nombreUsuario}` : ''}.</p>
+            <p className="tara-hero-resumen">{resumenTara(metricas, empresa, esUniformesDeportivos)}</p>
           </div>
 
           {esUniformesDeportivos && (
             <>
-              <h2 className="alertas-titulo">Recomendaciones de TARA</h2>
-              {(!metricas.recomendaciones || metricas.recomendaciones.length === 0) ? (
-                <p className="operaciones-nota">Sin recomendaciones — todo al día.</p>
-              ) : (
+              {metricas.recomendaciones && metricas.recomendaciones.length > 0 && (
                 <ul className="recomendaciones-lista">
                   {metricas.recomendaciones.map((r, i) => (
                     <li key={i} className="recomendacion-tarjeta">
@@ -95,8 +114,8 @@ export default function Operaciones() {
                 </ul>
               )}
 
-              <h2 className="alertas-titulo">Pregúntale a TARA</h2>
               <div className="pregunta-tara-caja">
+                <p className="pregunta-tara-etiqueta">Pregúntale a TARA</p>
                 <div className="pregunta-tara-sugerencias">
                   {PREGUNTAS_UNIFORMES_DEPORTIVOS.map((p) => (
                     <button key={p} className="pregunta-tara-chip" onClick={() => setPreguntaActiva(p)}>
@@ -113,9 +132,16 @@ export default function Operaciones() {
             </>
           )}
 
+          <h2 className="alertas-titulo alertas-titulo--secundario">Métricas</h2>
+          <div className="metricas-grid">
+            {(metricas.kpis || []).map((k, i) => (
+              <TarjetaMetrica key={i} etiqueta={k.etiqueta} valor={k.valor} />
+            ))}
+          </div>
+
           {!esUniformesDeportivos && (
             <>
-              <h2 className="alertas-titulo">Alertas importantes</h2>
+              <h2 className="alertas-titulo alertas-titulo--secundario">Alertas importantes</h2>
               {metricas.alertas.length === 0 ? (
                 <p className="operaciones-nota">Sin alertas — todo en orden.</p>
               ) : (
@@ -126,7 +152,7 @@ export default function Operaciones() {
                 </ul>
               )}
 
-              <h2 className="alertas-titulo">Actividad reciente</h2>
+              <h2 className="alertas-titulo alertas-titulo--secundario">Actividad reciente</h2>
               {!metricas.actividadReciente || metricas.actividadReciente.length === 0 ? (
                 <p className="operaciones-nota">Sin actividad reciente.</p>
               ) : (
