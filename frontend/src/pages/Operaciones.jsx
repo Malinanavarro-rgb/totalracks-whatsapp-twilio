@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../lib/api';
 import { usePolling } from '../lib/usePolling';
+import LogoTara from '../components/LogoTara';
 
 // Preguntas sugeridas para uniformes_deportivos (Fase Demo · Tienda Soccer).
 // Respuesta calculada en el cliente a partir de metricas ya cargadas — sin
@@ -51,14 +52,10 @@ function saludoPorHora() {
 }
 
 // El ícono "A" del isotipo — reutilizado como botón de envío de Pregúntale
-// a TARA (Brand Guidelines V1.0: "eso hace marca", en vez de una flecha genérica).
+// a TARA (Brand Guidelines V1.0: "eso hace marca", en vez de una flecha
+// genérica). Sin fondo propio: el botón circular verde ya lo da.
 function IconoA() {
-  return (
-    <svg viewBox="0 0 100 100" fill="none" width="15" height="15">
-      <path d="M50 16 L80 82 M50 16 L20 82" stroke="#fff" strokeWidth="15" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx="50" cy="68" r="10" fill="#22c7b8" />
-    </svg>
-  );
+  return <LogoTara size={15} background={null} foreground="#fff" dot="#22c7b8" />;
 }
 
 // Filosofía del hero (pedido explícito): "Buenos días, Luis. Encontré 4

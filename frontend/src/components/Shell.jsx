@@ -3,7 +3,7 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../lib/api';
 import { iniciales, colorDesdeTexto } from '../lib/avatar';
-import taraIcono from '../assets/tara-icon.png';
+import LogoTara from './LogoTara';
 
 // Íconos de línea, mismo trazo (stroke-width 1.6) para todo el menú —
 // Brand Guidelines V1.0: el menú existe para navegar, no para llamar la
@@ -66,7 +66,7 @@ export default function Shell() {
     <div className="shell" style={{ '--acento': sesion?.empresaActiva?.color_acento || '#1a1a2e' }}>
       <aside className="shell-sidebar">
         <div className="shell-logo">
-          <img className="shell-logo-icono" src={taraIcono} alt="TARA" />
+          <LogoTara size={40} className="shell-logo-icono" />
           <div>
             <div className="shell-logo-marca">TARA</div>
             <p className="shell-logo-tagline">Business, made easy.</p>
