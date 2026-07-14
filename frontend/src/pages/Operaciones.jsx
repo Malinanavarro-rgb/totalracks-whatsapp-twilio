@@ -81,7 +81,9 @@ export default function Operaciones() {
 
   const esUniformesDeportivos = sesion?.empresaActiva?.industria_slug === 'uniformes_deportivos';
   const empresa = sesion?.empresaActiva?.nombre || 'tu empresa';
-  const nombreUsuario = (sesion?.usuario?.nombre || sesion?.usuario?.email || '').split(' ')[0];
+  // Si el usuario no tiene nombre configurado (solo email), se omite del
+  // saludo en vez de mostrar el email como si fuera un nombre.
+  const nombreUsuario = (sesion?.usuario?.nombre || '').trim().split(' ')[0];
 
   useEffect(() => {
     let activo = true;
