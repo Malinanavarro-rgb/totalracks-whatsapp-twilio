@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { api } from '../lib/api';
 
-const INTERVALO_POLLING_MS = 12000;
+// Fase Demo Comercial: se acelera de 12s a 4s para que la lista de
+// conversaciones se sienta viva durante una demo en vivo con un cliente.
+const INTERVALO_POLLING_MS = 4000;
 
 // Fase 3: lista de conversaciones. "Tiempo real" vía polling (simplificación
 // aprobada) — sin infraestructura de websockets para el volumen actual.

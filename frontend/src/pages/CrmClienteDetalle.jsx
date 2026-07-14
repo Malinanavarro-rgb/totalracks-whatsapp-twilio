@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api } from '../lib/api';
 
@@ -19,24 +19,41 @@ export default function CrmClienteDetalle() {
   const [asesores, setAsesores] = useState([]);
   const [mostrarNuevaCita, setMostrarNuevaCita] = useState(false);
   const [nuevaCita, setNuevaCita] = useState({ asesorId: '', fecha: '', hora: '09:00', duracionMinutos: 30 });
+  const editandoRef = useRef(editando);
+  editandoRef.current = editando;
+  const [preguntaTara, setPreguntaTara] = useState('');
+  const [respuestaTara, setRespuestaTara] = useState(null);
+  const [preguntandoTara, setPreguntandoTara] = useState(false);
 
   function cargar() {
     Promise.all([api.fichaCliente(clienteId), api.seguimientos(clienteId)])
       .then(([f, s]) => {
         setFicha(f);
         setSeguimientos(s);
-        setForm({
-          nombre:  f.cliente.nombre || '',
-          empresa: f.cliente.empresa || '',
-          ciudad:  f.cliente.ciudad || '',
-          notas:   f.cliente.notas || '',
-          estado:  f.cliente.estado || 'Nuevo',
-        });
+        // No pisar el formulario si el usuario está editando en este momento
+        // (Fase Demo Comercial: el auto-refresh no debe borrar lo que se
+        // está escribiendo).
+        if (!editandoRef.current) {
+          setForm({
+            nombre:  f.cliente.nombre || '',
+            empresa: f.cliente.empresa || '',
+            ciudad:  f.cliente.ciudad || '',
+            notas:   f.cliente.notas || '',
+            estado:  f.cliente.estado || 'Nuevo',
+          });
+        }
       })
       .catch((e) => setError(e.message));
   }
 
   useEffect(cargar, [clienteId]);
+
+  // Fase Demo Comercial: la ficha se actualiza sola mientras el cliente
+  // conversa por WhatsApp — nueva conversación, oportunidad, datos capturados.
+  useEffect(() => {
+    const id = setInterval(cargar, 4000);
+    return () => clearInterval(id);
+  }, [clienteId]);
 
   useEffect(() => {
     api.pipelineEtapas().then((etapas) => setEtapasPipeline(etapas.filter((et) => et.activo)));
@@ -157,6 +174,21 @@ export default function CrmClienteDetalle() {
     }
   }
 
+  async function preguntarATara(e) {
+    e.preventDefault();
+    if (!preguntaTara.trim() || preguntandoTara) return;
+    setPreguntandoTara(true);
+    setRespuestaTara(null);
+    try {
+      const { respuesta } = await api.preguntarSobreCliente(clienteId, preguntaTara.trim());
+      setRespuestaTara(respuesta);
+    } catch (e2) {
+      setRespuestaTara(`No pude responder: ${e2.message}`);
+    } finally {
+      setPreguntandoTara(false);
+    }
+  }
+
   if (error) return <p className="login-error">{error}</p>;
   if (!ficha) return <p className="operaciones-nota">Cargando…</p>;
 
@@ -164,8 +196,23 @@ export default function CrmClienteDetalle() {
 
   return (
     <div>
-      <p><Link to="/crm">&larr; Ventas</Link></p>
+      <p><Link to="/crm">&larr; Volver</Link></p>
       <h1>{cliente.nombre || cliente.telefono}</h1>
+
+      <section className="crm-seccion pregunta-tara-ficha">
+        <h2>Pregúntale a TARA sobre {cliente.nombre || 'este cliente'}</h2>
+        <form className="config-form-inline" onSubmit={preguntarATara}>
+          <input
+            type="text" value={preguntaTara} onChange={(e) => setPreguntaTara(e.target.value)}
+            placeholder="¿Qué pasó con este cliente? ¿Ya puedo enviar la cotización?"
+            disabled={preguntandoTara}
+          />
+          <button type="submit" disabled={preguntandoTara || !preguntaTara.trim()}>
+            {preguntandoTara ? 'Pensando…' : 'Preguntar'}
+          </button>
+        </form>
+        {respuestaTara && <p className="pregunta-tara-respuesta-ficha">{respuestaTara}</p>}
+      </section>
 
       <section className="crm-seccion">
         <div className="crm-seccion-header">

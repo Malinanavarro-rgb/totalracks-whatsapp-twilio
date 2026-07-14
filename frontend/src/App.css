@@ -505,6 +505,12 @@ body {
 }
 .crm-seccion h2 { margin: 0 0 0.85rem; font-size: 1rem; }
 
+.pregunta-tara-ficha { border-left: 3px solid var(--acento); }
+.pregunta-tara-respuesta-ficha {
+  margin: 0.9rem 0 0; padding: 0.9rem 1rem; border-radius: 10px;
+  background: var(--tint); font-size: 0.9rem; color: var(--text); line-height: 1.55;
+}
+
 .crm-seccion-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; }
 .crm-seccion-header h2 { margin: 0; }
 .crm-seccion-header button {

@@ -54,6 +54,7 @@ const {
   listarWorkflows, crearWorkflow, actualizarWorkflow, eliminarWorkflow,
   listarNodos, crearNodo, actualizarNodo, eliminarNodo,
 }                                        = require('./modules/workflow-admin');
+const { responderSobreCliente }         = require('./modules/asistente-consultas');
 
 const app           = express();
 const adapter       = new TwilioWhatsAppAdapter(twilioClient);
@@ -720,6 +721,21 @@ app.get('/api/crm/clientes/:id/seguimientos', requireAuth, async (req, res) => {
     res.json(seguimientos);
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// Fase Demo Comercial: "Pregúntale a TARA" sobre un cliente específico —
+// IA real (modules/asistente-consultas.js), de solo lectura, basada en la
+// conversación que ya tuvo con ese cliente. No toca el motor conversacional.
+app.post('/api/crm/clientes/:id/preguntar', requireAuth, async (req, res) => {
+  try {
+    const { pregunta } = req.body || {};
+    if (!pregunta || !pregunta.trim()) return res.status(400).json({ error: 'pregunta requerida' });
+
+    const respuesta = await responderSobreCliente(req.supabase, req.usuario.company_id, req.params.id, pregunta.trim());
+    res.json({ respuesta });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
   }
 });
 

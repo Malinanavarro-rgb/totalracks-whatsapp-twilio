@@ -55,6 +55,15 @@ export default function Crm() {
     return () => clearTimeout(timeout);
   }, [filtros]);
 
+  // Fase Demo Comercial: el panel debe reflejar clientes/oportunidades
+  // nuevas mientras un cliente conversa por WhatsApp, sin recargar a mano.
+  useEffect(() => {
+    const id = setInterval(() => {
+      api.clientesCrm(filtros).then(setClientes).catch(() => {});
+    }, 4000);
+    return () => clearInterval(id);
+  }, [filtros]);
+
   async function crearCliente(e) {
     e.preventDefault();
     if (!nuevoCliente.telefono.trim()) return;

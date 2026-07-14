@@ -281,6 +281,7 @@ describe('dashboard.obtenerMetricasUniformesDeportivos()', () => {
       { data: [], error: null },
       { data: [], error: null },
       { data: [], error: null },
+      { data: [], error: null }, // workflow_sessions (urgentes por fecha)
       {
         data: [
           { estado: 'En producción', presupuesto_confirmado: null, presupuesto_estimado: 45000, updated_at: '2026-07-09T00:00:00Z', clientes: { nombre: 'Club Cumbres' } },
@@ -296,6 +297,34 @@ describe('dashboard.obtenerMetricasUniformesDeportivos()', () => {
       { cliente: 'Club Cumbres', estado: 'En producción', monto: 45000 },
       { cliente: 'Deportivo Anáhuac', estado: 'Entregado', monto: 45000 },
     ]);
+  });
+
+  test('Fase Demo Comercial: recomienda "urgente" cuando fecha_entrega menciona un día próximo', async () => {
+    const db = crearMockDb(
+      { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null },
+      { data: [], error: null },
+      { data: [], error: null }, // estancadas
+      { data: [], error: null }, // en preparación
+      { data: [], error: null }, // listas
+      {
+        data: [
+          { cliente_id: 20, captured_fields: { fecha_entrega: 'para el viernes' }, updated_at: '2026-07-13T00:00:00Z', clientes: { nombre: 'Academia Tigres' } },
+          { cliente_id: 21, captured_fields: { fecha_entrega: 'en un mes' }, updated_at: '2026-07-13T00:00:00Z', clientes: { nombre: 'Club Cumbres' } },
+        ],
+        error: null,
+      },
+      { data: [], error: null }, // panelVentas
+    );
+
+    const metricas = await obtenerMetricasUniformesDeportivos(db, COMPANY_A);
+
+    expect(metricas.recomendaciones).toEqual([{
+      texto: 'Academia Tigres pidió entrega "para el viernes" — confirma que alcanzas la fecha.',
+      detalle: 'Fecha de entrega mencionada en la conversación.',
+      accion: 'Ver conversación',
+      recurso: '/crm/clientes/20',
+      severidad: 'critica',
+    }]);
   });
 });
 

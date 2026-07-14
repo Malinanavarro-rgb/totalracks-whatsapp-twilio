@@ -203,7 +203,7 @@ async function _sumarVentasDelMes(supabase, company_id, desde) {
  * producción; "Listo para entrega" → aviso de entrega pendiente.
  */
 async function _obtenerRecomendacionesUniformesDeportivos(supabase, company_id, hace48h) {
-  const [estancadas, enPreparacion, listas] = await Promise.all([
+  const [estancadas, enPreparacion, listas, urgentesPorFecha] = await Promise.all([
     supabase
       .from('oportunidades')
       .select('id, cliente_id, updated_at, clientes(nombre)')
@@ -221,9 +221,10 @@ async function _obtenerRecomendacionesUniformesDeportivos(supabase, company_id, 
       .select('id, cliente_id, clientes(nombre)')
       .eq('company_id', company_id)
       .eq('estado', 'Listo para entrega'),
+    _recomendacionesUrgentesPorFecha(supabase, company_id),
   ]);
 
-  const recos = [];
+  const recos = [...urgentesPorFecha];
 
   for (const op of estancadas.data || []) {
     recos.push({
@@ -252,6 +253,51 @@ async function _obtenerRecomendacionesUniformesDeportivos(supabase, company_id, 
       accion:    'Ver pedido',
       recurso:   `/crm/clientes/${op.cliente_id}`,
       severidad: 'info',
+    });
+  }
+
+  return recos;
+}
+
+// Palabras que indican una fecha de entrega próxima/urgente en lo que el
+// cliente escribió — es un match de texto, no un parser de fechas reales
+// (no hay forma honesta de convertir "para el viernes" en una fecha exacta
+// sin más contexto). Si el texto no matchea ninguna, no se genera alerta.
+const PALABRAS_FECHA_URGENTE = /\b(hoy|mañana|urgent\w*|lo antes posible|esta semana|lunes|martes|mi[ée]rcoles|jueves|viernes|s[áa]bado|domingo)\b/i;
+
+/**
+ * Fase Demo Comercial: durante la conversación de intake (deporte→cantidad→
+ * …→fecha_entrega→presupuesto), el campo `fecha_entrega` queda en
+ * `workflow_sessions.captured_fields` en cuanto el cliente lo menciona —
+ * antes de que termine el flujo completo y se cree la oportunidad. Leerlo
+ * de ahí (no de `oportunidades`) permite avisar "pedido urgente" en cuanto
+ * el cliente dice la fecha, no hasta el final de la conversación.
+ */
+async function _recomendacionesUrgentesPorFecha(supabase, company_id) {
+  const { data, error } = await supabase
+    .from('workflow_sessions')
+    .select('cliente_id, captured_fields, updated_at, clientes(nombre)')
+    .eq('company_id', company_id)
+    .order('updated_at', { ascending: false })
+    .limit(20);
+
+  if (error || !data) return [];
+
+  const vistos = new Set();
+  const recos = [];
+
+  for (const sesion of data) {
+    const fechaTexto = sesion.captured_fields?.fecha_entrega;
+    if (!fechaTexto || !PALABRAS_FECHA_URGENTE.test(fechaTexto)) continue;
+    if (vistos.has(sesion.cliente_id)) continue;
+    vistos.add(sesion.cliente_id);
+
+    recos.push({
+      texto:     `${sesion.clientes?.nombre || 'Un cliente'} pidió entrega "${fechaTexto}" — confirma que alcanzas la fecha.`,
+      detalle:   'Fecha de entrega mencionada en la conversación.',
+      accion:    'Ver conversación',
+      recurso:   `/crm/clientes/${sesion.cliente_id}`,
+      severidad: 'critica',
     });
   }
 

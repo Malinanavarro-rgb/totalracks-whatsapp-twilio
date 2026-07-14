@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../lib/api';
 
-const INTERVALO_POLLING_MS = 5000;
+const INTERVALO_POLLING_MS = 4000; // Fase Demo Comercial: acelerado para demo en vivo
 
 export default function ConversacionDetalle() {
   const { clienteId } = useParams();

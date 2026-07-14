@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../lib/api';
+import { usePolling } from '../lib/usePolling';
 
 // Preguntas sugeridas para uniformes_deportivos (Fase Demo · Tienda Soccer).
 // Respuesta calculada en el cliente a partir de metricas ya cargadas — sin
@@ -78,9 +79,7 @@ function contarPrioridades(metricas, esUniformesDeportivos) {
 // no son los KPIs; es que TARA entiende el negocio y dice qué hacer.
 export default function Operaciones() {
   const { sesion } = useAuth();
-  const [metricas, setMetricas] = useState(null);
-  const [error, setError] = useState(null);
-  const [cargando, setCargando] = useState(true);
+  const { datos: metricas, error, cargando } = usePolling(() => api.dashboard(), 4000);
   const [preguntaInput, setPreguntaInput] = useState('');
   const [preguntaActiva, setPreguntaActiva] = useState(null);
 
@@ -100,15 +99,6 @@ export default function Operaciones() {
   // Si el usuario no tiene nombre configurado (solo email), se omite del
   // saludo en vez de mostrar el email como si fuera un nombre.
   const nombreUsuario = (sesion?.usuario?.nombre || '').trim().split(' ')[0];
-
-  useEffect(() => {
-    let activo = true;
-    api.dashboard()
-      .then((datos) => { if (activo) setMetricas(datos); })
-      .catch((e) => { if (activo) setError(e.message); })
-      .finally(() => { if (activo) setCargando(false); });
-    return () => { activo = false; };
-  }, []);
 
   return (
     <div>

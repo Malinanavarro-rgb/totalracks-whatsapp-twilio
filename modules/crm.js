@@ -111,6 +111,34 @@ function requiereCrearOportunidad(mensajeCliente, intenciones) {
 }
 
 /**
+ * Fase Demo Comercial: el estado inicial de una oportunidad nueva ya NO se
+ * hardcodea a 'Calificado' — cada empresa configura su propio catálogo de
+ * etapas (Configuración → Proceso comercial, `pipeline_etapas`), y
+ * 'Calificado' puede no existir ahí (ej. Tienda Soccer usa "Solicitud
+ * nueva" como primera etapa). Una oportunidad creada con una etapa que no
+ * está en el catálogo de la empresa queda invisible en el kanban y fuera
+ * de cualquier KPI del dashboard que filtre por nombre de etapa — por eso
+ * se usa la etapa de menor `orden` configurada, con 'Calificado' solo como
+ * último recurso si la empresa no tiene ninguna etapa activa.
+ */
+async function _primeraEtapaPipeline(companyId) {
+  if (!companyId) return 'Calificado';
+  try {
+    const { data } = await supabase
+      .from('pipeline_etapas')
+      .select('nombre')
+      .eq('company_id', companyId)
+      .eq('activo', true)
+      .order('orden', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    return data?.nombre || 'Calificado';
+  } catch (e) {
+    return 'Calificado';
+  }
+}
+
+/**
  * @param {number}   clienteId
  * @param {string}   categoriaPrincipal  - categoría universal del producto/servicio
  * @param {string}   mensajeCliente
@@ -127,15 +155,16 @@ async function crearOportunidadSiCorresponde(clienteId, companyId, categoriaPrin
       .limit(1);
 
     if (!existentes || existentes.length === 0) {
+      const estadoInicial = await _primeraEtapaPipeline(companyId);
       await supabase.from('oportunidades').insert([{
         cliente_id:   clienteId,
         company_id:   companyId || null,
         tipo_rack:    categoriaPrincipal,
-        estado:       'Calificado',
+        estado:       estadoInicial,
         probabilidad: 45,
         descripcion:  `Cliente interesado en ${categoriaPrincipal}`,
       }]);
-      console.log(`✅ Oportunidad creada: ${categoriaPrincipal}`);
+      console.log(`✅ Oportunidad creada: ${categoriaPrincipal} (etapa: ${estadoInicial})`);
     }
   } catch (e) {
     console.error('Error creando oportunidad:', e);

@@ -58,6 +58,8 @@ export const api = {
     pedir(`/api/crm/clientes/${clienteId}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
   eliminarClienteCrm: (clienteId) => pedir(`/api/crm/clientes/${clienteId}`, { method: 'DELETE' }),
   seguimientos:       (clienteId) => pedir(`/api/crm/clientes/${clienteId}/seguimientos`),
+  preguntarSobreCliente: (clienteId, pregunta) =>
+    pedir(`/api/crm/clientes/${clienteId}/preguntar`, { method: 'POST', body: JSON.stringify({ pregunta }) }),
   crearSeguimiento:   (clienteId, datos) =>
     pedir(`/api/crm/clientes/${clienteId}/seguimientos`, { method: 'POST', body: JSON.stringify(datos) }),
   actualizarSeguimiento: (seguimientoId, cambios) =>
