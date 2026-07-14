@@ -160,17 +160,49 @@ async function procesarMensajeEntrante(message, enviar) {
     return;
   }
 
+  // Fase Demo Comercial: fix — esto se evaluaba DESPUÉS de procesarMensaje(),
+  // que ya guarda la conversación del turno actual (Paso 10 del Orchestrator).
+  // Para entonces `conversaciones` ya tiene ≥1 fila para este cliente, así
+  // que esPrimerContacto() siempre daba false y mensaje_bienvenida nunca se
+  // anteponía, en ninguna empresa. Se evalúa antes de invocar al Orchestrator.
+  const eraPrimerContacto = personality?.mensaje_bienvenida
+    ? await esPrimerContacto(supabaseServicio, cliente.id)
+    : false;
+
   const resultado = await enqueueForPhone(
     message.from,
     () => orchestrator.procesarMensaje(message)
   );
+
+  // Fase Demo Comercial: si el cliente mencionó su nombre/empresa durante la
+  // conversación (ya extraído por el Orchestrator en ai_output.datos_extraidos,
+  // sin ningún cambio ahí), se registra en su ficha — capa de plataforma,
+  // no toca el Orchestrator/CRM congelados (ADR-005). Nunca pisa un nombre
+  // o empresa reales ya guardados.
+  const datosExtraidos = resultado.ai_output?.datos_extraidos;
+  if (cliente?.id && datosExtraidos && (datosExtraidos.nombre || datosExtraidos.empresa)) {
+    const cambiosCliente = {};
+    if (datosExtraidos.nombre && (!cliente.nombre || cliente.nombre === 'Sin nombre')) {
+      cambiosCliente.nombre = datosExtraidos.nombre;
+    }
+    if (datosExtraidos.empresa && !cliente.empresa) {
+      cambiosCliente.empresa = datosExtraidos.empresa;
+    }
+    if (Object.keys(cambiosCliente).length > 0) {
+      try {
+        await actualizarCliente(supabaseServicio, message.company_id, cliente.id, cambiosCliente);
+      } catch (e) {
+        console.error('Error registrando nombre/empresa del cliente:', e.message);
+      }
+    }
+  }
 
   // FASE 6 (Configuración — mensaje de bienvenida y firma): se aplican en
   // la capa de plataforma, sobre el texto ya generado por el Orchestrator
   // — cero cambios al motor de IA/prompt.
   let textoFinal = resultado.respuesta_texto;
 
-  if (personality?.mensaje_bienvenida && await esPrimerContacto(supabaseServicio, cliente.id)) {
+  if (personality?.mensaje_bienvenida && eraPrimerContacto) {
     textoFinal = `${personality.mensaje_bienvenida}\n\n${textoFinal}`;
   }
   if (personality?.firma) {
