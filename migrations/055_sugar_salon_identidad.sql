@@ -1,0 +1,18 @@
+-- TARA — Identidad real de Sugar Salon (antes "Salón de Belleza Demo")
+-- La dueña confirmó el nombre real de la empresa y compartió su logo real
+-- (fondo negro, marco de cuadrados dorados entrelazados, "S" dorada
+-- ornamentada, wordmark "SUGAR SALON") — se recrea como SVG (vector, nítido
+-- en cualquier tamaño de avatar) en vez de guardar la foto original con
+-- ruido/grano de impresión, mismo criterio que Tienda Soccer (migración 049)
+-- pero como vector en vez de recorte de PNG.
+--
+-- Ejecutar en Supabase SQL Editor, luego:
+--   NOTIFY pgrst, 'reload schema';
+
+UPDATE companies
+SET nombre = 'Sugar Salon',
+    logo_url = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNDAgMjYwIiB3aWR0aD0iMjQwIiBoZWlnaHQ9IjI2MCI+CiAgPHJlY3QgeD0iMCIgeT0iMCIgd2lkdGg9IjI0MCIgaGVpZ2h0PSIyNjAiIHJ4PSIyMCIgZmlsbD0iIzBjMGEwOSIvPgoKICA8ZyBmaWxsPSJub25lIiBzdHJva2U9IiNkNmE1NDIiIHN0cm9rZS13aWR0aD0iMS42IiBvcGFjaXR5PSIwLjk1Ij4KICAgIDxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKDEyMCwxMTIpIHJvdGF0ZSgwKSI+CiAgICAgIDxyZWN0IHg9Ii02MiIgeT0iLTYyIiB3aWR0aD0iMTI0IiBoZWlnaHQ9IjEyNCIvPgogICAgICA8cmVjdCB4PSItNTgiIHk9Ii01OCIgd2lkdGg9IjExNiIgaGVpZ2h0PSIxMTYiLz4KICAgIDwvZz4KICAgIDxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKDEyMCwxMTIpIHJvdGF0ZSgyNCkiPgogICAgICA8cmVjdCB4PSItNjIiIHk9Ii02MiIgd2lkdGg9IjEyNCIgaGVpZ2h0PSIxMjQiLz4KICAgICAgPHJlY3QgeD0iLTU4IiB5PSItNTgiIHdpZHRoPSIxMTYiIGhlaWdodD0iMTE2Ii8+CiAgICA8L2c+CiAgICA8ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSgxMjAsMTEyKSByb3RhdGUoNDgpIj4KICAgICAgPHJlY3QgeD0iLTYyIiB5PSItNjIiIHdpZHRoPSIxMjQiIGhlaWdodD0iMTI0Ii8+CiAgICAgIDxyZWN0IHg9Ii01OCIgeT0iLTU4IiB3aWR0aD0iMTE2IiBoZWlnaHQ9IjExNiIvPgogICAgPC9nPgogIDwvZz4KCiAgPHRleHQgeD0iMTIwIiB5PSIxMTIiIGZvbnQtZmFtaWx5PSJHZW9yZ2lhLCAnVGltZXMgTmV3IFJvbWFuJywgc2VyaWYiIGZvbnQtc3R5bGU9Iml0YWxpYyIKICAgICAgICBmb250LXdlaWdodD0iNzAwIiBmb250LXNpemU9Ijk2IiBmaWxsPSIjZTBhYjNlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkb21pbmFudC1iYXNlbGluZT0iY2VudHJhbCI+UzwvdGV4dD4KCiAgPHRleHQgeD0iMTIwIiB5PSIyMjgiIGZvbnQtZmFtaWx5PSJIZWx2ZXRpY2EsIEFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjE3IgogICAgICAgIGxldHRlci1zcGFjaW5nPSI2IiBmaWxsPSIjZDZhNTQyIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5TVUdBUiBTQUxPTjwvdGV4dD4KPC9zdmc+Cg=='
+WHERE id = '5a867538-13cb-427a-8c49-d23716391f4e';
+
+-- Verificación
+SELECT nombre, length(logo_url) AS logo_bytes FROM companies WHERE id = '5a867538-13cb-427a-8c49-d23716391f4e';
