@@ -80,8 +80,8 @@ JOIN (VALUES
   ('Liga Municipal Monterrey', 'Listo para entrega',          'Uniformes para 8 equipos de la liga',        41000, NULL,   85, 0),
   ('Academia Tigres',          'Solicitud nueva',             'Uniforme de voleibol, rama femenil',          NULL,  NULL,   20, 0),
   ('Club Cumbres',             'En producción',                'Uniforme de ciclismo personalizado, 15 piezas', 45000, NULL, 70, 5),
-  ('Deportivo Anáhuac',        'Entregado',                    'Uniforme de béisbol, equipo completo',       45000, 45000, 100, 10),
-  ('Club Atlético Garza',      'Entregado',                    'Uniforme de handball, rama varonil',          32500, 32500, 100, 8)
+  ('Deportivo Anáhuac',        'Entregado',                    'Uniforme de béisbol, equipo completo',       45000, 45000, 99, 10),
+  ('Club Atlético Garza',      'Entregado',                    'Uniforme de handball, rama varonil',          32500, 32500, 99, 8)
 ) AS v(nombre, estado, descripcion, presupuesto_estimado, presupuesto_confirmado, probabilidad, hace_dias)
   ON c.nombre = v.nombre AND c.company_id = '3463e797-9a4f-4782-8936-6c2fb18c437e'
 WHERE NOT EXISTS (
