@@ -566,10 +566,14 @@ body {
 .producto-tarjeta-precio { font-family: var(--font-mono); font-weight: 600; font-size: 0.92rem; }
 .producto-tarjeta-estado { font-size: 0.72rem; color: var(--success); font-weight: 600; }
 .producto-tarjeta-estado--inactivo { color: var(--text-secondary); }
-.producto-tarjeta-acciones { display: flex; gap: 0.4rem; }
+.producto-tarjeta-acciones { display: flex; gap: 0.35rem; }
 .producto-tarjeta-acciones button {
-  flex: 1; padding: 0.35rem 0.5rem; border: 1px solid var(--line); border-radius: 6px;
-  background: var(--surface); cursor: pointer; font-size: 0.76rem; color: var(--text-secondary);
+  flex: 1; padding: 0.35rem 0.4rem; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--surface); cursor: pointer; font-size: 0.72rem; color: var(--text-secondary);
+}
+.producto-tarjeta-form-edicion { display: flex; flex-direction: column; gap: 0.5rem; }
+.producto-tarjeta-form-edicion input {
+  padding: 0.4rem 0.55rem; border: 1px solid var(--line); border-radius: 6px; font-size: 0.85rem; font-family: inherit;
 }
 
 /* ── Configuración (Fase 6) ────────────────────────────────────────────── */

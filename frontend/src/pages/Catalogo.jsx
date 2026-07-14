@@ -30,6 +30,8 @@ export default function Catalogo() {
   const [productos, setProductos] = useState(null);
   const [form, setForm] = useState({ nombre: '', precio: '' });
   const [error, setError] = useState(null);
+  const [editandoId, setEditandoId] = useState(null);
+  const [formEdicion, setFormEdicion] = useState({ nombre: '', precio: '' });
 
   function cargar() {
     api.serviciosConfig().then(setProductos).catch((e) => setError(e.message));
@@ -70,6 +72,26 @@ export default function Catalogo() {
     }
   }
 
+  function empezarEdicion(producto) {
+    setEditandoId(producto.id);
+    setFormEdicion({ nombre: producto.nombre, precio: producto.precio ?? '' });
+  }
+
+  async function guardarEdicion(e, id) {
+    e.preventDefault();
+    if (!formEdicion.nombre.trim()) return;
+    try {
+      await api.actualizarServicioConfig(id, {
+        nombre: formEdicion.nombre.trim(),
+        precio: formEdicion.precio !== '' ? Number(formEdicion.precio) : null,
+      });
+      setEditandoId(null);
+      cargar();
+    } catch (e2) {
+      setError(e2.message);
+    }
+  }
+
   return (
     <div>
       <h2 className="titulo-seccion">¿Qué vendo?</h2>
@@ -90,21 +112,43 @@ export default function Catalogo() {
           <div key={p.id} className="producto-tarjeta">
             <div className="producto-tarjeta-imagen">{iconoProducto(p.nombre)}</div>
             <div className="producto-tarjeta-cuerpo">
-              <p className="producto-tarjeta-nombre">{p.nombre}</p>
-              <p className="producto-tarjeta-sku">SKU {codigoProducto(p.nombre, p.id)}</p>
-              <div className="producto-tarjeta-variantes">
-                {TALLAS_ESTANDAR.map((t) => <span key={t} className="producto-tarjeta-variante">{t}</span>)}
-              </div>
-              <div className="producto-tarjeta-pie">
-                <span className="producto-tarjeta-precio">{p.precio != null ? `$${Number(p.precio).toLocaleString('es-MX')}` : '—'}</span>
-                <span className={p.activo ? 'producto-tarjeta-estado' : 'producto-tarjeta-estado producto-tarjeta-estado--inactivo'}>
-                  {p.activo ? 'Activo' : 'Inactivo'}
-                </span>
-              </div>
-              <div className="producto-tarjeta-acciones">
-                <button onClick={() => toggleActivo(p)}>{p.activo ? 'Desactivar' : 'Activar'}</button>
-                <button onClick={() => eliminar(p.id)}>Eliminar</button>
-              </div>
+              {editandoId === p.id ? (
+                <form className="producto-tarjeta-form-edicion" onSubmit={(e) => guardarEdicion(e, p.id)}>
+                  <input
+                    value={formEdicion.nombre}
+                    onChange={(e) => setFormEdicion({ ...formEdicion, nombre: e.target.value })}
+                    placeholder="Nombre del producto"
+                  />
+                  <input
+                    type="number" min="0" placeholder="Precio"
+                    value={formEdicion.precio}
+                    onChange={(e) => setFormEdicion({ ...formEdicion, precio: e.target.value })}
+                  />
+                  <div className="producto-tarjeta-acciones">
+                    <button type="submit">Guardar</button>
+                    <button type="button" onClick={() => setEditandoId(null)}>Cancelar</button>
+                  </div>
+                </form>
+              ) : (
+                <>
+                  <p className="producto-tarjeta-nombre">{p.nombre}</p>
+                  <p className="producto-tarjeta-sku">SKU {codigoProducto(p.nombre, p.id)}</p>
+                  <div className="producto-tarjeta-variantes">
+                    {TALLAS_ESTANDAR.map((t) => <span key={t} className="producto-tarjeta-variante">{t}</span>)}
+                  </div>
+                  <div className="producto-tarjeta-pie">
+                    <span className="producto-tarjeta-precio">{p.precio != null ? `$${Number(p.precio).toLocaleString('es-MX')}` : '—'}</span>
+                    <span className={p.activo ? 'producto-tarjeta-estado' : 'producto-tarjeta-estado producto-tarjeta-estado--inactivo'}>
+                      {p.activo ? 'Activo' : 'Inactivo'}
+                    </span>
+                  </div>
+                  <div className="producto-tarjeta-acciones">
+                    <button onClick={() => empezarEdicion(p)}>Editar</button>
+                    <button onClick={() => toggleActivo(p)}>{p.activo ? 'Desactivar' : 'Activar'}</button>
+                    <button onClick={() => eliminar(p.id)}>Eliminar</button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         ))}
