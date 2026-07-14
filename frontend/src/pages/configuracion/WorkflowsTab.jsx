@@ -52,11 +52,11 @@ export default function WorkflowsTab() {
   return (
     <div>
       <p className="operaciones-nota">
-        Un workflow se activa cuando TARA detecta la intención elegida en el mensaje del cliente, y guía la conversación paso a paso por los nodos que definas abajo.
+        Un guion de atención se activa cuando TARA detecta la intención elegida en el mensaje del cliente, y guía la conversación paso a paso por los pasos que definas abajo.
       </p>
 
       <form className="config-form-inline" onSubmit={agregar}>
-        <input placeholder="Nombre del workflow" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} />
+        <input placeholder="Nombre del guion de atención" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} />
         <select value={form.trigger_value} onChange={(e) => setForm({ ...form, trigger_value: e.target.value })}>
           {INTENCIONES.map((i) => <option key={i} value={i}>{i}</option>)}
         </select>
@@ -66,7 +66,7 @@ export default function WorkflowsTab() {
 
       {error && <p className="login-error">{error}</p>}
       {workflows === null && <p className="operaciones-nota">Cargando…</p>}
-      {workflows?.length === 0 && <p className="operaciones-nota">Sin workflows todavía.</p>}
+      {workflows?.length === 0 && <p className="operaciones-nota">Sin guiones de atención todavía.</p>}
 
       <ul className="config-kb-lista config-workflows-lista">
         {workflows?.map((wf) => (
@@ -76,7 +76,7 @@ export default function WorkflowsTab() {
               <button onClick={() => toggleActivo(wf)}>{wf.activo ? 'Desactivar' : 'Activar'}</button>
               <button onClick={() => eliminar(wf.id)}>Eliminar</button>
               <button onClick={() => setWorkflowAbierto(workflowAbierto === wf.id ? null : wf.id)}>
-                {workflowAbierto === wf.id ? 'Ocultar nodos' : 'Editar nodos'}
+                {workflowAbierto === wf.id ? 'Ocultar pasos' : 'Editar pasos'}
               </button>
             </div>
             {workflowAbierto === wf.id && <NodosEditor workflowId={wf.id} />}
@@ -122,19 +122,19 @@ function NodosEditor({ workflowId }) {
   return (
     <div className="config-workflow-nodos">
       <form className="config-form-inline" onSubmit={agregar}>
-        <input placeholder="nombre_del_nodo (slug)" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} />
+        <input placeholder="nombre_del_paso (slug)" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} />
         <input placeholder="Pregunta al cliente" value={form.pregunta} onChange={(e) => setForm({ ...form, pregunta: e.target.value })} />
         <input placeholder="Campo a capturar" value={form.campo} onChange={(e) => setForm({ ...form, campo: e.target.value })} />
-        <input placeholder="Siguiente nodo (nombre)" value={form.siguiente_nodo} onChange={(e) => setForm({ ...form, siguiente_nodo: e.target.value })} />
+        <input placeholder="Siguiente paso (nombre)" value={form.siguiente_nodo} onChange={(e) => setForm({ ...form, siguiente_nodo: e.target.value })} />
         <input type="number" min="0" placeholder="Orden" value={form.orden} onChange={(e) => setForm({ ...form, orden: e.target.value })} />
         <label><input type="checkbox" checked={form.es_inicio} onChange={(e) => setForm({ ...form, es_inicio: e.target.checked })} /> Inicio</label>
         <label><input type="checkbox" checked={form.es_fin} onChange={(e) => setForm({ ...form, es_fin: e.target.checked })} /> Fin</label>
-        <button type="submit">Agregar nodo</button>
+        <button type="submit">Agregar paso</button>
       </form>
 
       {error && <p className="login-error">{error}</p>}
-      {nodos === null && <p className="operaciones-nota">Cargando nodos…</p>}
-      {nodos?.length === 0 && <p className="operaciones-nota">Sin nodos todavía.</p>}
+      {nodos === null && <p className="operaciones-nota">Cargando pasos…</p>}
+      {nodos?.length === 0 && <p className="operaciones-nota">Sin pasos todavía.</p>}
 
       <ul className="config-kb-lista">
         {nodos?.map((n) => (

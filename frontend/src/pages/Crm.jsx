@@ -37,11 +37,11 @@ export default function Crm() {
   return (
     <div>
       <div className="crm-seccion-header">
-        <h1>CRM</h1>
+        <h1>Ventas</h1>
         <div>
           <button onClick={() => setMostrarNuevo(!mostrarNuevo)}>{mostrarNuevo ? 'Cancelar' : 'Nuevo cliente'}</button>
           {' '}
-          <NavLink to="/crm/pipeline">Ver pipeline</NavLink>
+          <NavLink to="/crm/pipeline">Ver proceso comercial</NavLink>
         </div>
       </div>
 

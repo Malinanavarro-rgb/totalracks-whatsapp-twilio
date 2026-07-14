@@ -164,7 +164,7 @@ export default function CrmClienteDetalle() {
 
   return (
     <div>
-      <p><Link to="/crm">&larr; CRM</Link></p>
+      <p><Link to="/crm">&larr; Ventas</Link></p>
       <h1>{cliente.nombre || cliente.telefono}</h1>
 
       <section className="crm-seccion">
@@ -203,7 +203,7 @@ export default function CrmClienteDetalle() {
             <dt>Ciudad</dt><dd>{cliente.ciudad || '—'}</dd>
             <dt>Estado</dt><dd>{cliente.estado || 'Nuevo'}</dd>
             <dt>Notas</dt><dd>{cliente.notas || '—'}</dd>
-            <dt>Atendido por</dt><dd>{cliente.atendido_por === 'humano' ? 'Humano' : 'TARA'}</dd>
+            <dt>Atendido por</dt><dd>{cliente.atendido_por === 'humano' ? 'Atención personal' : 'TARA'}</dd>
           </dl>
         )}
       </section>

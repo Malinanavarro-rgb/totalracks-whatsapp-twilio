@@ -47,7 +47,7 @@ export default function PipelineTab() {
 
   return (
     <div>
-      <p className="operaciones-nota">Etapas por las que pasa una oportunidad de venta en tu CRM (ej. Nuevo, Negociación, Ganado). El orden controla cómo se muestran en el pipeline.</p>
+      <p className="operaciones-nota">Etapas por las que pasa una oportunidad de venta (ej. Nuevo, Negociación, Ganado). El orden controla cómo se muestran en el proceso comercial.</p>
 
       <form className="config-form-inline" onSubmit={agregar}>
         <input placeholder="Nombre de la etapa" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} />

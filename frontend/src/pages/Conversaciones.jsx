@@ -38,7 +38,7 @@ export default function Conversaciones() {
               <div className="conversacion-item-encabezado">
                 <strong>{c.nombre || c.telefono}</strong>
                 <span className={`etiqueta-atencion etiqueta-atencion--${c.atendido_por}`}>
-                  {c.atendido_por === 'humano' ? 'Humano' : 'TARA'}
+                  {c.atendido_por === 'humano' ? 'Atención personal' : 'TARA'}
                 </span>
               </div>
               <p className="conversacion-item-preview">

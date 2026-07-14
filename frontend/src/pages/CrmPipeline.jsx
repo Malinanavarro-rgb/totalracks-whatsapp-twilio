@@ -43,12 +43,12 @@ export default function CrmPipeline() {
 
   return (
     <div>
-      <p><Link to="/crm">&larr; CRM</Link></p>
-      <h1>Pipeline de oportunidades</h1>
+      <p><Link to="/crm">&larr; Ventas</Link></p>
+      <h1>Proceso comercial</h1>
 
       {etapas.length === 0 ? (
         <p className="operaciones-nota">
-          Sin etapas configuradas. Ve a Configuración → Pipeline para crear las etapas de tu proceso de venta.
+          Sin etapas configuradas. Ve a Configuración → Proceso comercial para crear las etapas de tu proceso de venta.
         </p>
       ) : (
         <div className="crm-pipeline-tablero">

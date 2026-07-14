@@ -1,6 +1,6 @@
 'use strict';
 
-const { obtenerMetricas, obtenerActividadReciente } = require('../modules/dashboard');
+const { obtenerMetricas, obtenerActividadReciente, obtenerMetricasUniformesDeportivos } = require('../modules/dashboard');
 
 // ─── Mock Builder ─────────────────────────────────────────────────────────────
 // Mismo patrón thenable que scheduling-engine.test.js/auth.test.js, extendido
@@ -8,18 +8,25 @@ const { obtenerMetricas, obtenerActividadReciente } = require('../modules/dashbo
 
 function crearBuilder(resultado = { data: null, error: null, count: 0 }) {
   const builder = {
-    select:  jest.fn().mockReturnThis(),
-    eq:      jest.fn().mockReturnThis(),
-    in:      jest.fn().mockReturnThis(),
-    not:     jest.fn().mockReturnThis(),
-    gte:     jest.fn().mockReturnThis(),
-    lte:     jest.fn().mockReturnThis(),
-    order:   jest.fn().mockReturnThis(),
-    limit:   jest.fn().mockResolvedValue(resultado),
+    select:      jest.fn().mockReturnThis(),
+    eq:          jest.fn().mockReturnThis(),
+    in:          jest.fn().mockReturnThis(),
+    not:         jest.fn().mockReturnThis(),
+    gte:         jest.fn().mockReturnThis(),
+    lte:         jest.fn().mockReturnThis(),
+    order:       jest.fn().mockReturnThis(),
+    limit:       jest.fn().mockResolvedValue(resultado),
+    maybeSingle: jest.fn().mockResolvedValue(resultado),
     then: (resolve) => resolve(resultado),
   };
   return builder;
 }
+
+// obtenerMetricas() ahora siempre empieza con un chequeo de
+// companies.industria_slug (Fase Demo Tienda Soccer) — este resultado va
+// PRIMERO en cada crearMockDb(...) de las pruebas del tablero genérico, con
+// industria_slug=null para que tome la rama universal de siempre.
+const SIN_INDUSTRIA = { data: { industria_slug: null }, error: null };
 
 function crearMockDb(...resultados) {
   let idx = 0;
@@ -51,6 +58,7 @@ const COMPANY_A = 'aaaaaaaa-0000-0000-0000-000000000001';
 describe('dashboard.obtenerMetricas()', () => {
   test('calcula las 8 métricas a partir de datos reales', async () => {
     const db = crearMockDb(
+      SIN_INDUSTRIA,
       { data: [{ cliente_id: 1 }, { cliente_id: 2 }, { cliente_id: 1 }], error: null }, // activas: 2 únicos
       { data: null, error: null, count: 5 },   // atendidas hoy
       { data: null, error: null, count: 3 },   // clientes nuevos
@@ -79,10 +87,13 @@ describe('dashboard.obtenerMetricas()', () => {
       { tipo: 'cita_sin_confirmar', mensaje: '2 cita(s) próxima(s) sin confirmar' },
     ]);
     expect(metricas.actividadReciente).toEqual([]);
+    expect(metricas.kpis).toContainEqual({ valor: 2, etiqueta: 'Conversaciones activas' });
+    expect(metricas.recomendaciones).toEqual([]);
   });
 
   test('sin datos, devuelve ceros/null y sin alertas (no rompe con empresa nueva)', async () => {
     const db = crearMockDb(
+      SIN_INDUSTRIA,
       { data: [], error: null },
       { data: null, error: null, count: 0 },
       { data: null, error: null, count: 0 },
@@ -106,6 +117,7 @@ describe('dashboard.obtenerMetricas()', () => {
 
   test('errores de Supabase en cualquier query no tumban el dashboard (degrada a 0/null)', async () => {
     const db = crearMockDb(
+      SIN_INDUSTRIA,
       { data: null, error: new Error('boom') },
       { data: null, error: new Error('boom'), count: null },
       { data: null, error: new Error('boom'), count: null },
@@ -131,6 +143,7 @@ describe('dashboard.obtenerMetricas()', () => {
 
   test('filtra siempre por company_id en cada tabla consultada (aislamiento multiempresa)', async () => {
     const db = crearMockDb(
+      SIN_INDUSTRIA,
       { data: [], error: null },
       { data: null, error: null, count: 0 },
       { data: null, error: null, count: 0 },
@@ -149,10 +162,111 @@ describe('dashboard.obtenerMetricas()', () => {
 
     const tablasConsultadas = db.from.mock.calls.map(c => c[0]);
     expect(tablasConsultadas).toEqual([
+      'companies',
       'conversaciones', 'conversaciones', 'clientes', 'clientes', 'clientes',
       'decision_logs', 'citas', 'decision_logs', 'citas',
       'clientes', 'clientes', 'citas',
     ]);
+  });
+});
+
+// Fase Demo Tienda Soccer: tablero de industria "uniformes_deportivos".
+// Orden de llamadas dentro de obtenerMetricasUniformesDeportivos():
+// 1-4. oportunidades (count por estado: Solicitud nueva, Cotización enviada, En producción, Listo para entrega)
+// 5. oportunidades (select presupuesto_confirmado, ventas del mes)
+// 6-8. oportunidades (recomendaciones: estancadas, en preparación, listas)
+describe('dashboard.obtenerMetricasUniformesDeportivos()', () => {
+  test('calcula los 5 KPIs de la industria a partir de oportunidades reales', async () => {
+    const db = crearMockDb(
+      { count: 1, error: null },  // Solicitud nueva
+      { count: 2, error: null },  // Cotización enviada
+      { count: 1, error: null },  // En producción
+      { count: 1, error: null },  // Listo para entrega
+      { data: [{ presupuesto_confirmado: 48000 }, { presupuesto_confirmado: 31000 }], error: null }, // ventas del mes
+      { data: [], error: null },  // estancadas
+      { data: [], error: null },  // en preparación
+      { data: [], error: null },  // listas
+    );
+
+    const metricas = await obtenerMetricasUniformesDeportivos(db, COMPANY_A);
+
+    expect(metricas.kpis).toEqual([
+      { valor: 1, etiqueta: 'Solicitudes nuevas' },
+      { valor: 2, etiqueta: 'Cotizaciones enviadas' },
+      { valor: 1, etiqueta: 'Pedidos en producción' },
+      { valor: 1, etiqueta: 'Entregas' },
+      { valor: '$79,000', etiqueta: 'Ventas este mes' },
+    ]);
+  });
+
+  test('genera una recomendación por cada oportunidad estancada 48h+ en Cotización enviada', async () => {
+    const db = crearMockDb(
+      { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null },
+      { data: [], error: null },
+      { data: [{ id: 1, cliente_id: 10, updated_at: '2026-07-10T00:00:00Z', clientes: { nombre: 'Rayados FC' } }], error: null },
+      { data: [], error: null },
+      { data: [], error: null },
+    );
+
+    const metricas = await obtenerMetricasUniformesDeportivos(db, COMPANY_A);
+
+    expect(metricas.recomendaciones).toEqual([{
+      texto: 'Rayados FC lleva más de 48 horas sin seguimiento.',
+      detalle: 'Cotización enviada sin respuesta.',
+      accion: 'Dar seguimiento ahora',
+      recurso: '/crm/clientes/10',
+    }]);
+  });
+
+  test('genera una recomendación por cada oportunidad lista para entrega', async () => {
+    const db = crearMockDb(
+      { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null },
+      { data: [], error: null },
+      { data: [], error: null },
+      { data: [], error: null },
+      { data: [{ id: 2, cliente_id: 11, clientes: { nombre: 'Liga Municipal Monterrey' } }], error: null },
+    );
+
+    const metricas = await obtenerMetricasUniformesDeportivos(db, COMPANY_A);
+
+    expect(metricas.recomendaciones).toEqual([{
+      texto: 'El pedido de Liga Municipal Monterrey está listo para entrega.',
+      detalle: 'Listo para entrega.',
+      accion: 'Ver pedido',
+      recurso: '/crm/clientes/11',
+    }]);
+  });
+
+  test('sin datos, devuelve KPIs en cero y sin recomendaciones', async () => {
+    const db = crearMockDb(
+      { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null },
+      { data: [], error: null },
+      { data: [], error: null },
+      { data: [], error: null },
+      { data: [], error: null },
+    );
+
+    const metricas = await obtenerMetricasUniformesDeportivos(db, COMPANY_A);
+
+    expect(metricas.kpis.every(k => k.valor === 0 || k.valor === '$0')).toBe(true);
+    expect(metricas.recomendaciones).toEqual([]);
+  });
+});
+
+describe('dashboard.obtenerMetricas() — enruta a la industria correcta', () => {
+  test('empresa con industria_slug="uniformes_deportivos" usa el tablero de esa industria', async () => {
+    const db = crearMockDb(
+      { data: { industria_slug: 'uniformes_deportivos' }, error: null }, // chequeo de industria
+      { count: 3, error: null }, { count: 2, error: null }, { count: 1, error: null }, { count: 0, error: null },
+      { data: [], error: null },
+      { data: [], error: null },
+      { data: [], error: null },
+      { data: [], error: null },
+    );
+
+    const metricas = await obtenerMetricas(db, COMPANY_A);
+
+    expect(metricas.kpis[0]).toEqual({ valor: 3, etiqueta: 'Solicitudes nuevas' });
   });
 });
 

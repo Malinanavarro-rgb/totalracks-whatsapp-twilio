@@ -11,6 +11,7 @@ import Crm from './pages/Crm';
 import CrmClienteDetalle from './pages/CrmClienteDetalle';
 import CrmPipeline from './pages/CrmPipeline';
 import Configuracion from './pages/Configuracion';
+import Catalogo from './pages/Catalogo';
 import AceptarInvitacion from './pages/AceptarInvitacion';
 import './App.css';
 
@@ -37,6 +38,7 @@ export default function App() {
             <Route path="/crm/pipeline" element={<CrmPipeline />} />
             <Route path="/crm/clientes/:clienteId" element={<CrmClienteDetalle />} />
             <Route path="/configuracion" element={<Configuracion />} />
+            <Route path="/catalogo" element={<Catalogo />} />
           </Route>
 
           <Route path="/" element={<Navigate to="/operaciones" replace />} />

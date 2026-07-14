@@ -16,9 +16,9 @@ const TABS = [
   { id: 'usuarios',      etiqueta: 'Usuarios',         Componente: UsuariosTab },
   { id: 'horarios',      etiqueta: 'Horarios',         Componente: HorariosTab },
   { id: 'servicios',     etiqueta: 'Servicios',        Componente: ServiciosTab },
-  { id: 'pipeline',      etiqueta: 'Pipeline',         Componente: PipelineTab },
+  { id: 'pipeline',      etiqueta: 'Proceso comercial', Componente: PipelineTab },
   { id: 'canales',       etiqueta: 'Canales',          Componente: CanalesTab },
-  { id: 'workflows',     etiqueta: 'Workflows',        Componente: WorkflowsTab },
+  { id: 'workflows',     etiqueta: 'Guion de atención', Componente: WorkflowsTab },
 ];
 
 export default function Configuracion() {

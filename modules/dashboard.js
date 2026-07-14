@@ -1,10 +1,12 @@
 /**
  * TARA Matrix™ — dashboard.js
  * ─────────────────────────────────────────────────────────────────────────────
- * Plataforma SaaS, Fase 2: Centro de Operaciones. Agnóstico de giro — no
- * asume ventas/oportunidades, solo conceptos universales (conversaciones,
- * clientes, citas). Todo filtrado por company_id — nunca datos mezclados
- * entre empresas.
+ * Plataforma SaaS, Fase 2: Centro de Operaciones. El tablero por default es
+ * agnóstico de giro (conversaciones, clientes, citas — universal). Empresas
+ * con `companies.industria_slug` reconocido (ver migrations/046) reciben un
+ * tablero de KPIs/recomendaciones propio de su industria en su lugar —
+ * `obtenerMetricasUniformesDeportivos()` es el primer caso. Todo sigue
+ * filtrado por company_id — nunca datos mezclados entre empresas.
  *
  * "Conversaciones activas" se calcula desde conversaciones.created_at (ya
  * existente) — no requirió ningún cambio a crm.js/Orchestrator. "Atendido
@@ -25,6 +27,21 @@ const VENTANA_ACTIVA_MS = 30 * 60 * 1000; // 30 minutos
  * @returns {Promise<Object>} las 8 métricas del Centro de Operaciones
  */
 async function obtenerMetricas(supabase, company_id) {
+  // Pivote a producto — Fase Demo Tienda Soccer: el Centro de Operaciones
+  // deja de ser 100% agnóstico de giro. Empresas con `industria_slug` en
+  // companies (ver migrations/046) reciben un tablero de KPIs y
+  // recomendaciones propio de su industria — el resto conserva el tablero
+  // genérico universal de siempre, sin ningún cambio de comportamiento.
+  const { data: company } = await supabase
+    .from('companies')
+    .select('industria_slug')
+    .eq('id', company_id)
+    .maybeSingle();
+
+  if (company?.industria_slug === 'uniformes_deportivos') {
+    return obtenerMetricasUniformesDeportivos(supabase, company_id);
+  }
+
   const ahora     = new Date();
   const hace30min = new Date(ahora.getTime() - VENTANA_ACTIVA_MS).toISOString();
   const inicioHoy = new Date(Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth(), ahora.getUTCDate())).toISOString();
@@ -74,7 +91,143 @@ async function obtenerMetricas(supabase, company_id) {
     citasAgendadas,
     alertas,
     actividadReciente,
+    // Fase Demo Tienda Soccer: `kpis`/`recomendaciones` es la forma nueva y
+    // genérica que ya entiende el frontend (Operaciones.jsx) — se agrega
+    // aquí también para que el tablero universal use el mismo render que el
+    // de industria, sin mantener dos vistas de dashboard distintas.
+    kpis: [
+      { valor: conversacionesActivas,        etiqueta: 'Conversaciones activas' },
+      { valor: conversacionesAtendidasHoy,    etiqueta: 'Atendidas hoy' },
+      { valor: clientesNuevos,                etiqueta: 'Clientes nuevos' },
+      { valor: atendidoPorIA,                 etiqueta: 'Resueltas automáticamente' },
+      { valor: atendidoPorHumano,             etiqueta: 'Con atención personal' },
+      { valor: _formatearMs(tiempoPromedioRespuestaMs), etiqueta: 'Tiempo promedio de respuesta' },
+      { valor: citasAgendadas,                etiqueta: 'Citas agendadas' },
+    ],
+    recomendaciones: [],
   };
+}
+
+function _formatearMs(ms) {
+  if (ms == null) return '—';
+  return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`;
+}
+
+/**
+ * Fase Demo Tienda Soccer: tablero de KPIs y recomendaciones propio de un
+ * negocio de venta/manufactura por cotización (uniformes deportivos
+ * personalizados) — sin agenda, con `oportunidades` como objeto central en
+ * vez de `citas`. Las recomendaciones se calculan de datos reales
+ * (oportunidades por etapa/antigüedad), no son texto fijo — cambian solas
+ * conforme cambian los datos de la empresa.
+ */
+async function obtenerMetricasUniformesDeportivos(supabase, company_id) {
+  const ahora      = new Date();
+  const hace48h    = new Date(ahora.getTime() - 48 * 3600 * 1000).toISOString();
+  const inicioMes  = new Date(Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth(), 1)).toISOString();
+
+  const [solicitudes, cotizaciones, produccion, entregas, ventasDelMes, recomendaciones] = await Promise.all([
+    _contarOportunidadesPorEstado(supabase, company_id, 'Solicitud nueva'),
+    _contarOportunidadesPorEstado(supabase, company_id, 'Cotización enviada'),
+    _contarOportunidadesPorEstado(supabase, company_id, 'En producción'),
+    _contarOportunidadesPorEstado(supabase, company_id, 'Listo para entrega'),
+    _sumarVentasDelMes(supabase, company_id, inicioMes),
+    _obtenerRecomendacionesUniformesDeportivos(supabase, company_id, hace48h),
+  ]);
+
+  return {
+    kpis: [
+      { valor: solicitudes,   etiqueta: 'Solicitudes nuevas' },
+      { valor: cotizaciones,  etiqueta: 'Cotizaciones enviadas' },
+      { valor: produccion,    etiqueta: 'Pedidos en producción' },
+      { valor: entregas,      etiqueta: 'Entregas' },
+      { valor: `$${ventasDelMes.toLocaleString('es-MX')}`, etiqueta: 'Ventas este mes' },
+    ],
+    alertas: [],
+    actividadReciente: [],
+    recomendaciones,
+  };
+}
+
+async function _contarOportunidadesPorEstado(supabase, company_id, estado) {
+  const { count, error } = await supabase
+    .from('oportunidades')
+    .select('*', { count: 'exact', head: true })
+    .eq('company_id', company_id)
+    .eq('estado', estado);
+
+  return error ? 0 : (count || 0);
+}
+
+async function _sumarVentasDelMes(supabase, company_id, desde) {
+  const { data, error } = await supabase
+    .from('oportunidades')
+    .select('presupuesto_confirmado')
+    .eq('company_id', company_id)
+    .eq('estado', 'Entregado')
+    .gte('updated_at', desde);
+
+  if (error || !data) return 0;
+  return data.reduce((acc, fila) => acc + (Number(fila.presupuesto_confirmado) || 0), 0);
+}
+
+/**
+ * Reglas de recomendación por etapa — cada una lee oportunidades reales,
+ * no texto fijo. "Cotización enviada" + estancada 48h+ → seguimiento;
+ * "Cotización en preparación" → recordatorio de confirmar tallas antes de
+ * producción; "Listo para entrega" → aviso de entrega pendiente.
+ */
+async function _obtenerRecomendacionesUniformesDeportivos(supabase, company_id, hace48h) {
+  const [estancadas, enPreparacion, listas] = await Promise.all([
+    supabase
+      .from('oportunidades')
+      .select('id, cliente_id, updated_at, clientes(nombre)')
+      .eq('company_id', company_id)
+      .eq('estado', 'Cotización enviada')
+      .lte('updated_at', hace48h)
+      .order('updated_at', { ascending: true }),
+    supabase
+      .from('oportunidades')
+      .select('id, cliente_id, clientes(nombre)')
+      .eq('company_id', company_id)
+      .eq('estado', 'Cotización en preparación'),
+    supabase
+      .from('oportunidades')
+      .select('id, cliente_id, clientes(nombre)')
+      .eq('company_id', company_id)
+      .eq('estado', 'Listo para entrega'),
+  ]);
+
+  const recos = [];
+
+  for (const op of estancadas.data || []) {
+    recos.push({
+      texto:    `${op.clientes?.nombre || 'Un cliente'} lleva más de 48 horas sin seguimiento.`,
+      detalle:  'Cotización enviada sin respuesta.',
+      accion:   'Dar seguimiento ahora',
+      recurso:  `/crm/clientes/${op.cliente_id}`,
+    });
+  }
+
+  for (const op of enPreparacion.data || []) {
+    recos.push({
+      texto:    `Confirma tallas de ${op.clientes?.nombre || 'este pedido'} antes de enviarlo a producción.`,
+      detalle:  'Cotización en preparación.',
+      accion:   'Ver detalle',
+      recurso:  `/crm/clientes/${op.cliente_id}`,
+    });
+  }
+
+  for (const op of listas.data || []) {
+    recos.push({
+      texto:    `El pedido de ${op.clientes?.nombre || 'un cliente'} está listo para entrega.`,
+      detalle:  'Listo para entrega.',
+      accion:   'Ver pedido',
+      recurso:  `/crm/clientes/${op.cliente_id}`,
+    });
+  }
+
+  return recos;
 }
 
 /**
@@ -248,4 +401,4 @@ async function _contarCitasSinConfirmar(supabase, company_id, ahoraIso, hasta) {
   return error ? 0 : (count || 0);
 }
 
-module.exports = { obtenerMetricas, obtenerActividadReciente };
+module.exports = { obtenerMetricas, obtenerActividadReciente, obtenerMetricasUniformesDeportivos };

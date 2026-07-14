@@ -11,20 +11,44 @@ const MODULOS = [
   { ruta: '/operaciones',   etiqueta: 'Centro de Operaciones', habilitado: true },
   { ruta: '/conversaciones', etiqueta: 'Conversaciones',        habilitado: true },
   { ruta: '/agenda',         etiqueta: 'Agenda TARA',           habilitado: true },
-  { ruta: '/crm',            etiqueta: 'CRM',                   habilitado: true },
+  { ruta: '/crm',            etiqueta: 'Ventas',                habilitado: true },
   { ruta: '/configuracion',  etiqueta: 'Configuración',         habilitado: true },
   { ruta: '/reportes',       etiqueta: 'Reportes',              habilitado: false },
 ];
 
+// Fase Demo · Tienda Soccer: esta industria vende por cotización (no agenda
+// citas) y su proceso comercial se navega en dos vistas separadas —
+// "Ventas" (kanban del proceso) y "Clientes" (ficha por cliente) — en vez
+// de una sola entrada "CRM". "Catálogo" reusa el CRUD de Servicios ya
+// existente en Configuración, solo con otra etiqueta/ruta en el menú.
+const MODULOS_UNIFORMES_DEPORTIVOS = [
+  { ruta: '/operaciones',    etiqueta: 'Inicio',         habilitado: true },
+  { ruta: '/conversaciones', etiqueta: 'Conversaciones', habilitado: true },
+  { ruta: '/crm/pipeline',   etiqueta: 'Ventas',         habilitado: true },
+  { ruta: '/crm',            etiqueta: 'Clientes',       habilitado: true },
+  { ruta: '/catalogo',       etiqueta: 'Catálogo',       habilitado: true },
+  { ruta: '/configuracion',  etiqueta: 'Configuración',  habilitado: true },
+];
+
+function modulosParaEmpresa(empresaActiva) {
+  return empresaActiva?.industria_slug === 'uniformes_deportivos'
+    ? MODULOS_UNIFORMES_DEPORTIVOS
+    : MODULOS;
+}
+
 export default function Shell() {
   const { sesion, cerrarSesion } = useAuth();
+  const modulos = modulosParaEmpresa(sesion?.empresaActiva);
 
   return (
-    <div className="shell">
+    <div className="shell" style={{ '--acento': sesion?.empresaActiva?.color_acento || '#1a1a2e' }}>
       <aside className="shell-sidebar">
-        <div className="shell-logo">TARA Matrix™</div>
+        <div className="shell-logo">
+          <span className="shell-logo-marca">TARA</span>
+          <span className="shell-logo-tagline">Business, made easy.</span>
+        </div>
         <nav>
-          {MODULOS.map(m => (
+          {modulos.map(m => (
             m.habilitado ? (
               <NavLink key={m.ruta} to={m.ruta} className="shell-nav-item">
                 {m.etiqueta}

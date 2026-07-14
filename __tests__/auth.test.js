@@ -95,7 +95,10 @@ describe('auth', () => {
 
       expect(resultado.token).toBe('tok-123');
       expect(resultado.usuario).toEqual({ id: USUARIO_ID, nombre: 'Alina', email: 'a@b.com' });
-      expect(resultado.empresaActiva).toEqual({ company_id: COMPANY_A, nombre: 'Total Racks', rol: 'owner', logo_url: null });
+      expect(resultado.empresaActiva).toEqual({
+        company_id: COMPANY_A, nombre: 'Total Racks', rol: 'owner',
+        logo_url: null, color_acento: null, industria_slug: null, nav_labels: null,
+      });
       expect(resultado.empresas).toHaveLength(1);
     });
 
@@ -136,7 +139,10 @@ describe('auth', () => {
 
       const empresas = await obtenerEmpresasDeUsuario(supabase, USUARIO_ID);
 
-      expect(empresas).toEqual([{ company_id: COMPANY_A, nombre: 'Total Racks', rol: 'supervisor', logo_url: null }]);
+      expect(empresas).toEqual([{
+        company_id: COMPANY_A, nombre: 'Total Racks', rol: 'supervisor',
+        logo_url: null, color_acento: null, industria_slug: null, nav_labels: null,
+      }]);
     });
 
     test('incluye logo_url cuando la empresa lo tiene configurado', async () => {
@@ -150,6 +156,27 @@ describe('auth', () => {
       const empresas = await obtenerEmpresasDeUsuario(supabase, USUARIO_ID);
 
       expect(empresas[0].logo_url).toBe('https://cdn.example.com/logo.png');
+    });
+
+    test('incluye color_acento, industria_slug y nav_labels (Fase Demo Tienda Soccer)', async () => {
+      const supabase = crearMockSupabase({
+        fromResults: [{
+          data: [{
+            company_id: COMPANY_A, rol: 'owner', created_at: '2026-01-01',
+            companies: {
+              nombre: 'Tienda Soccer', color_acento: '#0F9D76', industria_slug: 'uniformes_deportivos',
+              nav_labels: { crm: 'Ventas', catalogo: 'Catálogo' },
+            },
+          }],
+          error: null,
+        }],
+      });
+
+      const empresas = await obtenerEmpresasDeUsuario(supabase, USUARIO_ID);
+
+      expect(empresas[0].color_acento).toBe('#0F9D76');
+      expect(empresas[0].industria_slug).toBe('uniformes_deportivos');
+      expect(empresas[0].nav_labels).toEqual({ crm: 'Ventas', catalogo: 'Catálogo' });
     });
 
     test('devuelve arreglo vacío si la consulta falla', async () => {
