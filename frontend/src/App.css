@@ -552,7 +552,12 @@ body {
 .crm-pipeline-tablero {
   display: flex; gap: 0.9rem; overflow-x: auto; padding: 0.25rem 0.25rem 1rem;
   scroll-snap-type: x proximity;
+  scrollbar-width: thin; scrollbar-color: var(--line) transparent;
 }
+.crm-pipeline-tablero::-webkit-scrollbar { height: 6px; }
+.crm-pipeline-tablero::-webkit-scrollbar-track { background: transparent; }
+.crm-pipeline-tablero::-webkit-scrollbar-thumb { background: var(--line); border-radius: 999px; }
+.crm-pipeline-tablero::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
 .crm-pipeline-columna {
   background: var(--tint); border-radius: 12px; padding: 0.9rem;
   min-width: 250px; max-width: 270px; flex: 1 0 250px;
