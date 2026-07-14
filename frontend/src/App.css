@@ -543,21 +543,48 @@ body {
 
 .crm-oportunidades-lista { list-style: none; padding: 0; margin: 0; font-size: 0.9rem; display: flex; flex-direction: column; gap: 0.4rem; }
 
-/* ── Pipeline de oportunidades (Fase 2.3) ─────────────────────────────── */
+/* ── Proceso comercial / pipeline de oportunidades ─────────────────────── */
+/* Tablero horizontal con scroll-snap para que cada columna se sienta
+   "completa" al deslizar en celular, en vez de cortada a la mitad. El
+   select "Mover a" es la alternativa accesible al drag-and-drop nativo,
+   que no funciona por touch en móvil. */
 
-.crm-pipeline-tablero { display: flex; gap: 1rem; overflow-x: auto; padding-bottom: 1rem; }
+.crm-pipeline-tablero {
+  display: flex; gap: 0.9rem; overflow-x: auto; padding: 0.25rem 0.25rem 1rem;
+  scroll-snap-type: x proximity;
+}
 .crm-pipeline-columna {
-  background: #f7f7f8; border-radius: 8px; padding: 0.75rem;
-  min-width: 220px; flex: 1 0 220px;
+  background: var(--tint); border-radius: 12px; padding: 0.9rem;
+  min-width: 250px; max-width: 270px; flex: 1 0 250px;
+  scroll-snap-align: start;
 }
-.crm-pipeline-columna h2 { font-size: 0.9rem; margin: 0 0 0.75rem; display: flex; justify-content: space-between; }
-.crm-pipeline-contador { color: #888; font-weight: normal; }
+.crm-pipeline-columna-titulo {
+  font-size: 0.85rem; margin: 0 0 0.85rem; display: flex; justify-content: space-between; align-items: center;
+  color: var(--text);
+}
+.crm-pipeline-contador {
+  color: var(--text-secondary); font-weight: 600; font-size: 0.72rem;
+  background: var(--surface); border-radius: 999px; padding: 0.1rem 0.5rem;
+}
+.crm-pipeline-vacio { color: var(--text-secondary); font-size: 0.78rem; margin: 0; }
+
 .crm-pipeline-tarjeta {
-  background: #fff; border: 1px solid #e2e2e2; border-radius: 6px;
-  padding: 0.6rem 0.7rem; margin-bottom: 0.5rem; font-size: 0.85rem; cursor: grab;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 9px;
+  padding: 0.7rem 0.8rem; margin-bottom: 0.6rem; font-size: 0.85rem; cursor: grab;
 }
-.crm-pipeline-tarjeta p { margin: 0.3rem 0 0; color: #555; }
-.crm-pipeline-presupuesto { color: #226a34 !important; font-weight: 600; }
+.crm-pipeline-tarjeta-nombre { display: block; font-weight: 600; color: var(--text); text-decoration: none; }
+.crm-pipeline-tarjeta-nombre:hover { text-decoration: underline; }
+.crm-pipeline-tarjeta-detalle { margin: 0.3rem 0 0.6rem; color: var(--text-secondary); font-size: 0.8rem; }
+.crm-pipeline-tarjeta-pie { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.crm-pipeline-presupuesto { color: var(--success); font-weight: 600; font-family: var(--font-mono); font-size: 0.82rem; white-space: nowrap; }
+.crm-pipeline-mover {
+  flex-shrink: 0; max-width: 55%; font-size: 0.72rem; padding: 0.2rem 0.35rem;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text-secondary);
+}
+
+@media (max-width: 640px) {
+  .crm-pipeline-columna { min-width: 82vw; max-width: 82vw; }
+}
 
 /* ── Catálogo (Fase Premium V1.1) ──────────────────────────────────────── */
 

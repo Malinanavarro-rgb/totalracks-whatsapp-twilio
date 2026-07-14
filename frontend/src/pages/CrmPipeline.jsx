@@ -43,7 +43,7 @@ export default function CrmPipeline() {
 
   return (
     <div>
-      <p><Link to="/crm">&larr; Ventas</Link></p>
+      <p><Link to="/crm">&larr; Volver</Link></p>
       <h1>Proceso comercial</h1>
 
       {etapas.length === 0 ? (
@@ -61,7 +61,12 @@ export default function CrmPipeline() {
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => onDrop(e, et.nombre)}
               >
-                <h2>{et.nombre} <span className="crm-pipeline-contador">{deEstaEtapa.length}</span></h2>
+                <h2 className="crm-pipeline-columna-titulo">
+                  {et.nombre} <span className="crm-pipeline-contador">{deEstaEtapa.length}</span>
+                </h2>
+
+                {deEstaEtapa.length === 0 && <p className="crm-pipeline-vacio">Sin oportunidades</p>}
+
                 {deEstaEtapa.map((op) => (
                   <div
                     key={op.id}
@@ -69,11 +74,23 @@ export default function CrmPipeline() {
                     draggable
                     onDragStart={(e) => e.dataTransfer.setData('text/plain', op.id)}
                   >
-                    <Link to={`/crm/clientes/${op.cliente_id}`}>
+                    <Link to={`/crm/clientes/${op.cliente_id}`} className="crm-pipeline-tarjeta-nombre">
                       {op.clientes?.nombre || op.clientes?.telefono || 'Cliente'}
                     </Link>
-                    <p>{op.descripcion || op.tipo_rack || 'Sin descripción'}</p>
-                    {op.presupuesto_estimado && <p className="crm-pipeline-presupuesto">${op.presupuesto_estimado}</p>}
+                    <p className="crm-pipeline-tarjeta-detalle">{op.descripcion || op.tipo_rack || 'Sin descripción'}</p>
+                    <div className="crm-pipeline-tarjeta-pie">
+                      {op.presupuesto_estimado
+                        ? <span className="crm-pipeline-presupuesto">${Number(op.presupuesto_estimado).toLocaleString('es-MX')}</span>
+                        : <span />}
+                      <select
+                        className="crm-pipeline-mover"
+                        value={et.nombre}
+                        onChange={(e) => moverA(op.id, e.target.value)}
+                        aria-label="Mover a otra etapa"
+                      >
+                        {etapas.map((destino) => <option key={destino.id} value={destino.nombre}>{destino.nombre}</option>)}
+                      </select>
+                    </div>
                   </div>
                 ))}
               </div>
