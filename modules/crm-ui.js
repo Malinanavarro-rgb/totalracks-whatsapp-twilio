@@ -64,7 +64,56 @@ async function listarClientes(supabase, company_id, usuario, filtros = {}) {
   const { data, error } = await query.order('id', { ascending: false });
   if (error || !data || data.length === 0) return error ? [] : (data || []);
 
-  return _adjuntarUltimaOportunidad(supabase, company_id, data);
+  const conOportunidad = await _adjuntarUltimaOportunidad(supabase, company_id, data);
+  return _adjuntarInfoCitas(supabase, company_id, conOportunidad);
+}
+
+/**
+ * Fase Premium · Salón de Belleza: para negocios de citas, "cada cliente
+ * cuenta una historia" se traduce en próxima cita / última cita, no en
+ * oportunidad de venta — se adjunta siempre (no solo para salón), null
+ * limpio para empresas que no usan agenda, mismo patrón sin N+1 que
+ * _adjuntarUltimaOportunidad.
+ */
+async function _adjuntarInfoCitas(supabase, company_id, clientes) {
+  const ids = clientes.map(c => c.id);
+  const ahoraIso = new Date().toISOString();
+
+  const [proximasRes, pasadasRes] = await Promise.all([
+    supabase
+      .from('citas')
+      .select('cliente_id, inicio, estado')
+      .eq('company_id', company_id)
+      .in('cliente_id', ids)
+      .in('estado', ['agendada', 'confirmada'])
+      .gte('inicio', ahoraIso)
+      .order('inicio', { ascending: true }),
+    supabase
+      .from('citas')
+      .select('cliente_id, inicio, estado')
+      .eq('company_id', company_id)
+      .in('cliente_id', ids)
+      .eq('estado', 'completada')
+      .order('inicio', { ascending: false }),
+  ]);
+
+  const proximaPorCliente = new Map();
+  for (const c of proximasRes.data || []) {
+    if (!proximaPorCliente.has(c.cliente_id)) proximaPorCliente.set(c.cliente_id, c);
+  }
+  const pasadaPorCliente = new Map();
+  for (const c of pasadasRes.data || []) {
+    if (!pasadaPorCliente.has(c.cliente_id)) pasadaPorCliente.set(c.cliente_id, c);
+  }
+
+  return clientes.map(c => {
+    const proxima = proximaPorCliente.get(c.id);
+    return {
+      ...c,
+      proxima_cita: proxima ? { inicio: proxima.inicio, estado: proxima.estado } : null,
+      ultima_cita:  pasadaPorCliente.get(c.id)?.inicio || null,
+    };
+  });
 }
 
 /**

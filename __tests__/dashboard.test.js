@@ -1,6 +1,6 @@
 'use strict';
 
-const { obtenerMetricas, obtenerActividadReciente, obtenerMetricasUniformesDeportivos } = require('../modules/dashboard');
+const { obtenerMetricas, obtenerActividadReciente, obtenerMetricasUniformesDeportivos, obtenerMetricasSalonBelleza } = require('../modules/dashboard');
 
 // ─── Mock Builder ─────────────────────────────────────────────────────────────
 // Mismo patrón thenable que scheduling-engine.test.js/auth.test.js, extendido
@@ -342,6 +342,102 @@ describe('dashboard.obtenerMetricas() — enruta a la industria correcta', () =>
     const metricas = await obtenerMetricas(db, COMPANY_A);
 
     expect(metricas.kpis[0]).toEqual({ valor: 3, etiqueta: 'Solicitudes nuevas' });
+  });
+
+  test('empresa con industria_slug="salon_belleza" usa el tablero de esa industria', async () => {
+    const db = crearMockDb(
+      { data: { industria_slug: 'salon_belleza' }, error: null }, // chequeo de industria
+      { count: 4, error: null }, { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null },
+      { data: [], error: null },
+      { data: [], error: null },
+      { data: [], error: null },
+    );
+
+    const metricas = await obtenerMetricas(db, COMPANY_A);
+
+    expect(metricas.kpis[0]).toEqual({ valor: 4, etiqueta: 'Citas de hoy' });
+  });
+});
+
+// Orden de llamadas .from() dentro de obtenerMetricasSalonBelleza():
+// 1. citas (citas de hoy)  2. citas (confirmaciones pendientes)
+// 3. clientes (nuevas)     4. citas (completadas mes)  5. citas (canceladas mes)
+// 6-8. citas (recomendaciones: sin confirmar, historial, futuras)
+describe('dashboard.obtenerMetricasSalonBelleza()', () => {
+  test('calcula los 5 KPIs a partir de citas y clientes reales', async () => {
+    const db = crearMockDb(
+      { count: 4, error: null },  // citas de hoy
+      { count: 2, error: null },  // confirmaciones pendientes
+      { count: 3, error: null },  // clientas nuevas
+      { count: 12, error: null }, // completadas este mes
+      { count: 1, error: null },  // canceladas este mes
+      { data: [], error: null },  // sin confirmar
+      { data: [], error: null },  // historial
+      { data: [], error: null },  // futuras
+    );
+
+    const metricas = await obtenerMetricasSalonBelleza(db, COMPANY_A);
+
+    expect(metricas.kpis).toEqual([
+      { valor: 4,  etiqueta: 'Citas de hoy' },
+      { valor: 2,  etiqueta: 'Confirmaciones pendientes' },
+      { valor: 3,  etiqueta: 'Clientas nuevas (semana)' },
+      { valor: 12, etiqueta: 'Citas completadas este mes' },
+      { valor: 1,  etiqueta: 'Citas canceladas este mes' },
+    ]);
+  });
+
+  test('recomienda confirmar cada cita agendada sin confirmar en las próximas 48h', async () => {
+    const db = crearMockDb(
+      { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null },
+      { data: [{ id: 1, cliente_id: 10, inicio: '2026-07-15T15:00:00Z', clientes: { nombre: 'Sofía Ramírez' } }], error: null },
+      { data: [], error: null },
+      { data: [], error: null },
+    );
+
+    const metricas = await obtenerMetricasSalonBelleza(db, COMPANY_A);
+
+    expect(metricas.recomendaciones).toEqual([{
+      texto: 'Confirma la cita de Sofía Ramírez.',
+      detalle: expect.stringContaining('Agendada para'),
+      accion: 'Confirmar cita',
+      recurso: '/crm/clientes/10',
+      severidad: 'critica',
+    }]);
+  });
+
+  test('recomienda recordatorio de retoque para clienta sin visitar 45+ días y sin cita futura', async () => {
+    const hace60dias = new Date(Date.now() - 60 * 24 * 3600 * 1000).toISOString();
+    const db = crearMockDb(
+      { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null },
+      { data: [], error: null }, // sin confirmar
+      { data: [{ cliente_id: 20, inicio: hace60dias, clientes: { nombre: 'Karla Torres' } }], error: null }, // historial
+      { data: [], error: null }, // futuras (ninguna)
+    );
+
+    const metricas = await obtenerMetricasSalonBelleza(db, COMPANY_A);
+
+    expect(metricas.recomendaciones).toEqual([{
+      texto: 'Karla Torres no visita el salón hace más de 45 días.',
+      detalle: '¿Le enviamos un recordatorio de retoque?',
+      accion: 'Enviar recordatorio',
+      recurso: '/crm/clientes/20',
+      severidad: 'media',
+    }]);
+  });
+
+  test('no recomienda retoque si la clienta ya tiene una cita futura agendada', async () => {
+    const hace60dias = new Date(Date.now() - 60 * 24 * 3600 * 1000).toISOString();
+    const db = crearMockDb(
+      { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null },
+      { data: [], error: null },
+      { data: [{ cliente_id: 20, inicio: hace60dias, clientes: { nombre: 'Karla Torres' } }], error: null },
+      { data: [{ cliente_id: 20 }], error: null }, // ya tiene cita futura
+    );
+
+    const metricas = await obtenerMetricasSalonBelleza(db, COMPANY_A);
+
+    expect(metricas.recomendaciones).toEqual([]);
   });
 });
 

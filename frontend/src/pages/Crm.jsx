@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { api } from '../lib/api';
 import { iniciales, colorDesdeTexto } from '../lib/avatar';
 
@@ -24,6 +25,16 @@ function formatearMonto(monto) {
   return `$${Number(monto).toLocaleString('es-MX')}`;
 }
 
+// Fase Premium · Salón de Belleza: negocio de citas, no de cotización — la
+// fila cuenta la historia con fecha/hora de la próxima cita, no un monto.
+function formatearFechaCita(iso) {
+  if (!iso) return null;
+  const fecha = new Date(iso);
+  const dia = fecha.toLocaleDateString('es-MX', { day: 'numeric', month: 'short' });
+  const hora = fecha.toLocaleTimeString('es-MX', { hour: 'numeric', minute: '2-digit' });
+  return `${dia}, ${hora}`;
+}
+
 function AvatarCliente({ nombre, logo_url }) {
   if (logo_url) return <img className="cliente-logo" src={logo_url} alt={nombre} />;
   return (
@@ -42,6 +53,10 @@ function AvatarCliente({ nombre, logo_url }) {
 // monto, próxima acción) en vez de solo nombre/teléfono — datos reales de
 // modules/crm-ui.js::listarClientes (ultima_oportunidad), no inventados.
 export default function Crm() {
+  const { sesion } = useAuth();
+  const esSalonBelleza = sesion?.empresaActiva?.industria_slug === 'salon_belleza';
+  const esUniformesDeportivos = sesion?.empresaActiva?.industria_slug === 'uniformes_deportivos';
+  const tituloSeccion = esSalonBelleza ? 'Clientas' : esUniformesDeportivos ? 'Clientes' : 'Ventas';
   const [clientes, setClientes] = useState(null);
   const [error, setError] = useState(null);
   const [filtros, setFiltros] = useState({ nombre: '', estado: '', score_min: '' });
@@ -80,11 +95,15 @@ export default function Crm() {
   return (
     <div>
       <div className="crm-seccion-header">
-        <h1>Ventas</h1>
+        <h1>{tituloSeccion}</h1>
         <div>
           <button onClick={() => setMostrarNuevo(!mostrarNuevo)}>{mostrarNuevo ? 'Cancelar' : 'Nuevo cliente'}</button>
-          {' '}
-          <NavLink to="/crm/pipeline">Ver proceso comercial</NavLink>
+          {!esSalonBelleza && (
+            <>
+              {' '}
+              <NavLink to="/crm/pipeline">Ver proceso comercial</NavLink>
+            </>
+          )}
         </div>
       </div>
 
@@ -128,7 +147,15 @@ export default function Crm() {
       {clientes && clientes.length > 0 && (
         <>
         <div className="clientes-header">
-          <span>Cliente</span><span>Última actividad</span><span>Monto</span><span>Próxima acción</span><span>Estado</span>
+          {esSalonBelleza ? (
+            <>
+              <span>Cliente</span><span>Próxima cita</span><span>Última visita</span><span>Acción</span><span>Estado</span>
+            </>
+          ) : (
+            <>
+              <span>Cliente</span><span>Última actividad</span><span>Monto</span><span>Próxima acción</span><span>Estado</span>
+            </>
+          )}
         </div>
         <div className="clientes-lista">
           {clientes.map((c) => {
@@ -141,9 +168,21 @@ export default function Crm() {
                   <strong>{c.nombre || c.telefono}</strong>
                   <span className="cliente-fila-detalle">{c.empresa ? `${c.empresa} · ` : ''}{c.telefono}</span>
                 </div>
-                <span className="cliente-fila-actividad">{tiempoRelativo(op?.actualizado) || '—'}</span>
-                <span className="cliente-fila-monto">{formatearMonto(op?.monto) || '—'}</span>
-                <span className="cliente-fila-accion">{op?.proxima_accion || '—'}</span>
+                {esSalonBelleza ? (
+                  <>
+                    <span className="cliente-fila-actividad">{formatearFechaCita(c.proxima_cita?.inicio) || '—'}</span>
+                    <span className="cliente-fila-monto">{tiempoRelativo(c.ultima_cita) || '—'}</span>
+                    <span className="cliente-fila-accion">
+                      {c.proxima_cita?.estado === 'agendada' ? 'Confirmar' : c.proxima_cita ? 'Confirmada' : '—'}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="cliente-fila-actividad">{tiempoRelativo(op?.actualizado) || '—'}</span>
+                    <span className="cliente-fila-monto">{formatearMonto(op?.monto) || '—'}</span>
+                    <span className="cliente-fila-accion">{op?.proxima_accion || '—'}</span>
+                  </>
+                )}
                 <span className={`pill pill--${severidad}`}>{c.estado || 'Nuevo'}</span>
               </NavLink>
             );

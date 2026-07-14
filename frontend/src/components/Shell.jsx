@@ -52,10 +52,22 @@ const MODULOS_UNIFORMES_DEPORTIVOS = [
   { ruta: '/configuracion',  etiqueta: 'Configuración',  icono: 'configuracion',  habilitado: true },
 ];
 
+// Fase Premium · Salón de Belleza: negocio de citas, no de proceso
+// comercial por días — Agenda vuelve a ser central (a diferencia de
+// uniformes_deportivos, que no la usa) y "Ventas"/kanban no aplica.
+const MODULOS_SALON_BELLEZA = [
+  { ruta: '/operaciones',    etiqueta: 'Inicio',         icono: 'inicio',         habilitado: true },
+  { ruta: '/conversaciones', etiqueta: 'Conversaciones', icono: 'conversaciones', habilitado: true },
+  { ruta: '/agenda',         etiqueta: 'Agenda',         icono: 'agenda',         habilitado: true },
+  { ruta: '/crm',            etiqueta: 'Clientas',       icono: 'clientes',       habilitado: true },
+  { ruta: '/catalogo',       etiqueta: 'Catálogo',       icono: 'catalogo',       habilitado: true },
+  { ruta: '/configuracion',  etiqueta: 'Configuración',  icono: 'configuracion',  habilitado: true },
+];
+
 function modulosParaEmpresa(empresaActiva) {
-  return empresaActiva?.industria_slug === 'uniformes_deportivos'
-    ? MODULOS_UNIFORMES_DEPORTIVOS
-    : MODULOS;
+  if (empresaActiva?.industria_slug === 'uniformes_deportivos') return MODULOS_UNIFORMES_DEPORTIVOS;
+  if (empresaActiva?.industria_slug === 'salon_belleza') return MODULOS_SALON_BELLEZA;
+  return MODULOS;
 }
 
 export default function Shell() {

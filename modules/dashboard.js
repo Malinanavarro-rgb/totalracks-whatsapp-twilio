@@ -41,6 +41,9 @@ async function obtenerMetricas(supabase, company_id) {
   if (company?.industria_slug === 'uniformes_deportivos') {
     return obtenerMetricasUniformesDeportivos(supabase, company_id);
   }
+  if (company?.industria_slug === 'salon_belleza') {
+    return obtenerMetricasSalonBelleza(supabase, company_id);
+  }
 
   const ahora     = new Date();
   const hace30min = new Date(ahora.getTime() - VENTANA_ACTIVA_MS).toISOString();
@@ -305,6 +308,135 @@ async function _recomendacionesUrgentesPorFecha(supabase, company_id) {
 }
 
 /**
+ * Fase Premium — Salón de Belleza: tablero de KPIs y recomendaciones
+ * propio de un negocio de citas (manicure/pedicure/uñas) — `citas` como
+ * objeto central en vez de `oportunidades` (aquí casi no se generan
+ * oportunidades: agendar una cita no dispara las palabras clave de
+ * modules/crm.js::requiereCrearOportunidad). Recomendaciones calculadas de
+ * datos reales, igual criterio que uniformes_deportivos.
+ */
+async function obtenerMetricasSalonBelleza(supabase, company_id) {
+  const ahora      = new Date();
+  const inicioHoy  = new Date(Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth(), ahora.getUTCDate())).toISOString();
+  const finHoy     = new Date(Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth(), ahora.getUTCDate(), 23, 59, 59)).toISOString();
+  const hace7dias  = new Date(ahora.getTime() - 7 * 24 * 3600 * 1000).toISOString();
+  const en48h      = new Date(ahora.getTime() + 48 * 3600 * 1000).toISOString();
+  const inicioMes  = new Date(Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth(), 1)).toISOString();
+  const ahoraIso   = ahora.toISOString();
+
+  const [citasHoy, confirmacionesPendientes, clientasNuevas, completadasMes, canceladasMes, recomendaciones] = await Promise.all([
+    _contarCitasEnRango(supabase, company_id, inicioHoy, finHoy, ['agendada', 'confirmada']),
+    _contarCitasSinConfirmar(supabase, company_id, ahoraIso, en48h),
+    _contarDesde(supabase, 'clientes', company_id, 'created_at', hace7dias),
+    _contarCitasDesde(supabase, company_id, 'completada', inicioMes),
+    _contarCitasDesde(supabase, company_id, 'cancelada', inicioMes),
+    _obtenerRecomendacionesSalonBelleza(supabase, company_id, ahoraIso, en48h),
+  ]);
+
+  return {
+    kpis: [
+      { valor: citasHoy,                 etiqueta: 'Citas de hoy' },
+      { valor: confirmacionesPendientes, etiqueta: 'Confirmaciones pendientes' },
+      { valor: clientasNuevas,           etiqueta: 'Clientas nuevas (semana)' },
+      { valor: completadasMes,           etiqueta: 'Citas completadas este mes' },
+      { valor: canceladasMes,            etiqueta: 'Citas canceladas este mes' },
+    ],
+    alertas: [],
+    actividadReciente: [],
+    recomendaciones,
+  };
+}
+
+async function _contarCitasEnRango(supabase, company_id, desde, hasta, estados) {
+  const { count, error } = await supabase
+    .from('citas')
+    .select('*', { count: 'exact', head: true })
+    .eq('company_id', company_id)
+    .in('estado', estados)
+    .gte('inicio', desde)
+    .lte('inicio', hasta);
+
+  return error ? 0 : (count || 0);
+}
+
+async function _contarCitasDesde(supabase, company_id, estado, desde) {
+  const { count, error } = await supabase
+    .from('citas')
+    .select('*', { count: 'exact', head: true })
+    .eq('company_id', company_id)
+    .eq('estado', estado)
+    .gte('inicio', desde);
+
+  return error ? 0 : (count || 0);
+}
+
+const DIAS_SIN_VISITAR_RECORDATORIO = 45;
+
+/**
+ * Dos reglas, ambas sobre datos reales: citas agendadas (sin confirmar)
+ * en las próximas 48h → recordar confirmar; clientas cuya última cita
+ * completada fue hace 45+ días y no tienen ninguna cita futura → sugerir
+ * recordatorio de retoque.
+ */
+async function _obtenerRecomendacionesSalonBelleza(supabase, company_id, ahoraIso, en48h) {
+  const [sinConfirmar, historial, futuras] = await Promise.all([
+    supabase
+      .from('citas')
+      .select('id, cliente_id, inicio, clientes(nombre)')
+      .eq('company_id', company_id)
+      .eq('estado', 'agendada')
+      .gte('inicio', ahoraIso)
+      .lte('inicio', en48h)
+      .order('inicio', { ascending: true }),
+    supabase
+      .from('citas')
+      .select('cliente_id, inicio, clientes(nombre)')
+      .eq('company_id', company_id)
+      .eq('estado', 'completada')
+      .order('inicio', { ascending: false }),
+    supabase
+      .from('citas')
+      .select('cliente_id')
+      .eq('company_id', company_id)
+      .in('estado', ['agendada', 'confirmada'])
+      .gte('inicio', ahoraIso),
+  ]);
+
+  const recos = [];
+
+  for (const cita of sinConfirmar.data || []) {
+    recos.push({
+      texto:     `Confirma la cita de ${cita.clientes?.nombre || 'una clienta'}.`,
+      detalle:   `Agendada para ${new Date(cita.inicio).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' })}.`,
+      accion:    'Confirmar cita',
+      recurso:   `/crm/clientes/${cita.cliente_id}`,
+      severidad: 'critica',
+    });
+  }
+
+  const idsConCitaFutura = new Set((futuras.data || []).map(c => c.cliente_id));
+  const vistos = new Set();
+  const limiteAntiguedad = Date.now() - DIAS_SIN_VISITAR_RECORDATORIO * 24 * 3600 * 1000;
+
+  for (const cita of historial.data || []) {
+    if (vistos.has(cita.cliente_id)) continue;
+    vistos.add(cita.cliente_id);
+    if (idsConCitaFutura.has(cita.cliente_id)) continue;
+    if (new Date(cita.inicio).getTime() > limiteAntiguedad) continue;
+
+    recos.push({
+      texto:     `${cita.clientes?.nombre || 'Una clienta'} no visita el salón hace más de ${DIAS_SIN_VISITAR_RECORDATORIO} días.`,
+      detalle:   '¿Le enviamos un recordatorio de retoque?',
+      accion:    'Enviar recordatorio',
+      recurso:   `/crm/clientes/${cita.cliente_id}`,
+      severidad: 'media',
+    });
+  }
+
+  return recos;
+}
+
+/**
  * Pivote a producto, Fase 4.5: feed de eventos accionables recientes, con
  * link directo al recurso — antes el Centro de Operaciones solo tenía
  * contadores agregados (arriba) sin nada clickeable por evento individual.
@@ -475,4 +607,4 @@ async function _contarCitasSinConfirmar(supabase, company_id, ahoraIso, hasta) {
   return error ? 0 : (count || 0);
 }
 
-module.exports = { obtenerMetricas, obtenerActividadReciente, obtenerMetricasUniformesDeportivos };
+module.exports = { obtenerMetricas, obtenerActividadReciente, obtenerMetricasUniformesDeportivos, obtenerMetricasSalonBelleza };

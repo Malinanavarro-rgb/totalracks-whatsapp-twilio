@@ -122,6 +122,22 @@ describe('crm-ui', () => {
       expect(resultado).toEqual([]);
       expect(db.from).toHaveBeenCalledTimes(1);
     });
+
+    test('Fase Premium · Salón de Belleza: adjunta próxima cita y última cita completada', async () => {
+      const db = crearMockDb(
+        { data: [{ id: 1, nombre: 'Karla Torres' }, { id: 2, nombre: 'Sofía Ramírez' }], error: null },
+        { data: [], error: null }, // oportunidades
+        { data: [{ cliente_id: 1, inicio: '2026-07-20T15:00:00Z', estado: 'agendada' }], error: null }, // próximas
+        { data: [{ cliente_id: 2, inicio: '2026-06-01T15:00:00Z', estado: 'completada' }], error: null }, // pasadas
+      );
+
+      const resultado = await listarClientes(db, COMPANY_A, USUARIO_OWNER);
+
+      expect(resultado[0].proxima_cita).toEqual({ inicio: '2026-07-20T15:00:00Z', estado: 'agendada' });
+      expect(resultado[0].ultima_cita).toBeNull();
+      expect(resultado[1].proxima_cita).toBeNull();
+      expect(resultado[1].ultima_cita).toBe('2026-06-01T15:00:00Z');
+    });
   });
 
   describe('obtenerFichaCliente()', () => {
