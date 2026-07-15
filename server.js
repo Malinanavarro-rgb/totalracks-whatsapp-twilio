@@ -30,8 +30,11 @@ const {
 const { obtenerOCrearCliente }           = require('./modules/crm');
 const {
   listarAsesores, listarCitas, consultarDisponibilidad, obtenerOCrearClienteManual,
-  crearCita, reagendarCita, cancelarCita, vincularUsuarioAAsesor,
+  crearCita, reagendarCita, cancelarCita, marcarNoShow, vincularUsuarioAAsesor,
 }                                        = require('./modules/agenda');
+const { obtenerAgendaConfig, actualizarAgendaConfig } = require('./modules/agenda-config');
+const { calcularEstadoDelDia }           = require('./modules/agenda-engine');
+const { resolverEvento }                = require('./modules/agenda-engine/recomendaciones');
 const {
   listarClientes, obtenerFichaCliente, actualizarCliente, eliminarCliente,
   listarSeguimientos, crearSeguimiento, actualizarSeguimiento,
@@ -754,6 +757,59 @@ app.patch('/api/agenda/asesores/:id/vincular', requireAuth, async (req, res) => 
     }
     const asesor = await vincularUsuarioAAsesor(req.supabase, req.usuario.company_id, req.params.id, req.body.usuario_id);
     res.json(asesor);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/agenda/citas/:id/no-show', requireAuth, async (req, res) => {
+  try {
+    const cita = await marcarNoShow(req.supabase, req.usuario.company_id, req.usuario, req.params.id);
+    res.json(cita);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// ── MOTOR DE AGENDA UNIVERSAL (Fase 1) ────────────────────────────────────────
+// GET /api/agenda/config devuelve null cuando la empresa no tiene fila —
+// esa es la señal que usa Agenda.jsx para decidir entre la vista clásica
+// (Tienda Soccer, Total Racks, cualquiera sin configurar todavía) y la
+// experiencia de Agenda Viva (por ahora, solo Sugar Salon).
+
+app.get('/api/agenda/config', requireAuth, async (req, res) => {
+  try {
+    const config = await obtenerAgendaConfig(req.supabase, req.usuario.company_id);
+    res.json(config);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/agenda/config', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    const config = await actualizarAgendaConfig(req.supabase, req.usuario.company_id, req.body);
+    res.json(config);
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message });
+  }
+});
+
+app.get('/api/agenda/estado-del-dia', requireAuth, async (req, res) => {
+  try {
+    const fecha = req.query.fecha ? new Date(req.query.fecha) : new Date();
+    const estado = await calcularEstadoDelDia(req.supabase, req.usuario.company_id, fecha);
+    res.json(estado);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/agenda/eventos/:id/resolver', requireAuth, async (req, res) => {
+  try {
+    const { estado, accion_tomada, resultado } = req.body;
+    const evento = await resolverEvento(req.supabase, req.usuario.company_id, req.params.id, { estado, accion_tomada, resultado });
+    res.json(evento);
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
   }

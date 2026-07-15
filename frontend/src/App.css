@@ -421,6 +421,96 @@ body {
 .agenda-estado--cancelada { background: #fdecea; color: #a03a34; }
 .agenda-estado--completada { background: #e3f3e6; color: #226a34; }
 
+/* ── Agenda Viva (Motor de Agenda Universal, Fase 1) ─────────────────────────
+   Única pantalla del panel que se aparta a propósito de la superficie clara
+   — panel tipo consola, aprobado en el documento de diseño de la Agenda. */
+
+.agenda-viva-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+.agenda-viva-header button {
+  padding: 0.5rem 1rem; border: none; border-radius: 6px; background: var(--acento); color: #fff; cursor: pointer;
+}
+
+.agenda-viva-console {
+  background: #0b0f19; color: #e8ebf3; border-radius: 16px; overflow: hidden;
+  box-shadow: 0 20px 50px -25px rgba(0,0,0,0.4); border: 1px solid #1f2436;
+}
+
+.agenda-viva-cmdbar {
+  display: flex; align-items: center; gap: 1.2rem; padding: 0.8rem 1.3rem; border-bottom: 1px solid #1f2436;
+  font-size: 0.82rem; overflow-x: auto; font-variant-numeric: tabular-nums;
+}
+.agenda-viva-sep { color: #363c54; }
+.agenda-viva-crit { color: #f0576a; font-weight: 600; }
+.agenda-viva-ok { color: #34d399; }
+
+.agenda-viva-body { display: grid; grid-template-columns: 1fr 300px; }
+@media (max-width: 900px) { .agenda-viva-body { grid-template-columns: 1fr; } }
+
+.agenda-viva-timeline { padding: 1.1rem 1.3rem 1.4rem; border-right: 1px solid #1f2436; }
+.agenda-viva-timeline-head h5 { margin: 0 0 0.9rem; font-size: 0.92rem; font-weight: 600; }
+
+.agenda-viva-lane { display: flex; align-items: stretch; gap: 0.7rem; margin-bottom: 0.55rem; }
+.agenda-viva-lane-who { width: 130px; flex-shrink: 0; display: flex; align-items: center; gap: 0.5rem; }
+.agenda-viva-avatar {
+  width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center;
+  font-size: 0.7rem; font-weight: 700; color: #0b0f19; flex-shrink: 0;
+}
+.agenda-viva-nombre { font-size: 0.8rem; font-weight: 600; }
+
+.agenda-viva-track {
+  position: relative; flex: 1; height: 44px; background: #131829; border-radius: 8px; min-width: 0;
+}
+.agenda-viva-blk {
+  position: absolute; top: 4px; bottom: 4px; border-radius: 6px; font-size: 0.66rem; padding: 0.2rem 0.4rem;
+  overflow: hidden; white-space: nowrap; display: flex; flex-direction: column; justify-content: center;
+  border: 1px solid transparent;
+}
+.agenda-viva-blk b { font-weight: 600; display: block; font-size: 0.68rem; }
+.agenda-viva-blk span { opacity: 0.75; font-size: 0.6rem; }
+.agenda-viva-blk--done { background: #1c2438; color: #7d8399; }
+.agenda-viva-blk--now { background: #16382f; color: #6ee7c9; border-color: #22c7b8; }
+.agenda-viva-blk--upcoming { background: #1c2438; color: #c7cbe0; }
+.agenda-viva-blk--late { background: #3a1c20; color: #ff96a4; border-color: #f0576a; }
+.agenda-viva-blk--cancel { background: transparent; border: 1px dashed #4a2f36; color: #7d5a62; text-decoration: line-through; }
+.agenda-viva-blk--gap {
+  background: repeating-linear-gradient(45deg, #1a2033, #1a2033 4px, #202748 4px, #202748 8px);
+  border: 1px dashed #3d4468; color: #7a81a3; display: flex; align-items: center; justify-content: center;
+  font-size: 0.62rem; white-space: nowrap;
+}
+
+.agenda-viva-nowline { position: absolute; top: -2px; bottom: -2px; width: 2px; background: #22c7b8; z-index: 5; box-shadow: 0 0 6px #22c7b8; }
+
+.agenda-viva-legend { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 1.1rem; font-size: 0.66rem; color: #6c7290; }
+.agenda-viva-legend span { display: inline-flex; align-items: center; gap: 0.35rem; }
+.agenda-viva-legend i { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
+
+.agenda-viva-feed { padding: 1.1rem 1.1rem 1.4rem; }
+.agenda-viva-feed h5 { margin: 0 0 0.9rem; font-size: 0.92rem; display: flex; align-items: center; gap: 0.5rem; }
+.agenda-viva-ai-dot { width: 14px; height: 14px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #6ee7c9, #22c7b8 60%, #0e6e63); flex-shrink: 0; display: inline-block; }
+
+.agenda-viva-card { background: #131829; border: 1px solid #232842; border-radius: 10px; padding: 0.75rem 0.85rem; margin-bottom: 0.65rem; }
+.agenda-viva-card-sev { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; margin-bottom: 0.3rem; display: block; }
+.agenda-viva-card--critica .agenda-viva-card-sev { color: #f0576a; }
+.agenda-viva-card--media .agenda-viva-card-sev { color: #f5b942; }
+.agenda-viva-card--info .agenda-viva-card-sev { color: #7ea6ff; }
+.agenda-viva-card p { margin: 0 0 0.5rem; font-size: 0.76rem; color: #c7cbe0; line-height: 1.4; }
+.agenda-viva-card-detalle { color: #8b93ab !important; }
+.agenda-viva-card-acciones { display: flex; gap: 0.5rem; }
+.agenda-viva-card-acciones button {
+  font-size: 0.7rem; padding: 0.35rem 0.65rem; border-radius: 6px; border: none; cursor: pointer;
+  background: #22c7b8; color: #06201d; font-weight: 600;
+}
+.agenda-viva-card-acciones button.agenda-viva-ghost { background: transparent; color: #7d8399; border: 1px solid #2c3350; }
+.agenda-viva-card-acciones button:disabled { opacity: 0.5; cursor: default; }
+
+.agenda-viva-kpirail { display: grid; grid-template-columns: repeat(5, 1fr); border-top: 1px solid #1f2436; }
+.agenda-viva-kpi { padding: 0.9rem 1.1rem; border-right: 1px solid #1f2436; }
+.agenda-viva-kpi:last-child { border-right: none; }
+.agenda-viva-kpi .v { font-family: var(--font-mono, monospace); font-size: 1.15rem; font-variant-numeric: tabular-nums; font-weight: 600; }
+.agenda-viva-kpi .v.agenda-viva-nodisp { font-size: 0.85rem; font-weight: 500; color: #565c78; font-style: italic; }
+.agenda-viva-kpi .l { font-size: 0.66rem; color: #6c7290; margin-top: 0.15rem; }
+@media (max-width: 760px) { .agenda-viva-kpirail { grid-template-columns: repeat(2, 1fr); } }
+
 /* ── Modal (Nueva cita) ───────────────────────────────────────────────────── */
 
 .modal-fondo {

@@ -47,6 +47,15 @@ export const api = {
   reagendarCita: (citaId, inicio, fin) =>
     pedir(`/api/agenda/citas/${citaId}`, { method: 'PATCH', body: JSON.stringify({ inicio, fin }) }),
   cancelarCita:  (citaId) => pedir(`/api/agenda/citas/${citaId}/cancelar`, { method: 'POST' }),
+  marcarNoShow:  (citaId) => pedir(`/api/agenda/citas/${citaId}/no-show`, { method: 'POST' }),
+
+  // Motor de Agenda Universal (Fase 1) — agendaConfig() devuelve null si la
+  // empresa no tiene experiencia configurada (Agenda.jsx usa eso para
+  // decidir entre la vista clásica y AgendaViva).
+  agendaConfig:          () => pedir('/api/agenda/config'),
+  actualizarAgendaConfig: (config) => pedir('/api/agenda/config', { method: 'PATCH', body: JSON.stringify(config) }),
+  estadoDelDiaAgenda:    (fecha) => pedir(`/api/agenda/estado-del-dia${fecha ? `?fecha=${fecha}` : ''}`),
+  resolverEventoAgenda:  (eventoId, datos) => pedir(`/api/agenda/eventos/${eventoId}/resolver`, { method: 'POST', body: JSON.stringify(datos) }),
 
   clientesCrm:        (filtros = {}) => {
     const params = new URLSearchParams(Object.entries(filtros).filter(([, v]) => v !== '' && v != null));

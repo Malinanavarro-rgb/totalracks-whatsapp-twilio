@@ -25,7 +25,7 @@ jest.mock('../modules/google-auth', () => ({
 
 const {
   listarAsesores, listarCitas, consultarDisponibilidad, obtenerOCrearClienteManual,
-  crearCita, reagendarCita, cancelarCita, vincularUsuarioAAsesor, resolverAsesorDeUsuario,
+  crearCita, reagendarCita, cancelarCita, marcarNoShow, vincularUsuarioAAsesor, resolverAsesorDeUsuario,
 } = require('../modules/agenda');
 
 // ─── Mock Builder ─────────────────────────────────────────────────────────────
@@ -143,6 +143,44 @@ describe('agenda', () => {
       await expect(
         cancelarCita(db, COMPANY_A, USUARIO_OWNER, 'no-existe')
       ).rejects.toMatchObject({ status: 404 });
+    });
+  });
+
+  describe('marcarNoShow() (Motor de Agenda Universal, Fase 1)', () => {
+    test('marca la cita como no_show', async () => {
+      const db = crearMockDb(
+        { data: { id: 'cita-1', asesor_id: ASESOR_1 }, error: null }, // _obtenerCitaPropia
+        { data: { id: 'cita-1', estado: 'no_show' }, error: null },   // update
+      );
+      const resultado = await marcarNoShow(db, COMPANY_A, USUARIO_OWNER, 'cita-1');
+      expect(resultado.estado).toBe('no_show');
+    });
+
+    test('asesor no puede marcar no-show en la cita de otro asesor (403)', async () => {
+      const db = crearMockDb(
+        { data: { id: 'cita-1', asesor_id: 'otro-asesor' }, error: null },
+        { data: { id: ASESOR_1 }, error: null },
+      );
+      await expect(
+        marcarNoShow(db, COMPANY_A, USUARIO_ASESOR, 'cita-1')
+      ).rejects.toMatchObject({ status: 403 });
+    });
+
+    test('cita inexistente: 404', async () => {
+      const db = crearMockDb({ data: null, error: null });
+      await expect(
+        marcarNoShow(db, COMPANY_A, USUARIO_OWNER, 'no-existe')
+      ).rejects.toMatchObject({ status: 404 });
+    });
+
+    test('lanza si Supabase falla al actualizar', async () => {
+      const db = crearMockDb(
+        { data: { id: 'cita-1', asesor_id: ASESOR_1 }, error: null },
+        { data: null, error: new Error('boom') },
+      );
+      await expect(
+        marcarNoShow(db, COMPANY_A, USUARIO_OWNER, 'cita-1')
+      ).rejects.toThrow('boom');
     });
   });
 

@@ -175,6 +175,30 @@ async function cancelarCita(supabase, company_id, usuario, citaId) {
 }
 
 /**
+ * Motor de Agenda Universal (Fase 1): marca una cita como inasistencia.
+ * `no_show` ya era un valor válido en el modelo (migración 017) — solo
+ * faltaba una función que lo escriba. Reusa `_obtenerCitaPropia` para la
+ * misma validación de pertenencia/rol que reagendar/cancelar. No hay un
+ * método equivalente en SchedulingEngine (congelado) porque esto no toca
+ * disponibilidad ni calendario externo — es solo un cambio de estado, y
+ * nunca se llama sola: siempre la dispara un clic explícito de la usuaria.
+ */
+async function marcarNoShow(supabase, company_id, usuario, citaId) {
+  const cita = await _obtenerCitaPropia(supabase, company_id, usuario, citaId);
+
+  const { data, error } = await supabase
+    .from('citas')
+    .update({ estado: 'no_show', updated_at: new Date().toISOString() })
+    .eq('id', cita.id)
+    .eq('company_id', company_id)
+    .select()
+    .single();
+
+  if (error) throw new Error(`agenda.marcarNoShow: ${error.message}`);
+  return data;
+}
+
+/**
  * Vincula un asesor de agenda con un usuario del panel — base multiusuario
  * del SaaS. Solo Owner/Administrador. Valida que el usuario pertenezca a la
  * misma empresa antes de vincular.
@@ -216,6 +240,7 @@ module.exports = {
   crearCita,
   reagendarCita,
   cancelarCita,
+  marcarNoShow,
   vincularUsuarioAAsesor,
   resolverAsesorDeUsuario,
 };
