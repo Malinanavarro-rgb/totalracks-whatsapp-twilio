@@ -42,7 +42,7 @@ async function _obtenerCitasDelDia(supabase, company_id, fecha) {
 
   const { data, error } = await supabase
     .from('citas')
-    .select('*, clientes(nombre, telefono)')
+    .select('*, clientes(nombre, telefono), servicios(nombre, precio, duracion_minutos)')
     .eq('company_id', company_id)
     .gte('inicio', inicioDia)
     .lte('inicio', finDia)

@@ -39,6 +39,7 @@ function AgendaClasica() {
   const [citas, setCitas] = useState(null);
   const [asesores, setAsesores] = useState([]);
   const [clientesExistentes, setClientesExistentes] = useState([]);
+  const [servicios, setServicios] = useState([]);
   const [error, setError] = useState(null);
   const [mostrarForm, setMostrarForm] = useState(false);
 
@@ -48,6 +49,8 @@ function AgendaClasica() {
     // la fuente única de verdad de "cliente", Conversaciones no debería
     // serlo solo porque comparte una forma de datos similar.
     api.clientesCrm().then(setClientesExistentes).catch(() => {});
+    // Fase 2: catálogo con precio real, para el selector de servicio del modal.
+    api.serviciosConfig().then(setServicios).catch(() => {});
   }, []);
 
   useEffect(() => { cargarCitas(); }, [fecha]);
@@ -108,6 +111,7 @@ function AgendaClasica() {
         <NuevaCitaModal
           asesores={asesores}
           clientesExistentes={clientesExistentes}
+          servicios={servicios}
           fechaDefault={fecha}
           onCerrar={() => setMostrarForm(false)}
           onCreada={() => { setMostrarForm(false); cargarCitas(); }}

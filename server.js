@@ -723,9 +723,10 @@ app.post('/api/agenda/clientes', requireAuth, async (req, res) => {
 
 app.post('/api/agenda/citas', requireAuth, async (req, res) => {
   try {
-    const { clienteId, asesorId, inicio, fin } = req.body;
+    const { clienteId, asesorId, inicio, fin, servicioId, precioCobrado } = req.body;
     const cita = await crearCita(req.supabase, req.usuario.company_id, req.usuario, {
       clienteId, asesorId, inicio: new Date(inicio), fin: new Date(fin),
+      servicioId, precioCobrado: precioCobrado != null ? Number(precioCobrado) : null,
     });
     res.status(201).json(cita);
   } catch (e) {

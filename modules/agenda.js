@@ -121,7 +121,7 @@ async function eliminarAsesor(supabase, company_id, id) {
 async function listarCitas(supabase, company_id, usuario, { desde, hasta }) {
   let query = supabase
     .from('citas')
-    .select('*, clientes(nombre, telefono), asesores(nombre)')
+    .select('*, clientes(nombre, telefono), asesores(nombre), servicios(nombre, precio, duracion_minutos)')
     .eq('company_id', company_id)
     .gte('inicio', desde)
     .lte('inicio', hasta)
@@ -180,8 +180,13 @@ async function obtenerOCrearClienteManual(supabase, company_id, { telefono, nomb
 /**
  * Crea una cita nueva. Un Asesor solo puede agendar para sí mismo (asesorId
  * se fuerza a su propio asesor vinculado, ignorando cualquier otro valor).
+ *
+ * servicioId/precioCobrado (Fase 2): SchedulingEngine.agendarCita() es Core
+ * congelado (ADR-005) y no conoce estas columnas — en vez de tocarlo, se
+ * hace un UPDATE directo aquí mismo, en la capa de plataforma, justo
+ * después de crear la cita. Cero cambios al Core.
  */
-async function crearCita(supabase, company_id, usuario, { clienteId, asesorId, inicio, fin }) {
+async function crearCita(supabase, company_id, usuario, { clienteId, asesorId, inicio, fin, servicioId, precioCobrado }) {
   let asesorFinal = asesorId;
 
   if (!ROLES_GERENCIALES.includes(usuario.rol)) {
@@ -194,7 +199,19 @@ async function crearCita(supabase, company_id, usuario, { clienteId, asesorId, i
   }
 
   const engine = await _schedulingEngineParaEmpresa(supabase, company_id);
-  return engine.agendarCita(company_id, { clienteId, asesorId: asesorFinal, inicio, fin });
+  const cita = await engine.agendarCita(company_id, { clienteId, asesorId: asesorFinal, inicio, fin });
+
+  if (servicioId == null && precioCobrado == null) return cita;
+
+  const { data, error } = await supabase
+    .from('citas')
+    .update({ servicio_id: servicioId || null, precio_cobrado: precioCobrado ?? null })
+    .eq('id', cita.id)
+    .eq('company_id', company_id)
+    .select()
+    .maybeSingle();
+
+  return error || !data ? cita : data;
 }
 
 async function _obtenerCitaPropia(supabase, company_id, usuario, citaId) {

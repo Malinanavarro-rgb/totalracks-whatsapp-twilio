@@ -19,10 +19,35 @@ function horaMty(hhmm) {
 }
 
 describe('agenda-engine/metricas', () => {
-  test('dineroGenerado y tiempoPromedioServicio siempre son "no_disponible" en Fase 1 — nunca se inventan', () => {
-    const r = calcularMetricasDia([{ citas: [], horario: HORARIO, fecha: FECHA }], horaMty('11:00'), UMBRALES);
+  test('sin ninguna cita con precio_cobrado capturado: dineroGenerado es "no_disponible", no 0', () => {
+    const citas = [{ id: 1, inicio: horaMty('09:00').toISOString(), fin: horaMty('09:45').toISOString(), estado: 'completada' }];
+    const r = calcularMetricasDia([{ citas, horario: HORARIO, fecha: FECHA }], horaMty('11:00'), UMBRALES);
     expect(r.dineroGenerado).toBe('no_disponible');
+  });
+
+  test('tiempoPromedioServicio siempre es "no_disponible" — necesita check-in/check-out real (Etapa C)', () => {
+    const r = calcularMetricasDia([{ citas: [], horario: HORARIO, fecha: FECHA }], horaMty('11:00'), UMBRALES);
     expect(r.tiempoPromedioServicio).toBe('no_disponible');
+  });
+
+  test('dineroGenerado (Fase 2): suma precio_cobrado de citas con dato real, ignorando las que no lo tienen', () => {
+    const citas = [
+      { id: 1, inicio: horaMty('09:00').toISOString(), fin: horaMty('09:45').toISOString(), estado: 'completada', precio_cobrado: 350 },
+      { id: 2, inicio: horaMty('10:00').toISOString(), fin: horaMty('10:30').toISOString(), estado: 'completada', precio_cobrado: 150 },
+      { id: 3, inicio: horaMty('11:00').toISOString(), fin: horaMty('11:30').toISOString(), estado: 'agendada', precio_cobrado: null },
+    ];
+    const r = calcularMetricasDia([{ citas, horario: HORARIO, fecha: FECHA }], horaMty('11:10'), UMBRALES);
+    expect(r.dineroGenerado).toBe(500);
+  });
+
+  test('dineroGenerado (Fase 2): excluye citas canceladas o no-show aunque tengan precio_cobrado', () => {
+    const citas = [
+      { id: 1, inicio: horaMty('09:00').toISOString(), fin: horaMty('09:45').toISOString(), estado: 'completada', precio_cobrado: 350 },
+      { id: 2, inicio: horaMty('10:00').toISOString(), fin: horaMty('10:30').toISOString(), estado: 'cancelada', precio_cobrado: 150 },
+      { id: 3, inicio: horaMty('16:00').toISOString(), fin: horaMty('16:30').toISOString(), estado: 'no_show', precio_cobrado: 200 },
+    ];
+    const r = calcularMetricasDia([{ citas, horario: HORARIO, fecha: FECHA }], horaMty('11:10'), UMBRALES);
+    expect(r.dineroGenerado).toBe(350);
   });
 
   test('sin citas que hayan empezado todavía, puntualidad es 100% (nada que juzgar)', () => {

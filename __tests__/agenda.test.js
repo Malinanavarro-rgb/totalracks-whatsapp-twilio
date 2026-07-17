@@ -153,6 +153,24 @@ describe('agenda', () => {
         crearCita(db, COMPANY_A, USUARIO_ASESOR, { clienteId: 1, inicio: new Date(), fin: new Date() })
       ).rejects.toMatchObject({ status: 403 });
     });
+
+    test('con servicioId/precioCobrado: hace un UPDATE aparte (Fase 2) sin tocar SchedulingEngine.agendarCita', async () => {
+      const citaActualizada = { id: 'cita-1', servicio_id: 's1', precio_cobrado: 350 };
+      const db = crearMockDb({ data: citaActualizada, error: null }); // el UPDATE post-agendarCita
+      const resultado = await crearCita(db, COMPANY_A, USUARIO_OWNER, {
+        clienteId: 1, asesorId: ASESOR_1, inicio: new Date(), fin: new Date(), servicioId: 's1', precioCobrado: 350,
+      });
+      expect(mockAgendarCita).toHaveBeenCalledWith(COMPANY_A, expect.objectContaining({ asesorId: ASESOR_1 }));
+      const builder = db.from.mock.results[0].value;
+      expect(builder.update).toHaveBeenCalledWith({ servicio_id: 's1', precio_cobrado: 350 });
+      expect(resultado).toEqual(citaActualizada);
+    });
+
+    test('sin servicioId ni precioCobrado: no hace ningún UPDATE extra', async () => {
+      const db = crearMockDb();
+      await crearCita(db, COMPANY_A, USUARIO_OWNER, { clienteId: 1, asesorId: ASESOR_1, inicio: new Date(), fin: new Date() });
+      expect(db.from).not.toHaveBeenCalled(); // el único insert vive dentro del SchedulingEngine mockeado
+    });
   });
 
   describe('reagendarCita() / cancelarCita()', () => {

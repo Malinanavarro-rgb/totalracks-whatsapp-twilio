@@ -388,8 +388,12 @@ export default function AgendaViva() {
               <div className="agenda-viva-kpi"><div className="v">{estado.metricas.ocupacionPct}%</div><div className="l">Ocupación de hoy</div></div>
               <div className="agenda-viva-kpi"><div className="v">{estado.metricas.citasRestantes}</div><div className="l">{term.bloque.plural} restantes</div></div>
               <div className="agenda-viva-kpi"><div className="v">{estado.metricas.puntualidadAproxPct}%</div><div className="l">Puntualidad (aprox.)</div></div>
-              <div className="agenda-viva-kpi"><div className="v agenda-viva-nodisp">No disponible</div><div className="l">Ganancias del día — Fase 2</div></div>
-              <div className="agenda-viva-kpi"><div className="v agenda-viva-nodisp">No disponible</div><div className="l">Tiempo promedio — Fase 2</div></div>
+              {estado.metricas.dineroGenerado === 'no_disponible' ? (
+                <div className="agenda-viva-kpi"><div className="v agenda-viva-nodisp">No disponible</div><div className="l">Ganancias del día</div></div>
+              ) : (
+                <div className="agenda-viva-kpi"><div className="v">${estado.metricas.dineroGenerado.toLocaleString('es-MX')}</div><div className="l">Ganancias del día</div></div>
+              )}
+              <div className="agenda-viva-kpi"><div className="v agenda-viva-nodisp">No disponible</div><div className="l">Tiempo promedio — Etapa C</div></div>
             </div>
           )}
         </div>
@@ -399,6 +403,7 @@ export default function AgendaViva() {
         <NuevaCitaModal
           asesores={asesoresModal}
           clientesExistentes={clientesModal}
+          servicios={estado.servicios}
           fechaDefault={fecha}
           asesorIdDefault={prellenadoNuevaCita?.asesorId}
           horaDefault={prellenadoNuevaCita?.hora}
