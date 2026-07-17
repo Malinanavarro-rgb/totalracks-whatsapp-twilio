@@ -19,6 +19,7 @@ function crearMockDb(resolvers) {
         update: jest.fn().mockReturnThis(),
         eq: jest.fn((k, v) => { filtros[k] = v; return builder; }),
         is: jest.fn((k, v) => { filtros[k] = v; return builder; }),
+        in: jest.fn((k, v) => { filtros[k] = v; return builder; }),
         gte: jest.fn().mockReturnThis(),
         lte: jest.fn().mockReturnThis(),
         order: jest.fn().mockReturnThis(),
@@ -70,15 +71,28 @@ const CONFIG_SALON = {
 let contadorEventos;
 beforeEach(() => { contadorEventos = 0; });
 
-function resolversBase({ asesoresPorCompany, citasPorCompany, configPorCompany }) {
+function resolversBase({ asesoresPorCompany, citasPorCompany, configPorCompany, historialPorCliente = {}, altaPorCliente = {}, serviciosPorCompany = {} }) {
   return {
     agenda_config: (ctx) => {
       const config = configPorCompany[ctx.filtros.company_id];
       return { data: config ? { company_id: ctx.filtros.company_id, schema_version: 1, config } : null, error: null };
     },
     asesores: (ctx) => ({ data: asesoresPorCompany[ctx.filtros.company_id] || [], error: null }),
-    citas: (ctx) => ({ data: citasPorCompany[ctx.filtros.company_id] || [], error: null }),
-    servicios: () => ({ data: [], error: null }),
+    citas: (ctx) => {
+      // .in('cliente_id', [...]) → consulta de historial completo. Sin ese
+      // filtro → consulta de "citas de hoy" (la de siempre).
+      if (ctx.filtros.cliente_id) {
+        const idsPedidos = ctx.filtros.cliente_id;
+        const todas = Object.values(historialPorCliente).flat();
+        return { data: todas.filter(c => idsPedidos.includes(c.cliente_id)), error: null };
+      }
+      return { data: citasPorCompany[ctx.filtros.company_id] || [], error: null };
+    },
+    clientes: (ctx) => {
+      const idsPedidos = ctx.filtros.id || [];
+      return { data: idsPedidos.map(id => ({ id, created_at: altaPorCliente[id] || null })), error: null };
+    },
+    servicios: (ctx) => ({ data: serviciosPorCompany[ctx.filtros.company_id] || [], error: null }),
     horarios_laborales: (ctx) => {
       if ('asesor_id' in ctx.filtros && ctx.filtros.asesor_id !== null) return { data: null, error: null }; // sin horario propio
       return { data: HORARIO, error: null }; // fallback general
@@ -158,5 +172,61 @@ describe('agenda-engine/index — calcularEstadoDelDia()', () => {
     for (const l of llamadasDeDatos) {
       expect(l.filtros.company_id).toBe(COMPANY_A);
     }
+  });
+
+  describe('TARA Canvas v3 — densidad, servicios con precio y segmentación', () => {
+    function haceDias(dias) {
+      return new Date(Date.now() - dias * 24 * 3600 * 1000).toISOString();
+    }
+
+    test('ocupacionPct por recurso, servicios con precio real, y segmentos adjuntos a la clienta', async () => {
+      const db = crearMockDb(resolversBase({
+        asesoresPorCompany: { [COMPANY_A]: [{ id: 'a1', nombre: 'Ana Martínez' }] },
+        citasPorCompany: {
+          [COMPANY_A]: [{
+            id: 'c1', cliente_id: 'cli-1', asesor_id: 'a1', estado: 'confirmada',
+            inicio: horaMty('09:00').toISOString(), fin: horaMty('09:45').toISOString(),
+            clientes: { nombre: 'Karla Torres' },
+          }],
+        },
+        configPorCompany: { [COMPANY_A]: CONFIG_SALON },
+        serviciosPorCompany: {
+          [COMPANY_A]: [{ id: 's1', nombre: 'Manicure exprés', duracion_minutos: 30, precio: 300, activo: true }],
+        },
+        historialPorCliente: {
+          'cli-1': [
+            { cliente_id: 'cli-1', inicio: haceDias(54), estado: 'completada' },
+            { cliente_id: 'cli-1', inicio: haceDias(36), estado: 'completada' },
+            { cliente_id: 'cli-1', inicio: haceDias(18), estado: 'completada' },
+          ],
+        },
+        altaPorCliente: { 'cli-1': haceDias(200) },
+      }));
+
+      const estado = await calcularEstadoDelDia(db, COMPANY_A, FECHA);
+
+      // 45 min de cita en una jornada de 540 min (9h - 1h comida) ≈ 8%
+      expect(estado.recursos[0].ocupacionPct).toBe(8);
+      expect('siguienteEspacio' in estado.recursos[0]).toBe(true);
+
+      expect(estado.servicios).toEqual([{ id: 's1', nombre: 'Manicure exprés', duracion_minutos: 30, precio: 300, activo: true }]);
+
+      const cita = estado.recursos[0].citas[0];
+      expect(cita.clientes.segmentos).toContain('leal');
+      expect(cita.clientes.factoresValor.visitasCompletadas).toBe(3);
+    });
+
+    test('sin cliente_id en la cita (ej. dato viejo): no intenta calcular segmentos ni truena', async () => {
+      const db = crearMockDb(resolversBase({
+        asesoresPorCompany: { [COMPANY_A]: [{ id: 'a1', nombre: 'Ana Martínez' }] },
+        citasPorCompany: {
+          [COMPANY_A]: [{ id: 'c1', asesor_id: 'a1', estado: 'confirmada', inicio: horaMty('09:00').toISOString(), fin: horaMty('09:45').toISOString(), clientes: { nombre: 'Sin id' } }],
+        },
+        configPorCompany: { [COMPANY_A]: CONFIG_SALON },
+      }));
+
+      const estado = await calcularEstadoDelDia(db, COMPANY_A, FECHA);
+      expect(estado.recursos[0].citas[0].clientes.segmentos).toBeUndefined();
+    });
   });
 });

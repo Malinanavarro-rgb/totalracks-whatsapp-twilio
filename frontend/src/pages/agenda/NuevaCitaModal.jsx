@@ -4,16 +4,19 @@ import { api } from '../../lib/api';
 // Extraído de Agenda.jsx (Fase 4) sin cambiar su lógica — compartido entre
 // la vista clásica y AgendaViva (Motor de Agenda Universal, Fase 1) para no
 // perder la función de crear cita manual en ninguna de las dos.
-export default function NuevaCitaModal({ asesores, clientesExistentes, fechaDefault, onCerrar, onCreada }) {
+// asesorIdDefault/horaDefault (opcionales): TARA Canvas v3 — al crear una
+// cita desde un espacio disponible del lienzo, el modal abre con esa
+// técnica/hora ya seleccionadas, en vez de "Automático"/09:00.
+export default function NuevaCitaModal({ asesores, clientesExistentes, fechaDefault, asesorIdDefault, horaDefault, onCerrar, onCreada }) {
   const [modoCliente, setModoCliente]   = useState('existente');
   const [clienteId, setClienteId]       = useState('');
   const [nuevoNombre, setNuevoNombre]   = useState('');
   const [nuevoTelefono, setNuevoTelefono] = useState('');
   const [nuevaEmpresa, setNuevaEmpresa] = useState('');
   const [nuevasNotas, setNuevasNotas]   = useState('');
-  const [asesorId, setAsesorId]         = useState('');
+  const [asesorId, setAsesorId]         = useState(asesorIdDefault || '');
   const [fecha, setFecha]               = useState(fechaDefault);
-  const [hora, setHora]                 = useState('09:00');
+  const [hora, setHora]                 = useState(horaDefault || '09:00');
   const [duracionMinutos, setDuracionMinutos] = useState(30);
   const [enviando, setEnviando]         = useState(false);
   const [error, setError]               = useState(null);

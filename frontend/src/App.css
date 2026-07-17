@@ -445,6 +445,12 @@ body {
   --at-shadow-md: 0 10px 30px -14px rgba(43,38,32,0.18);
   --at-shadow-lg: 0 30px 70px -25px rgba(43,38,32,0.16);
   --at-ease: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* TARA Canvas v3 — sistema de color de estado (reconciliado: "en curso"
+     pasa de turquesa a morado; turquesa queda exclusivo de TARA actuando). */
+  --v3-blue:   #3b6fa0; --v3-blue-soft:   #e8f0f7;
+  --v3-purple: #7a5ca8; --v3-purple-soft: #efe8f7;
+  --v3-green:  #4f9d6e; --v3-green-soft:  #e8f5ec;
 }
 
 .agenda-viva-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
@@ -477,15 +483,20 @@ body {
 .agenda-viva-body { padding: 1.3rem 1.4rem 0.8rem; position: relative; }
 
 .agenda-viva-lane { display: flex; align-items: stretch; gap: 0.6rem; margin-bottom: 0.55rem; }
-.agenda-viva-lane-who { width: 128px; flex-shrink: 0; display: flex; align-items: center; gap: 0.55rem; }
+.agenda-viva-lane-who { width: 210px; flex-shrink: 0; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; row-gap: 0.3rem; }
 .agenda-viva-avatar {
   width: 28px; height: 28px; border-radius: 9px; display: flex; align-items: center; justify-content: center;
   font-size: 0.7rem; font-weight: 700; color: #fff; flex-shrink: 0;
 }
-.agenda-viva-nombre { font-size: 0.8rem; font-weight: 600; }
+.agenda-viva-nombre { font-size: 0.8rem; font-weight: 600; flex-shrink: 0; }
+.agenda-viva-lane-stat {
+  font-size: 0.64rem; color: var(--at-text-dim); background: var(--at-surface-2); padding: 0.15rem 0.45rem;
+  border-radius: 99px; white-space: nowrap;
+}
+.agenda-viva-lane-stat--next { background: var(--v3-blue-soft); color: var(--v3-blue); font-weight: 600; }
 
 .agenda-viva-track {
-  position: relative; flex: 1; height: 52px; background: var(--at-surface-2); border-radius: 12px; min-width: 0;
+  position: relative; flex: 1; height: 56px; background: var(--at-surface-2); border-radius: 12px; min-width: 0;
 }
 .agenda-viva-blk {
   position: absolute; top: 5px; bottom: 5px; border-radius: 9px; font-size: 0.68rem; padding: 0.25rem 0.55rem;
@@ -497,17 +508,28 @@ body {
 .agenda-viva-blk b { font-weight: 600; display: block; font-size: 0.7rem; color: var(--at-text); }
 .agenda-viva-blk span { opacity: 0.75; font-size: 0.62rem; }
 .agenda-viva-blk--done { background: var(--at-surface); color: var(--at-text-dim); box-shadow: inset 0 0 0 1px var(--at-line); }
-.agenda-viva-blk--now { background: var(--at-teal-soft); border-color: var(--at-teal); }
-.agenda-viva-blk--now b { color: #0b7d72; }
-.agenda-viva-blk--upcoming { background: var(--at-surface); box-shadow: 0 1px 2px rgba(43,38,32,0.05), inset 0 0 0 1px var(--at-line); }
+/* "En curso" pasa de turquesa a morado — turquesa queda exclusivo de TARA
+   actuando (⌘K, chips, pulso). "Próxima" adopta el azul de información. */
+.agenda-viva-blk--now { background: var(--v3-purple-soft); border-color: var(--v3-purple); color: var(--v3-purple); }
+.agenda-viva-blk--now b { color: var(--v3-purple); }
+.agenda-viva-blk--upcoming { background: var(--v3-blue-soft); border-color: #b9d0e3; color: var(--v3-blue); }
+.agenda-viva-blk--upcoming b { color: var(--v3-blue); }
 .agenda-viva-blk--cancel { background: transparent; border: 1px dashed var(--at-line); color: var(--at-text-faint); text-decoration: line-through; box-shadow: none; }
 .agenda-viva-blk--gap {
-  position: absolute; background: repeating-linear-gradient(45deg, transparent, transparent 4px, var(--at-gold-soft) 4px, var(--at-gold-soft) 8px);
-  border: 1px dashed #dcb877; color: #a97c33; display: flex; align-items: center; justify-content: center;
-  font-size: 0.62rem; white-space: nowrap; cursor: default; box-shadow: none;
+  position: absolute; background: var(--v3-green-soft); box-shadow: inset 0 0 0 1px #bcdbc7;
+  color: var(--v3-green); display: flex; flex-direction: column; align-items: center; justify-content: center;
+  font-size: 0.62rem; white-space: nowrap; cursor: default; gap: 0.15rem; padding: 0.3rem;
+}
+.agenda-viva-slot-min { font-weight: 600; }
+.agenda-viva-slot-hover { display: flex; flex-direction: column; align-items: center; gap: 0.2rem; max-height: 0; overflow: hidden; transition: max-height 180ms var(--at-ease); }
+.agenda-viva-blk--gap:hover .agenda-viva-slot-hover { max-height: 80px; }
+.agenda-viva-slot-caben, .agenda-viva-slot-potencial { white-space: normal; text-align: center; font-size: 0.58rem; }
+.agenda-viva-slot-btn {
+  font-size: 0.6rem; padding: 0.2rem 0.5rem; border-radius: 6px; border: none; background: var(--v3-green);
+  color: #fff; font-weight: 600; cursor: pointer; margin-top: 0.1rem;
 }
 .agenda-viva-blk--alerta { animation: agenda-viva-pulso 2.2s ease-in-out infinite; }
-.agenda-viva-blk--alerta.agenda-viva-blk--upcoming, .agenda-viva-blk--alerta.agenda-viva-blk--done { border-color: var(--at-late); background: var(--at-late-soft); }
+.agenda-viva-blk--alerta.agenda-viva-blk--upcoming, .agenda-viva-blk--alerta.agenda-viva-blk--done { border-color: var(--at-late); background: var(--at-late-soft); color: var(--at-late); }
 .agenda-viva-blk--alerta b { color: #9c3f32; }
 @keyframes agenda-viva-pulso {
   0%, 100% { box-shadow: 0 0 0 0 rgba(201,107,91,0.35), var(--at-shadow-sm); }
@@ -515,13 +537,19 @@ body {
 }
 .agenda-viva-blk--arrastrando { cursor: grabbing; z-index: 6; box-shadow: var(--at-shadow-md); opacity: 0.92; transition: none; }
 
+.agenda-viva-badge-segmento { position: absolute; top: -8px; right: -6px; font-size: 0.78rem; line-height: 1; z-index: 3; }
+
+.agenda-viva-progress { display: block; height: 4px; border-radius: 2px; background: rgba(43,38,32,0.08); margin-top: 0.25rem; overflow: hidden; }
+.agenda-viva-progress-fill { display: block; height: 100%; border-radius: 2px; background: currentColor; opacity: 0.55; }
+
 .agenda-viva-legend { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 1.1rem; padding-bottom: 0.4rem; font-size: 0.68rem; color: var(--at-text-dim); }
 .agenda-viva-legend span { display: inline-flex; align-items: center; gap: 0.35rem; }
 .agenda-viva-legend i { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
 .agenda-viva-legend i.agenda-viva-blk--done { box-shadow: inset 0 0 0 1px var(--at-line); }
-.agenda-viva-legend i.agenda-viva-blk--now { background: var(--at-teal-soft); border: 1px solid var(--at-teal); }
+.agenda-viva-legend i.agenda-viva-blk--now { background: var(--v3-purple-soft); border: 1px solid var(--v3-purple); }
+.agenda-viva-legend i.agenda-viva-blk--upcoming { background: var(--v3-blue-soft); border: 1px solid #b9d0e3; }
 .agenda-viva-legend i.agenda-viva-blk--alerta { background: var(--at-late-soft); border: 1px solid var(--at-late); animation: none; }
-.agenda-viva-legend i.agenda-viva-blk--gap { border: 1px dashed #dcb877; }
+.agenda-viva-legend i.agenda-viva-blk--gap { background: var(--v3-green-soft); box-shadow: inset 0 0 0 1px #bcdbc7; }
 
 /* popover inline anclado al bloque — TARA vive sobre el lienzo, no en un panel.
    position: fixed (coordenadas de viewport) para no quedar recortado por el

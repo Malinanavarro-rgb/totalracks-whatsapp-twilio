@@ -18,13 +18,14 @@
 'use strict';
 
 const { obtenerAgendaConfig, DEFAULT_AGENDA_CONFIG } = require('../agenda-config');
-const { obtenerHuecos } = require('./disponibilidad');
+const { obtenerHuecos, calcularOcupacionRecurso } = require('./disponibilidad');
 const {
   detectarRetrasos, detectarSaturacion, detectarTiempoMuerto,
   detectarRiesgoTarde, detectarHuecosInsertables, detectarNoShowCandidatos,
 } = require('./alertas');
 const { calcularMetricasDia } = require('./metricas');
 const { construirRecomendaciones, registrarEvento } = require('./recomendaciones');
+const { calcularSegmentos } = require('./valor-cliente');
 
 async function _obtenerAsesoresActivos(supabase, company_id) {
   const { data, error } = await supabase
@@ -77,11 +78,40 @@ async function _resolverHorarioDelAsesor(supabase, company_id, asesorId, diaSema
 }
 
 async function _obtenerServiciosActivos(supabase, company_id) {
+  // TARA Canvas v3: `precio` ya existía en el catálogo desde siempre — solo
+  // faltaba pedirlo. Con esto, "qué cabe en este hueco y cuánto podría
+  // generar" es dato real hoy, sin esperar a la Fase 2 (que solo hace falta
+  // para saber qué se cobró en una cita YA reservada).
   const { data, error } = await supabase
     .from('servicios')
-    .select('id, nombre, duracion_minutos, activo')
+    .select('id, nombre, duracion_minutos, precio, activo')
     .eq('company_id', company_id)
     .eq('activo', true);
+  return error ? [] : (data || []);
+}
+
+/**
+ * Historial COMPLETO (no solo hoy) de las clientas que aparecen en la
+ * agenda de hoy — base real para calcular frecuencia/asistencia/rebook,
+ * sin inventar ningún dato (ver modules/agenda-engine/valor-cliente.js).
+ */
+async function _obtenerHistorialClientes(supabase, company_id, clienteIds) {
+  if (!clienteIds.length) return [];
+  const { data, error } = await supabase
+    .from('citas')
+    .select('cliente_id, inicio, estado')
+    .eq('company_id', company_id)
+    .in('cliente_id', clienteIds);
+  return error ? [] : (data || []);
+}
+
+async function _obtenerFechaAltaClientes(supabase, company_id, clienteIds) {
+  if (!clienteIds.length) return [];
+  const { data, error } = await supabase
+    .from('clientes')
+    .select('id, created_at')
+    .eq('company_id', company_id)
+    .in('id', clienteIds);
   return error ? [] : (data || []);
 }
 
@@ -102,6 +132,31 @@ async function calcularEstadoDelDia(supabase, company_id, fecha) {
   const config = configFila?.config || DEFAULT_AGENDA_CONFIG;
   const umbrales = config.umbrales;
 
+  // TARA Canvas v3: segmentación de clientas por comportamiento real,
+  // basada en su historial COMPLETO (no solo hoy) — ver valor-cliente.js.
+  const clienteIdsHoy = [...new Set(citasDelDia.map(c => c.cliente_id).filter(Boolean))];
+  const [historialClientes, altaClientes] = await Promise.all([
+    _obtenerHistorialClientes(supabase, company_id, clienteIdsHoy),
+    _obtenerFechaAltaClientes(supabase, company_id, clienteIdsHoy),
+  ]);
+  const historialPorCliente = new Map();
+  for (const c of historialClientes) {
+    if (!historialPorCliente.has(c.cliente_id)) historialPorCliente.set(c.cliente_id, []);
+    historialPorCliente.get(c.cliente_id).push(c);
+  }
+  const altaPorCliente = new Map(altaClientes.map(c => [c.id, c.created_at]));
+
+  for (const cita of citasDelDia) {
+    if (!cita.cliente_id || !cita.clientes) continue;
+    const { segmentos, factores } = calcularSegmentos(
+      historialPorCliente.get(cita.cliente_id) || [],
+      altaPorCliente.get(cita.cliente_id) || null,
+      ahora
+    );
+    cita.clientes.segmentos = segmentos;
+    cita.clientes.factoresValor = factores;
+  }
+
   const recursos = [];
   const detecciones = [];
 
@@ -109,8 +164,13 @@ async function calcularEstadoDelDia(supabase, company_id, fecha) {
     const horario = await _resolverHorarioDelAsesor(supabase, company_id, asesor.id, diaSemana);
     const citasDelAsesor = citasDelDia.filter(c => c.asesor_id === asesor.id);
     const huecos = obtenerHuecos(citasDelAsesor, horario, fecha);
+    const ocupacionPct = calcularOcupacionRecurso(citasDelAsesor, horario, fecha).ocupacionPct;
+    const siguienteEspacio = huecos.find(h => new Date(h.inicio).getTime() > ahora.getTime()) || null;
 
-    recursos.push({ asesorId: asesor.id, asesorNombre: asesor.nombre, citas: citasDelAsesor, horario, fecha, huecos });
+    recursos.push({
+      asesorId: asesor.id, asesorNombre: asesor.nombre, citas: citasDelAsesor, horario, fecha, huecos,
+      ocupacionPct, siguienteEspacio,
+    });
 
     const etiquetar = (tipo, lista) => lista.map(d => ({ tipo, asesorId: asesor.id, asesorNombre: asesor.nombre, ...d }));
 
@@ -154,7 +214,9 @@ async function calcularEstadoDelDia(supabase, company_id, fecha) {
     config,
     recursos: recursos.map(r => ({
       asesorId: r.asesorId, asesorNombre: r.asesorNombre, citas: r.citas, huecos: r.huecos, horario: r.horario,
+      ocupacionPct: r.ocupacionPct, siguienteEspacio: r.siguienteEspacio,
     })),
+    servicios,
     recomendaciones,
     metricas,
   };
