@@ -54,6 +54,67 @@ async function listarAsesores(supabase, company_id) {
 }
 
 /**
+ * A diferencia de listarAsesores() (solo activos, para agendar/mostrar en
+ * el lienzo), esta lista TODOS — activos e inactivos — para la pantalla de
+ * Configuración, donde la dueña necesita ver y reactivar a alguien que
+ * desactivó por error.
+ */
+async function listarAsesoresConfig(supabase, company_id) {
+  const { data, error } = await supabase
+    .from('asesores')
+    .select('*')
+    .eq('company_id', company_id)
+    .order('nombre');
+
+  return error ? [] : (data || []);
+}
+
+async function crearAsesor(supabase, company_id, { nombre, email }) {
+  const { data, error } = await supabase
+    .from('asesores')
+    .insert({ company_id, nombre, email: email || null, activo: true })
+    .select()
+    .single();
+
+  if (error) throw new Error(`agenda.crearAsesor: ${error.message}`);
+  return data;
+}
+
+async function actualizarAsesor(supabase, company_id, id, cambios) {
+  const campos = ['nombre', 'email', 'activo'];
+  const payload = {};
+  for (const campo of campos) if (cambios[campo] !== undefined) payload[campo] = cambios[campo];
+
+  const { data, error } = await supabase
+    .from('asesores')
+    .update(payload)
+    .eq('id', id)
+    .eq('company_id', company_id)
+    .select()
+    .maybeSingle();
+
+  if (error || !data) throw new Error('No se pudo actualizar la técnica/asesor');
+  return data;
+}
+
+async function eliminarAsesor(supabase, company_id, id) {
+  const { error } = await supabase
+    .from('asesores')
+    .delete()
+    .eq('id', id)
+    .eq('company_id', company_id);
+
+  if (error) {
+    if (error.code === '23503') {
+      const err = new Error('No se puede eliminar: tiene citas u horarios asociados. Usa "Desactivar" en su lugar.');
+      err.status = 409;
+      throw err;
+    }
+    throw new Error('No se pudo eliminar la técnica/asesor');
+  }
+}
+
+/**
  * Lista citas en un rango de fechas. Un Asesor solo ve las suyas (via su
  * asesor vinculado) — Owner/Administrador/Supervisor ven todas.
  */
@@ -234,6 +295,10 @@ async function vincularUsuarioAAsesor(supabase, company_id, asesorId, usuarioId)
 
 module.exports = {
   listarAsesores,
+  listarAsesoresConfig,
+  crearAsesor,
+  actualizarAsesor,
+  eliminarAsesor,
   listarCitas,
   consultarDisponibilidad,
   obtenerOCrearClienteManual,

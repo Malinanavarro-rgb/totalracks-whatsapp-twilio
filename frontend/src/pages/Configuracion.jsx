@@ -5,6 +5,7 @@ import KnowledgeBaseTab from './configuracion/KnowledgeBaseTab';
 import UsuariosTab from './configuracion/UsuariosTab';
 import HorariosTab from './configuracion/HorariosTab';
 import ServiciosTab from './configuracion/ServiciosTab';
+import AsesoresTab from './configuracion/AsesoresTab';
 import PipelineTab from './configuracion/PipelineTab';
 import CanalesTab from './configuracion/CanalesTab';
 import WorkflowsTab from './configuracion/WorkflowsTab';
@@ -16,6 +17,7 @@ const TABS = [
   { id: 'usuarios',      etiqueta: 'Usuarios',         Componente: UsuariosTab },
   { id: 'horarios',      etiqueta: 'Horarios',         Componente: HorariosTab },
   { id: 'servicios',     etiqueta: 'Servicios',        Componente: ServiciosTab },
+  { id: 'asesores',      etiqueta: 'Equipo',           Componente: AsesoresTab },
   { id: 'pipeline',      etiqueta: 'Proceso comercial', Componente: PipelineTab },
   { id: 'canales',       etiqueta: 'Canales',          Componente: CanalesTab },
   { id: 'workflows',     etiqueta: 'Guion de atención', Componente: WorkflowsTab },

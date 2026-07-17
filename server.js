@@ -29,7 +29,8 @@ const {
 }                                        = require('./modules/conversaciones');
 const { obtenerOCrearCliente }           = require('./modules/crm');
 const {
-  listarAsesores, listarCitas, consultarDisponibilidad, obtenerOCrearClienteManual,
+  listarAsesores, listarAsesoresConfig, crearAsesor, actualizarAsesor, eliminarAsesor,
+  listarCitas, consultarDisponibilidad, obtenerOCrearClienteManual,
   crearCita, reagendarCita, cancelarCita, marcarNoShow, vincularUsuarioAAsesor,
 }                                        = require('./modules/agenda');
 const { obtenerAgendaConfig, actualizarAgendaConfig } = require('./modules/agenda-config');
@@ -1112,6 +1113,44 @@ app.delete('/api/config/servicios/:id', requireAuth, soloGerencial, async (req, 
     res.status(204).send();
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Equipo (asesores/técnicas) ────────────────────────────────────────────
+// A diferencia de /api/agenda/asesores (solo activos, para agendar),
+// listarAsesoresConfig() trae también inactivos — la dueña necesita verlos
+// para poder reactivarlos.
+
+app.get('/api/config/asesores', requireAuth, async (req, res) => {
+  try {
+    res.json(await listarAsesoresConfig(req.supabase, req.usuario.company_id));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/config/asesores', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    res.status(201).json(await crearAsesor(req.supabase, req.usuario.company_id, req.body));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/config/asesores/:id', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    res.json(await actualizarAsesor(req.supabase, req.usuario.company_id, req.params.id, req.body));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/config/asesores/:id', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    await eliminarAsesor(req.supabase, req.usuario.company_id, req.params.id);
+    res.status(204).send();
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
   }
 });
 

@@ -108,6 +108,11 @@ export const api = {
   actualizarServicioConfig: (id, datos) => pedir(`/api/config/servicios/${id}`, { method: 'PATCH', body: JSON.stringify(datos) }),
   eliminarServicioConfig:  (id) => pedir(`/api/config/servicios/${id}`, { method: 'DELETE' }),
 
+  asesoresConfig:          () => pedir('/api/config/asesores'),
+  crearAsesorConfig:       (datos) => pedir('/api/config/asesores', { method: 'POST', body: JSON.stringify(datos) }),
+  actualizarAsesorConfig:  (id, datos) => pedir(`/api/config/asesores/${id}`, { method: 'PATCH', body: JSON.stringify(datos) }),
+  eliminarAsesorConfig:    (id) => pedir(`/api/config/asesores/${id}`, { method: 'DELETE' }),
+
   pipelineEtapas:          () => pedir('/api/config/pipeline-etapas'),
   crearPipelineEtapa:      (datos) => pedir('/api/config/pipeline-etapas', { method: 'POST', body: JSON.stringify(datos) }),
   actualizarPipelineEtapa: (id, datos) => pedir(`/api/config/pipeline-etapas/${id}`, { method: 'PATCH', body: JSON.stringify(datos) }),

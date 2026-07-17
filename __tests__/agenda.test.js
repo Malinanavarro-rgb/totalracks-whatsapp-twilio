@@ -24,7 +24,8 @@ jest.mock('../modules/google-auth', () => ({
 }));
 
 const {
-  listarAsesores, listarCitas, consultarDisponibilidad, obtenerOCrearClienteManual,
+  listarAsesores, listarAsesoresConfig, crearAsesor, actualizarAsesor, eliminarAsesor,
+  listarCitas, consultarDisponibilidad, obtenerOCrearClienteManual,
   crearCita, reagendarCita, cancelarCita, marcarNoShow, vincularUsuarioAAsesor, resolverAsesorDeUsuario,
 } = require('../modules/agenda');
 
@@ -35,6 +36,7 @@ function crearBuilder(resultado = { data: null, error: null }) {
     select:      jest.fn().mockReturnThis(),
     insert:      jest.fn().mockReturnThis(),
     update:      jest.fn().mockReturnThis(),
+    delete:      jest.fn().mockReturnThis(),
     eq:          jest.fn().mockReturnThis(),
     gte:         jest.fn().mockReturnThis(),
     lte:         jest.fn().mockReturnThis(),
@@ -65,6 +67,42 @@ describe('agenda', () => {
       const db = crearMockDb({ data: [{ id: ASESOR_1, nombre: 'Ana', usuario_id: null }], error: null });
       const resultado = await listarAsesores(db, COMPANY_A);
       expect(resultado).toHaveLength(1);
+    });
+  });
+
+  describe('listarAsesoresConfig() / crearAsesor() / actualizarAsesor() / eliminarAsesor() (gestión de equipo)', () => {
+    test('listarAsesoresConfig() devuelve activos e inactivos (a diferencia de listarAsesores)', async () => {
+      const db = crearMockDb({
+        data: [{ id: ASESOR_1, nombre: 'Ana', activo: true }, { id: 'a2', nombre: 'Paty', activo: false }],
+        error: null,
+      });
+      const resultado = await listarAsesoresConfig(db, COMPANY_A);
+      expect(resultado).toHaveLength(2);
+    });
+
+    test('crearAsesor() inserta con activo=true por default', async () => {
+      const db = crearMockDb({ data: { id: 'a3', nombre: 'Vale', activo: true }, error: null });
+      const resultado = await crearAsesor(db, COMPANY_A, { nombre: 'Vale' });
+      expect(resultado.nombre).toBe('Vale');
+      const builder = db.from.mock.results[0].value;
+      expect(builder.insert).toHaveBeenCalledWith(expect.objectContaining({ company_id: COMPANY_A, nombre: 'Vale', activo: true }));
+    });
+
+    test('actualizarAsesor() solo aplica campos permitidos (nombre, email, activo)', async () => {
+      const db = crearMockDb({ data: { id: ASESOR_1, activo: false }, error: null });
+      await actualizarAsesor(db, COMPANY_A, ASESOR_1, { activo: false, otroCampo: 'x' });
+      const builder = db.from.mock.results[0].value;
+      expect(builder.update).toHaveBeenCalledWith({ activo: false });
+    });
+
+    test('eliminarAsesor() no lanza si tiene éxito', async () => {
+      const db = crearMockDb({ error: null });
+      await expect(eliminarAsesor(db, COMPANY_A, ASESOR_1)).resolves.toBeUndefined();
+    });
+
+    test('eliminarAsesor() traduce foreign_key_violation (23503) a un 409 legible', async () => {
+      const db = crearMockDb({ error: { code: '23503', message: 'fk' } });
+      await expect(eliminarAsesor(db, COMPANY_A, ASESOR_1)).rejects.toMatchObject({ status: 409 });
     });
   });
 
