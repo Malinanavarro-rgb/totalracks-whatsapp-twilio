@@ -35,6 +35,7 @@ const {
 const { obtenerAgendaConfig, actualizarAgendaConfig } = require('./modules/agenda-config');
 const { calcularEstadoDelDia }           = require('./modules/agenda-engine');
 const { resolverEvento }                = require('./modules/agenda-engine/recomendaciones');
+const { interpretarComando, confirmarComando, cancelarComando } = require('./modules/agenda-comandos');
 const {
   listarClientes, obtenerFichaCliente, actualizarCliente, eliminarCliente,
   listarSeguimientos, crearSeguimiento, actualizarSeguimiento,
@@ -810,6 +811,39 @@ app.post('/api/agenda/eventos/:id/resolver', requireAuth, async (req, res) => {
     const { estado, accion_tomada, resultado } = req.body;
     const evento = await resolverEvento(req.supabase, req.usuario.company_id, req.params.id, { estado, accion_tomada, resultado });
     res.json(evento);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// ⌘K con lenguaje natural — patrón "interpretar → confirmar → ejecutar"
+// (ver modules/agenda-comandos.js). Interpretar NUNCA muta datos; solo
+// /confirmar ejecuta, y solo lo que ya se le mostró a la usuaria.
+
+app.post('/api/agenda/comando', requireAuth, async (req, res) => {
+  try {
+    const { texto } = req.body;
+    if (!texto || !texto.trim()) return res.status(400).json({ error: 'texto requerido' });
+    const resultado = await interpretarComando(req.supabase, req.usuario.company_id, req.usuario, texto.trim());
+    res.json(resultado);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/agenda/comando/:id/confirmar', requireAuth, async (req, res) => {
+  try {
+    const comando = await confirmarComando(req.supabase, req.usuario.company_id, req.usuario, req.params.id);
+    res.json(comando);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/agenda/comando/:id/cancelar', requireAuth, async (req, res) => {
+  try {
+    const comando = await cancelarComando(req.supabase, req.usuario.company_id, req.params.id);
+    res.json(comando);
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
   }

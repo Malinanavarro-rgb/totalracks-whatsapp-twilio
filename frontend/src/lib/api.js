@@ -57,6 +57,11 @@ export const api = {
   estadoDelDiaAgenda:    (fecha) => pedir(`/api/agenda/estado-del-dia${fecha ? `?fecha=${fecha}` : ''}`),
   resolverEventoAgenda:  (eventoId, datos) => pedir(`/api/agenda/eventos/${eventoId}/resolver`, { method: 'POST', body: JSON.stringify(datos) }),
 
+  // ⌘K con lenguaje natural — interpretar nunca ejecuta, solo /confirmar lo hace.
+  enviarComandoAgenda:    (texto) => pedir('/api/agenda/comando', { method: 'POST', body: JSON.stringify({ texto }) }),
+  confirmarComandoAgenda: (comandoId) => pedir(`/api/agenda/comando/${comandoId}/confirmar`, { method: 'POST' }),
+  cancelarComandoAgenda:  (comandoId) => pedir(`/api/agenda/comando/${comandoId}/cancelar`, { method: 'POST' }),
+
   clientesCrm:        (filtros = {}) => {
     const params = new URLSearchParams(Object.entries(filtros).filter(([, v]) => v !== '' && v != null));
     const qs = params.toString();

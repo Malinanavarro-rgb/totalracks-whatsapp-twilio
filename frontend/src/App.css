@@ -421,95 +421,165 @@ body {
 .agenda-estado--cancelada { background: #fdecea; color: #a03a34; }
 .agenda-estado--completada { background: #e3f3e6; color: #226a34; }
 
-/* ── Agenda Viva (Motor de Agenda Universal, Fase 1) ─────────────────────────
-   Única pantalla del panel que se aparta a propósito de la superficie clara
-   — panel tipo consola, aprobado en el documento de diseño de la Agenda. */
+/* ── Agenda Viva — Identidad Atelier (TARA Canvas) ───────────────────────────
+   El lienzo es el producto: claro, luminoso, con aire — el color vive en
+   la información (turquesa = TARA actuando, dorado = oportunidad/lujo,
+   terracota = atención), nunca en el fondo. Sombras suaves en vez de
+   bordes duros, como una tarjeta de producto, no un panel de sistema. */
+
+:root {
+  --at-bg:        #fbf9f6;
+  --at-surface:   #ffffff;
+  --at-surface-2: #f5f0e8;
+  --at-line:      #ece4d5;
+  --at-text:      #2b2620;
+  --at-text-dim:  #8a8171;
+  --at-text-faint:#c4bba9;
+  --at-teal:      #12a89a;
+  --at-teal-soft: #e1f5f2;
+  --at-gold:      #c9973d;
+  --at-gold-soft: #f7ecd8;
+  --at-late:      #c96b5b;
+  --at-late-soft: #fbeae6;
+  --at-shadow-sm: 0 1px 2px rgba(43,38,32,0.05);
+  --at-shadow-md: 0 10px 30px -14px rgba(43,38,32,0.18);
+  --at-shadow-lg: 0 30px 70px -25px rgba(43,38,32,0.16);
+  --at-ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
 
 .agenda-viva-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
 .agenda-viva-header button {
-  padding: 0.5rem 1rem; border: none; border-radius: 6px; background: var(--acento); color: #fff; cursor: pointer;
+  padding: 0.5rem 1rem; border: none; border-radius: 8px; background: var(--acento); color: #fff; cursor: pointer;
 }
 
 .agenda-viva-console {
-  background: #0b0f19; color: #e8ebf3; border-radius: 16px; overflow: hidden;
-  box-shadow: 0 20px 50px -25px rgba(0,0,0,0.4); border: 1px solid #1f2436;
+  background: var(--at-surface); color: var(--at-text); border-radius: 20px; overflow: hidden;
+  box-shadow: var(--at-shadow-lg);
 }
 
 .agenda-viva-cmdbar {
-  display: flex; align-items: center; gap: 1.2rem; padding: 0.8rem 1.3rem; border-bottom: 1px solid #1f2436;
-  font-size: 0.82rem; overflow-x: auto; font-variant-numeric: tabular-nums;
+  display: flex; align-items: center; gap: 1rem; padding: 0.9rem 1.4rem; box-shadow: 0 1px 0 var(--at-line);
+  font-size: 0.84rem; overflow-x: auto; font-variant-numeric: tabular-nums;
 }
-.agenda-viva-sep { color: #363c54; }
-.agenda-viva-crit { color: #f0576a; font-weight: 600; }
-.agenda-viva-ok { color: #34d399; }
+.agenda-viva-narrativa { flex-shrink: 0; font-weight: 500; text-transform: capitalize; }
+.agenda-viva-spark { display: flex; align-items: end; gap: 2px; height: 16px; flex-shrink: 0; }
+.agenda-viva-spark i { width: 3px; background: var(--at-gold-soft); border-radius: 1px; display: block; }
+.agenda-viva-spark i.hi { background: var(--at-gold); }
+.agenda-viva-ai-pill { display: flex; align-items: center; gap: 0.45rem; font-size: 0.78rem; color: #0e8477; font-weight: 500; flex-shrink: 0; }
+.agenda-viva-cmdk-pill {
+  margin-left: auto; display: flex; align-items: center; gap: 0.5rem; background: var(--at-surface-2);
+  border: none; padding: 0.5rem 0.9rem; border-radius: 99px; color: var(--at-text-dim); font-size: 0.78rem;
+  cursor: pointer; font-family: inherit; flex-shrink: 0; transition: background 150ms var(--at-ease);
+}
+.agenda-viva-cmdk-pill:hover { background: var(--at-teal-soft); color: #0e8477; }
+.agenda-viva-cmdk-pill kbd { font-family: var(--font-mono, monospace); background: var(--at-surface); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.68rem; box-shadow: var(--at-shadow-sm); }
 
-.agenda-viva-body { display: grid; grid-template-columns: 1fr 300px; }
-@media (max-width: 900px) { .agenda-viva-body { grid-template-columns: 1fr; } }
+.agenda-viva-body { padding: 1.3rem 1.4rem 0.8rem; position: relative; }
 
-.agenda-viva-timeline { padding: 1.1rem 1.3rem 1.4rem; border-right: 1px solid #1f2436; }
-.agenda-viva-timeline-head h5 { margin: 0 0 0.9rem; font-size: 0.92rem; font-weight: 600; }
-
-.agenda-viva-lane { display: flex; align-items: stretch; gap: 0.7rem; margin-bottom: 0.55rem; }
-.agenda-viva-lane-who { width: 130px; flex-shrink: 0; display: flex; align-items: center; gap: 0.5rem; }
+.agenda-viva-lane { display: flex; align-items: stretch; gap: 0.6rem; margin-bottom: 0.55rem; }
+.agenda-viva-lane-who { width: 128px; flex-shrink: 0; display: flex; align-items: center; gap: 0.55rem; }
 .agenda-viva-avatar {
-  width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center;
-  font-size: 0.7rem; font-weight: 700; color: #0b0f19; flex-shrink: 0;
+  width: 28px; height: 28px; border-radius: 9px; display: flex; align-items: center; justify-content: center;
+  font-size: 0.7rem; font-weight: 700; color: #fff; flex-shrink: 0;
 }
 .agenda-viva-nombre { font-size: 0.8rem; font-weight: 600; }
 
 .agenda-viva-track {
-  position: relative; flex: 1; height: 44px; background: #131829; border-radius: 8px; min-width: 0;
+  position: relative; flex: 1; height: 52px; background: var(--at-surface-2); border-radius: 12px; min-width: 0;
 }
 .agenda-viva-blk {
-  position: absolute; top: 4px; bottom: 4px; border-radius: 6px; font-size: 0.66rem; padding: 0.2rem 0.4rem;
+  position: absolute; top: 5px; bottom: 5px; border-radius: 9px; font-size: 0.68rem; padding: 0.25rem 0.55rem;
   overflow: hidden; white-space: nowrap; display: flex; flex-direction: column; justify-content: center;
-  border: 1px solid transparent;
+  border: 1px solid transparent; box-shadow: var(--at-shadow-sm); cursor: grab;
+  transition: transform 180ms var(--at-ease), box-shadow 180ms var(--at-ease);
 }
-.agenda-viva-blk b { font-weight: 600; display: block; font-size: 0.68rem; }
-.agenda-viva-blk span { opacity: 0.75; font-size: 0.6rem; }
-.agenda-viva-blk--done { background: #1c2438; color: #7d8399; }
-.agenda-viva-blk--now { background: #16382f; color: #6ee7c9; border-color: #22c7b8; }
-.agenda-viva-blk--upcoming { background: #1c2438; color: #c7cbe0; }
-.agenda-viva-blk--late { background: #3a1c20; color: #ff96a4; border-color: #f0576a; }
-.agenda-viva-blk--cancel { background: transparent; border: 1px dashed #4a2f36; color: #7d5a62; text-decoration: line-through; }
+.agenda-viva-blk:hover { transform: translateY(-2px); box-shadow: var(--at-shadow-md); z-index: 2; }
+.agenda-viva-blk b { font-weight: 600; display: block; font-size: 0.7rem; color: var(--at-text); }
+.agenda-viva-blk span { opacity: 0.75; font-size: 0.62rem; }
+.agenda-viva-blk--done { background: var(--at-surface); color: var(--at-text-dim); box-shadow: inset 0 0 0 1px var(--at-line); }
+.agenda-viva-blk--now { background: var(--at-teal-soft); border-color: var(--at-teal); }
+.agenda-viva-blk--now b { color: #0b7d72; }
+.agenda-viva-blk--upcoming { background: var(--at-surface); box-shadow: 0 1px 2px rgba(43,38,32,0.05), inset 0 0 0 1px var(--at-line); }
+.agenda-viva-blk--cancel { background: transparent; border: 1px dashed var(--at-line); color: var(--at-text-faint); text-decoration: line-through; box-shadow: none; }
 .agenda-viva-blk--gap {
-  background: repeating-linear-gradient(45deg, #1a2033, #1a2033 4px, #202748 4px, #202748 8px);
-  border: 1px dashed #3d4468; color: #7a81a3; display: flex; align-items: center; justify-content: center;
-  font-size: 0.62rem; white-space: nowrap;
+  position: absolute; background: repeating-linear-gradient(45deg, transparent, transparent 4px, var(--at-gold-soft) 4px, var(--at-gold-soft) 8px);
+  border: 1px dashed #dcb877; color: #a97c33; display: flex; align-items: center; justify-content: center;
+  font-size: 0.62rem; white-space: nowrap; cursor: default; box-shadow: none;
 }
+.agenda-viva-blk--alerta { animation: agenda-viva-pulso 2.2s ease-in-out infinite; }
+.agenda-viva-blk--alerta.agenda-viva-blk--upcoming, .agenda-viva-blk--alerta.agenda-viva-blk--done { border-color: var(--at-late); background: var(--at-late-soft); }
+.agenda-viva-blk--alerta b { color: #9c3f32; }
+@keyframes agenda-viva-pulso {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(201,107,91,0.35), var(--at-shadow-sm); }
+  50%      { box-shadow: 0 0 0 5px rgba(201,107,91,0), var(--at-shadow-sm); }
+}
+.agenda-viva-blk--arrastrando { cursor: grabbing; z-index: 6; box-shadow: var(--at-shadow-md); opacity: 0.92; transition: none; }
 
-.agenda-viva-nowline { position: absolute; top: -2px; bottom: -2px; width: 2px; background: #22c7b8; z-index: 5; box-shadow: 0 0 6px #22c7b8; }
-
-.agenda-viva-legend { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 1.1rem; font-size: 0.66rem; color: #6c7290; }
+.agenda-viva-legend { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 1.1rem; padding-bottom: 0.4rem; font-size: 0.68rem; color: var(--at-text-dim); }
 .agenda-viva-legend span { display: inline-flex; align-items: center; gap: 0.35rem; }
 .agenda-viva-legend i { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
+.agenda-viva-legend i.agenda-viva-blk--done { box-shadow: inset 0 0 0 1px var(--at-line); }
+.agenda-viva-legend i.agenda-viva-blk--now { background: var(--at-teal-soft); border: 1px solid var(--at-teal); }
+.agenda-viva-legend i.agenda-viva-blk--alerta { background: var(--at-late-soft); border: 1px solid var(--at-late); animation: none; }
+.agenda-viva-legend i.agenda-viva-blk--gap { border: 1px dashed #dcb877; }
 
-.agenda-viva-feed { padding: 1.1rem 1.1rem 1.4rem; }
-.agenda-viva-feed h5 { margin: 0 0 0.9rem; font-size: 0.92rem; display: flex; align-items: center; gap: 0.5rem; }
-.agenda-viva-ai-dot { width: 14px; height: 14px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #6ee7c9, #22c7b8 60%, #0e6e63); flex-shrink: 0; display: inline-block; }
-
-.agenda-viva-card { background: #131829; border: 1px solid #232842; border-radius: 10px; padding: 0.75rem 0.85rem; margin-bottom: 0.65rem; }
-.agenda-viva-card-sev { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; margin-bottom: 0.3rem; display: block; }
-.agenda-viva-card--critica .agenda-viva-card-sev { color: #f0576a; }
-.agenda-viva-card--media .agenda-viva-card-sev { color: #f5b942; }
-.agenda-viva-card--info .agenda-viva-card-sev { color: #7ea6ff; }
-.agenda-viva-card p { margin: 0 0 0.5rem; font-size: 0.76rem; color: #c7cbe0; line-height: 1.4; }
-.agenda-viva-card-detalle { color: #8b93ab !important; }
-.agenda-viva-card-acciones { display: flex; gap: 0.5rem; }
-.agenda-viva-card-acciones button {
-  font-size: 0.7rem; padding: 0.35rem 0.65rem; border-radius: 6px; border: none; cursor: pointer;
-  background: #22c7b8; color: #06201d; font-weight: 600;
+/* popover inline anclado al bloque — TARA vive sobre el lienzo, no en un panel.
+   position: fixed (coordenadas de viewport) para no quedar recortado por el
+   overflow:hidden del contenedor redondeado del lienzo. */
+.agenda-viva-popover {
+  position: fixed; width: 250px; background: var(--at-surface); border-radius: 12px; padding: 0.9rem 1rem;
+  box-shadow: var(--at-shadow-lg); z-index: 100; animation: agenda-viva-popover-in 180ms var(--at-ease);
 }
-.agenda-viva-card-acciones button.agenda-viva-ghost { background: transparent; color: #7d8399; border: 1px solid #2c3350; }
-.agenda-viva-card-acciones button:disabled { opacity: 0.5; cursor: default; }
+@keyframes agenda-viva-popover-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+.agenda-viva-popover p { margin: 0 0 0.5rem; font-size: 0.82rem; color: var(--at-text); line-height: 1.4; }
+.agenda-viva-popover-detalle { color: var(--at-text-dim) !important; font-size: 0.76rem !important; }
+.agenda-viva-popover-error { color: var(--at-late) !important; font-size: 0.74rem !important; }
+.agenda-viva-popover-acciones { display: flex; gap: 0.5rem; }
+.agenda-viva-popover-acciones button {
+  font-size: 0.74rem; padding: 0.4rem 0.7rem; border-radius: 7px; border: none; cursor: pointer;
+  background: var(--at-teal); color: #fff; font-weight: 600;
+}
+.agenda-viva-popover-acciones button.agenda-viva-ghost { background: var(--at-surface-2); color: var(--at-text-dim); }
+.agenda-viva-popover-acciones button:disabled { opacity: 0.5; cursor: default; }
 
-.agenda-viva-kpirail { display: grid; grid-template-columns: repeat(5, 1fr); border-top: 1px solid #1f2436; }
-.agenda-viva-kpi { padding: 0.9rem 1.1rem; border-right: 1px solid #1f2436; }
-.agenda-viva-kpi:last-child { border-right: none; }
+/* dock de métricas — colapsado por default, "el lienzo es el producto" */
+.agenda-viva-metrics-dock { box-shadow: 0 -1px 0 var(--at-line); }
+.agenda-viva-dock-handle {
+  width: 100%; text-align: center; padding: 0.55rem; font-size: 0.7rem; color: var(--at-text-dim);
+  cursor: pointer; letter-spacing: 0.02em; background: none; border: none; font-family: inherit;
+}
+.agenda-viva-kpirail { display: grid; grid-template-columns: repeat(5, 1fr); box-shadow: 0 -1px 0 var(--at-line); }
+.agenda-viva-kpi { padding: 0.9rem 1.1rem; box-shadow: 1px 0 0 var(--at-line); }
+.agenda-viva-kpi:last-child { box-shadow: none; }
 .agenda-viva-kpi .v { font-family: var(--font-mono, monospace); font-size: 1.15rem; font-variant-numeric: tabular-nums; font-weight: 600; }
-.agenda-viva-kpi .v.agenda-viva-nodisp { font-size: 0.85rem; font-weight: 500; color: #565c78; font-style: italic; }
-.agenda-viva-kpi .l { font-size: 0.66rem; color: #6c7290; margin-top: 0.15rem; }
+.agenda-viva-kpi .v.agenda-viva-nodisp { font-size: 0.82rem; font-weight: 500; color: var(--at-text-faint); font-style: italic; }
+.agenda-viva-kpi .l { font-size: 0.66rem; color: var(--at-text-dim); margin-top: 0.15rem; }
 @media (max-width: 760px) { .agenda-viva-kpirail { grid-template-columns: repeat(2, 1fr); } }
+
+/* ── ⌘K (ComandoModal) ────────────────────────────────────────────────────── */
+.cmdk-fondo {
+  position: fixed; inset: 0; background: rgba(43,38,32,0.25); backdrop-filter: blur(3px);
+  display: flex; align-items: flex-start; justify-content: center; padding-top: 12vh; z-index: 100;
+}
+.cmdk-modal {
+  width: 100%; max-width: 560px; background: var(--at-surface); border-radius: 16px; box-shadow: var(--at-shadow-lg);
+  overflow: hidden; animation: agenda-viva-popover-in 180ms var(--at-ease);
+}
+.cmdk-input { display: flex; align-items: center; gap: 0.7rem; padding: 1.1rem 1.2rem; box-shadow: 0 1px 0 var(--at-line); }
+.cmdk-input input { flex: 1; border: none; outline: none; font-size: 1rem; color: var(--at-text); font-family: inherit; }
+.cmdk-cargando { color: var(--at-text-faint); }
+.cmdk-error { padding: 0 1.2rem; color: var(--at-late); font-size: 0.82rem; margin: 0.6rem 0 0; }
+.cmdk-respuesta { padding: 0.9rem 1.2rem; margin: 0; font-size: 0.88rem; color: var(--at-text); line-height: 1.5; }
+.cmdk-results { padding: 0.5rem; }
+.cmdk-item { display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 0.8rem; border-radius: 8px; font-size: 0.82rem; color: var(--at-text-dim); }
+.cmdk-item .ico { color: var(--at-teal); }
+.cmdk-confirm { padding: 1.1rem 1.2rem 1.3rem; }
+.cmdk-confirm-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--at-teal); font-weight: 700; }
+.cmdk-confirm p { margin: 0.5rem 0 1rem; font-size: 1rem; color: var(--at-text); line-height: 1.4; }
+.cmdk-confirm-acciones { display: flex; gap: 0.6rem; }
+.cmdk-primary { padding: 0.55rem 1.1rem; border: none; border-radius: 8px; background: var(--at-teal); color: #fff; font-weight: 600; cursor: pointer; font-size: 0.85rem; }
+.cmdk-ghost { padding: 0.55rem 1.1rem; border: none; border-radius: 8px; background: var(--at-surface-2); color: var(--at-text-dim); cursor: pointer; font-size: 0.85rem; }
+.cmdk-primary:disabled, .cmdk-ghost:disabled { opacity: 0.5; cursor: default; }
 
 /* ── Modal (Nueva cita) ───────────────────────────────────────────────────── */
 

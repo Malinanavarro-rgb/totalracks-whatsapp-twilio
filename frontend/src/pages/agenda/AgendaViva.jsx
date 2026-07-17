@@ -1,8 +1,15 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { usePolling } from '../../lib/usePolling';
 import { api } from '../../lib/api';
 import { iniciales, colorDesdeTexto } from '../../lib/avatar';
 import NuevaCitaModal from './NuevaCitaModal';
+import ComandoModal from './ComandoModal';
+
+// Identidad Atelier — TARA Canvas: el lienzo (línea de tiempo) es el
+// producto, ocupa la pantalla casi por completo. TARA no vive en un panel
+// aparte: las recomendaciones se anclan directo sobre el bloque (anillo de
+// pulso + popover al hacer clic), y ⌘K es la puerta de entrada a buscar,
+// preguntar y actuar. Arquitectura UX aprobada — ver plan "TARA Canvas".
 
 function hoyISO() {
   return new Date().toISOString().slice(0, 10);
@@ -19,8 +26,6 @@ function minutosLocales(iso, zona) {
   return h * 60 + m;
 }
 
-// Posición/ancho en % de un intervalo [inicioIso, finIso] dentro de la
-// jornada de un horario — base de los bloques de la línea de tiempo.
 function posicionEnJornada(inicioIso, finIso, horario) {
   if (!horario) return { leftPct: 0, widthPct: 0 };
   const jIni = minutosDeHHMMSS(horario.hora_inicio);
@@ -28,16 +33,13 @@ function posicionEnJornada(inicioIso, finIso, horario) {
   const total = Math.max(1, jFin - jIni);
   const cIni = minutosLocales(inicioIso, horario.zona_horaria);
   const cFin = minutosLocales(finIso, horario.zona_horaria);
-  return {
-    leftPct: Math.max(0, Math.min(100, ((cIni - jIni) / total) * 100)),
-    widthPct: Math.max(0, Math.min(100 - Math.max(0, ((cIni - jIni) / total) * 100), ((cFin - cIni) / total) * 100)),
-  };
+  const left = Math.max(0, Math.min(100, ((cIni - jIni) / total) * 100));
+  return { leftPct: left, widthPct: Math.max(0, Math.min(100 - left, ((cFin - cIni) / total) * 100)) };
 }
 
-function claseDelBloque(cita, ahora, retrasoIds, noShowIds) {
+function claseDelBloque(cita, ahora) {
   if (cita.estado === 'cancelada' || cita.estado === 'no_show') return 'cancel';
   if (cita.estado === 'completada') return 'done';
-  if (retrasoIds.has(cita.id) || noShowIds.has(cita.id)) return 'late';
   const inicio = new Date(cita.inicio).getTime();
   const fin = new Date(cita.fin).getTime();
   if (ahora >= inicio && ahora <= fin) return 'now';
@@ -48,19 +50,69 @@ function formatearHora(iso, zona) {
   return new Date(iso).toLocaleTimeString('es-MX', { hour: 'numeric', minute: '2-digit', timeZone: zona || undefined });
 }
 
-const ACCION_BOTON = {
+// Sparkline real de ocupación por hora — nunca datos inventados: se deriva
+// de las mismas citas ya cargadas, agrupadas por hora del primer recurso
+// con horario (misma simplificación de "horario de referencia" que ya usa
+// el resto del módulo).
+function ocupacionPorHora(recursos) {
+  const conHorario = (recursos || []).find(r => r.horario);
+  if (!conHorario) return [];
+  const jIni = minutosDeHHMMSS(conHorario.horario.hora_inicio);
+  const jFin = minutosDeHHMMSS(conHorario.horario.hora_fin);
+  const horas = [];
+  for (let t = jIni; t < jFin; t += 60) horas.push(t);
+
+  const todasCitas = (recursos || []).flatMap(r => r.citas || []);
+  return horas.map((horaIni) => {
+    const horaFin = horaIni + 60;
+    let ocupadoMin = 0;
+    for (const c of todasCitas) {
+      if (!['agendada', 'confirmada', 'completada'].includes(c.estado)) continue;
+      const cIni = minutosLocales(c.inicio, conHorario.horario.zona_horaria);
+      const cFin = minutosLocales(c.fin, conHorario.horario.zona_horaria);
+      const solapa = Math.min(cFin, horaFin) - Math.max(cIni, horaIni);
+      if (solapa > 0) ocupadoMin += solapa;
+    }
+    return Math.min(1, ocupadoMin / 60);
+  });
+}
+
+const ACCION_TEXTO = {
   confirmar_llegada: 'Confirmar',
   marcar_no_show: 'Marcar inasistencia',
 };
 
 export default function AgendaViva() {
   const [fecha] = useState(hoyISO());
-  const { datos: estado, error, cargando } = usePolling(() => api.estadoDelDiaAgenda(fecha), 6000);
+  const { datos: estado, setDatos, error, cargando } = usePolling(() => api.estadoDelDiaAgenda(fecha), 8000);
   const [asesoresModal, setAsesoresModal] = useState([]);
   const [clientesModal, setClientesModal] = useState([]);
   const [mostrarNuevaCita, setMostrarNuevaCita] = useState(false);
-  const [resolviendo, setResolviendo] = useState(null);
+  const [mostrarComando, setMostrarComando] = useState(false);
+  const [popover, setPopover] = useState(null); // { recomendacion, top, left }
+  const [arrastrando, setArrastrando] = useState(null);
+  const [dockAbierto, setDockAbierto] = useState(false);
   const [errorAccion, setErrorAccion] = useState(null);
+  const [resolviendo, setResolviendo] = useState(false);
+  const canvasBodyRef = useRef(null);
+
+  useEffect(() => {
+    function alTeclado(e) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setMostrarComando(true);
+      }
+    }
+    document.addEventListener('keydown', alTeclado);
+    return () => document.removeEventListener('keydown', alTeclado);
+  }, []);
+
+  async function recargar() {
+    try {
+      const nuevo = await api.estadoDelDiaAgenda(fecha);
+      setDatos(nuevo);
+    } catch { /* el próximo poll lo intenta de nuevo */ }
+  }
 
   function abrirNuevaCita() {
     api.asesores().then(setAsesoresModal).catch(() => {});
@@ -68,38 +120,92 @@ export default function AgendaViva() {
     setMostrarNuevaCita(true);
   }
 
-  async function resolverEvento(recomendacion, { marcarNoShowPrimero } = {}) {
-    setResolviendo(recomendacion.evento_id);
-    setErrorAccion(null);
+  function abrirPopover(e, recomendacion) {
+    e.stopPropagation();
+    // position: fixed → coordenadas de viewport directas (getBoundingClientRect
+    // ya las da así), para que el popover no quede recortado por el
+    // overflow:hidden del contenedor redondeado del lienzo.
+    const rectBloque = e.currentTarget.getBoundingClientRect();
+    setPopover({
+      recomendacion,
+      top: rectBloque.bottom + 6,
+      left: Math.min(rectBloque.left, window.innerWidth - 266),
+    });
+  }
+
+  async function resolverConAccion(recomendacion) {
+    setResolviendo(true); setErrorAccion(null);
     try {
-      if (marcarNoShowPrimero) {
+      if (recomendacion.accion === 'marcar_no_show') {
         await api.marcarNoShow(recomendacion.cita_id);
       }
       await api.resolverEventoAgenda(recomendacion.evento_id, {
         estado: 'aceptada',
         accion_tomada: { tipo: recomendacion.accion },
-        resultado: marcarNoShowPrimero ? 'Marcada como inasistencia' : 'Confirmado por la usuaria',
+        resultado: recomendacion.accion === 'marcar_no_show' ? 'Marcada como inasistencia' : 'Confirmado por la usuaria',
       });
+      setPopover(null);
+      await recargar();
     } catch (e) {
       setErrorAccion(e.message);
     } finally {
-      setResolviendo(null);
+      setResolviendo(false);
     }
   }
 
-  async function descartarEvento(recomendacion) {
-    setResolviendo(recomendacion.evento_id);
-    setErrorAccion(null);
+  async function descartar(recomendacion) {
+    setResolviendo(true); setErrorAccion(null);
     try {
-      await api.resolverEventoAgenda(recomendacion.evento_id, {
-        estado: 'descartada',
-        accion_tomada: { tipo: 'descartar' },
-        resultado: 'Descartada por la usuaria',
-      });
+      await api.resolverEventoAgenda(recomendacion.evento_id, { estado: 'descartada', accion_tomada: { tipo: 'descartar' }, resultado: 'Descartada por la usuaria' });
+      setPopover(null);
+      await recargar();
     } catch (e) {
       setErrorAccion(e.message);
     } finally {
-      setResolviendo(null);
+      setResolviendo(false);
+    }
+  }
+
+  // ── Arrastrar y soltar real ────────────────────────────────────────────
+  function iniciarArrastre(e, cita, recurso) {
+    if (e.button !== 0 || !recurso.horario) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const trackRect = e.currentTarget.closest('.agenda-viva-track').getBoundingClientRect();
+    const totalMin = minutosDeHHMMSS(recurso.horario.hora_fin) - minutosDeHHMMSS(recurso.horario.hora_inicio);
+    setArrastrando({ cita, recurso, startX: e.clientX, trackWidth: trackRect.width, totalMin, deltaPx: 0, deltaMin: 0 });
+  }
+
+  useEffect(() => {
+    if (!arrastrando) return;
+    function mover(e) {
+      setArrastrando((a) => {
+        if (!a) return a;
+        const deltaPx = e.clientX - a.startX;
+        const deltaMinRaw = (deltaPx / a.trackWidth) * a.totalMin;
+        return { ...a, deltaPx, deltaMin: Math.round(deltaMinRaw / 15) * 15 };
+      });
+    }
+    async function soltar() {
+      setArrastrando((a) => {
+        if (a && a.deltaMin !== 0) confirmarNuevoHorario(a);
+        return null;
+      });
+    }
+    window.addEventListener('pointermove', mover);
+    window.addEventListener('pointerup', soltar);
+    return () => { window.removeEventListener('pointermove', mover); window.removeEventListener('pointerup', soltar); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [arrastrando?.cita?.id]);
+
+  async function confirmarNuevoHorario(a) {
+    const nuevoInicio = new Date(new Date(a.cita.inicio).getTime() + a.deltaMin * 60000);
+    const nuevoFin = new Date(new Date(a.cita.fin).getTime() + a.deltaMin * 60000);
+    try {
+      await api.reagendarCita(a.cita.id, nuevoInicio.toISOString(), nuevoFin.toISOString());
+      await recargar();
+    } catch (e) {
+      setErrorAccion(e.message);
     }
   }
 
@@ -109,9 +215,9 @@ export default function AgendaViva() {
 
   const ahora = Date.now();
   const term = estado.config.terminologia;
-  const retrasoIds = new Set(estado.recomendaciones.filter(r => r.tipo_regla === 'retraso').map(r => r.cita_id));
-  const noShowIds = new Set(estado.recomendaciones.filter(r => r.tipo_regla === 'no_show_candidato').map(r => r.cita_id));
+  const recomendacionPorCita = new Map(estado.recomendaciones.filter(r => r.cita_id).map(r => [r.cita_id, r]));
   const alertasActivas = estado.recomendaciones.length;
+  const sparkline = ocupacionPorHora(estado.recursos);
 
   return (
     <div>
@@ -122,117 +228,106 @@ export default function AgendaViva() {
 
       <div className="agenda-viva-console">
         <div className="agenda-viva-cmdbar">
-          <span>{new Date().toLocaleTimeString('es-MX', { hour: 'numeric', minute: '2-digit' })}</span>
-          <span className="agenda-viva-sep">│</span>
-          <span>{estado.recursos.length} {term.recurso.plural.toLowerCase()}</span>
-          <span className="agenda-viva-sep">│</span>
-          <span>{estado.metricas.ocupacionPct}% ocupación</span>
-          <span className="agenda-viva-sep">│</span>
-          <span>{estado.metricas.citasRestantes} {term.bloque.plural.toLowerCase()} restantes</span>
-          <span className="agenda-viva-sep">│</span>
-          <span>Puntualidad hoy (aprox.): {estado.metricas.puntualidadAproxPct}%</span>
-          <span className="agenda-viva-sep">│</span>
-          {alertasActivas > 0
-            ? <span className="agenda-viva-crit">● {alertasActivas} alerta(s)</span>
-            : <span className="agenda-viva-ok">● Todo en orden</span>}
+          <span className="agenda-viva-narrativa">
+            {new Date().toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' })} ·
+            {' '}{estado.recursos.length} {term.recurso.plural.toLowerCase()} ·
+            {' '}{alertasActivas === 0 ? 'todo en orden' : `${alertasActivas} cosa(s) necesitan tu atención`}
+          </span>
+          {sparkline.length > 0 && (
+            <span className="agenda-viva-spark">
+              {sparkline.map((v, i) => (
+                <i key={i} className={v > 0.5 ? 'hi' : ''} style={{ height: `${4 + v * 12}px` }} />
+              ))}
+            </span>
+          )}
+          <span className="agenda-viva-ai-pill"><span className="ai-dot" />TARA ya revisó tu día</span>
+          <button className="agenda-viva-cmdk-pill" onClick={() => setMostrarComando(true)}>
+            Buscar o preguntarle a TARA… <kbd>⌘K</kbd>
+          </button>
         </div>
 
-        <div className="agenda-viva-body">
-          <div className="agenda-viva-timeline">
-            <div className="agenda-viva-timeline-head">
-              <h5>Línea de tiempo — hoy</h5>
-            </div>
+        <div className="agenda-viva-body" ref={canvasBodyRef} onClick={() => setPopover(null)}>
+          {estado.recursos.length === 0 && (
+            <p className="operaciones-nota">Sin {term.recurso.plural.toLowerCase()} activas configuradas.</p>
+          )}
 
-            {estado.recursos.length === 0 && (
-              <p className="operaciones-nota">Sin {term.recurso.plural.toLowerCase()} activas configuradas.</p>
-            )}
-
-            {estado.recursos.map((r) => {
-              const nowPos = r.horario ? posicionEnJornada(new Date().toISOString(), new Date(ahora + 60000).toISOString(), r.horario) : null;
-              return (
-                <div className="agenda-viva-lane" key={r.asesorId}>
-                  <div className="agenda-viva-lane-who">
-                    <span className="agenda-viva-avatar" style={{ background: colorDesdeTexto(r.asesorNombre) }}>{iniciales(r.asesorNombre)}</span>
-                    <div>
-                      <span className="agenda-viva-nombre">{r.asesorNombre}</span>
-                    </div>
-                  </div>
-                  <div className="agenda-viva-track">
-                    {r.citas.filter(c => c.estado !== 'cancelada' || true).map((c) => {
-                      const { leftPct, widthPct } = posicionEnJornada(c.inicio, c.fin, r.horario);
-                      const clase = claseDelBloque(c, ahora, retrasoIds, noShowIds);
-                      return (
-                        <div key={c.id} className={`agenda-viva-blk agenda-viva-blk--${clase}`}
-                          style={{ left: `${leftPct}%`, width: `${Math.max(widthPct, 2)}%` }}
-                          title={`${formatearHora(c.inicio, r.horario?.zona_horaria)}–${formatearHora(c.fin, r.horario?.zona_horaria)} · ${c.clientes?.nombre || c.clientes?.telefono || 'Sin nombre'}`}
-                        >
-                          <b>{c.clientes?.nombre || c.clientes?.telefono || term.contacto.singular}</b>
-                          <span>{formatearHora(c.inicio, r.horario?.zona_horaria)}</span>
-                        </div>
-                      );
-                    })}
-                    {(r.huecos || []).map((h, i) => {
-                      const { leftPct, widthPct } = posicionEnJornada(h.inicio, h.fin, r.horario);
-                      return (
-                        <div key={`h-${i}`} className="agenda-viva-blk agenda-viva-blk--gap"
-                          style={{ left: `${leftPct}%`, width: `${widthPct}%` }}>
-                          {h.minutos} min libres
-                        </div>
-                      );
-                    })}
-                    {nowPos && <div className="agenda-viva-nowline" style={{ left: `${nowPos.leftPct}%` }} />}
-                  </div>
-                </div>
-              );
-            })}
-
-            <div className="agenda-viva-legend">
-              <span><i className="agenda-viva-blk--done" />Completada</span>
-              <span><i className="agenda-viva-blk--now" />En curso</span>
-              <span><i className="agenda-viva-blk--late" />Retrasada</span>
-              <span><i className="agenda-viva-blk--gap" />Espacio libre</span>
-              <span><i className="agenda-viva-blk--cancel" />Cancelada / inasistencia</span>
-            </div>
-          </div>
-
-          <div className="agenda-viva-feed">
-            <h5><span className="agenda-viva-ai-dot" />TARA recomienda</h5>
-
-            {errorAccion && <p className="login-error">{errorAccion}</p>}
-
-            {estado.recomendaciones.length === 0 && (
-              <p className="operaciones-nota">Sin recomendaciones — todo al día.</p>
-            )}
-
-            {estado.recomendaciones.map((r) => (
-              <div key={r.evento_id} className={`agenda-viva-card agenda-viva-card--${r.severidad}`}>
-                <span className="agenda-viva-card-sev">{r.severidad === 'critica' ? 'Crítico' : r.severidad === 'media' ? 'Atención' : 'Oportunidad'}</span>
-                <p>{r.texto}</p>
-                {r.detalle && <p className="agenda-viva-card-detalle">{r.detalle}</p>}
-                <div className="agenda-viva-card-acciones">
-                  {ACCION_BOTON[r.accion] ? (
-                    <button
-                      disabled={resolviendo === r.evento_id}
-                      onClick={() => resolverEvento(r, { marcarNoShowPrimero: r.accion === 'marcar_no_show' })}
-                    >
-                      {ACCION_BOTON[r.accion]}
-                    </button>
-                  ) : null}
-                  <button className="agenda-viva-ghost" disabled={resolviendo === r.evento_id} onClick={() => descartarEvento(r)}>
-                    Descartar
-                  </button>
-                </div>
+          {estado.recursos.map((r) => (
+            <div className="agenda-viva-lane" key={r.asesorId}>
+              <div className="agenda-viva-lane-who">
+                <span className="agenda-viva-avatar" style={{ background: colorDesdeTexto(r.asesorNombre) }}>{iniciales(r.asesorNombre)}</span>
+                <span className="agenda-viva-nombre">{r.asesorNombre}</span>
               </div>
-            ))}
+              <div className="agenda-viva-track">
+                {r.citas.map((c) => {
+                  const arrastrandoEsta = arrastrando?.cita?.id === c.id;
+                  const { leftPct, widthPct } = posicionEnJornada(c.inicio, c.fin, r.horario);
+                  const clase = claseDelBloque(c, ahora);
+                  const rec = recomendacionPorCita.get(c.id);
+                  const estilo = { left: `${leftPct}%`, width: `${Math.max(widthPct, 3)}%` };
+                  if (arrastrandoEsta) estilo.transform = `translateX(${arrastrando.deltaPx}px)`;
+                  return (
+                    <div
+                      key={c.id}
+                      className={`agenda-viva-blk agenda-viva-blk--${clase}${rec ? ' agenda-viva-blk--alerta' : ''}${arrastrandoEsta ? ' agenda-viva-blk--arrastrando' : ''}`}
+                      style={estilo}
+                      onPointerDown={(e) => iniciarArrastre(e, c, r)}
+                      onClick={(e) => rec && abrirPopover(e, rec)}
+                      title={`${formatearHora(c.inicio, r.horario?.zona_horaria)}–${formatearHora(c.fin, r.horario?.zona_horaria)} · ${c.clientes?.nombre || c.clientes?.telefono || 'Sin nombre'}`}
+                    >
+                      <b>{c.clientes?.nombre || c.clientes?.telefono || term.contacto.singular}</b>
+                      <span>{formatearHora(c.inicio, r.horario?.zona_horaria)}</span>
+                    </div>
+                  );
+                })}
+                {(r.huecos || []).map((h, i) => {
+                  const { leftPct, widthPct } = posicionEnJornada(h.inicio, h.fin, r.horario);
+                  return (
+                    <div key={`h-${i}`} className="agenda-viva-blk agenda-viva-blk--gap" style={{ left: `${leftPct}%`, width: `${widthPct}%` }}>
+                      {h.minutos} min libres
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+
+          {popover && (
+            <div className="agenda-viva-popover" style={{ top: popover.top, left: popover.left }} onClick={(e) => e.stopPropagation()}>
+              <p>{popover.recomendacion.texto}</p>
+              {popover.recomendacion.detalle && <p className="agenda-viva-popover-detalle">{popover.recomendacion.detalle}</p>}
+              {errorAccion && <p className="agenda-viva-popover-error">{errorAccion}</p>}
+              <div className="agenda-viva-popover-acciones">
+                {ACCION_TEXTO[popover.recomendacion.accion] && (
+                  <button disabled={resolviendo} onClick={() => resolverConAccion(popover.recomendacion)}>
+                    {ACCION_TEXTO[popover.recomendacion.accion]}
+                  </button>
+                )}
+                <button className="agenda-viva-ghost" disabled={resolviendo} onClick={() => descartar(popover.recomendacion)}>Descartar</button>
+              </div>
+            </div>
+          )}
+
+          <div className="agenda-viva-legend">
+            <span><i className="agenda-viva-blk--done" />Completada</span>
+            <span><i className="agenda-viva-blk--now" />En curso</span>
+            <span><i className="agenda-viva-blk--alerta" />Necesita atención</span>
+            <span><i className="agenda-viva-blk--gap" />Espacio libre</span>
           </div>
         </div>
 
-        <div className="agenda-viva-kpirail">
-          <div className="agenda-viva-kpi"><div className="v">{estado.metricas.ocupacionPct}%</div><div className="l">Ocupación de hoy</div></div>
-          <div className="agenda-viva-kpi"><div className="v">{estado.metricas.citasRestantes}</div><div className="l">{term.bloque.plural} restantes</div></div>
-          <div className="agenda-viva-kpi"><div className="v">{estado.metricas.puntualidadAproxPct}%</div><div className="l">Puntualidad (aprox.)</div></div>
-          <div className="agenda-viva-kpi"><div className="v agenda-viva-nodisp">No disponible</div><div className="l">Ganancias del día — Fase 2</div></div>
-          <div className="agenda-viva-kpi"><div className="v agenda-viva-nodisp">No disponible</div><div className="l">Tiempo promedio por servicio — Fase 2</div></div>
+        <div className="agenda-viva-metrics-dock">
+          <button className="agenda-viva-dock-handle" onClick={() => setDockAbierto(!dockAbierto)}>
+            {dockAbierto ? '▾' : '▴'} Métricas — {estado.metricas.ocupacionPct}% ocupación · {estado.metricas.citasRestantes} {term.bloque.plural.toLowerCase()} restantes
+          </button>
+          {dockAbierto && (
+            <div className="agenda-viva-kpirail">
+              <div className="agenda-viva-kpi"><div className="v">{estado.metricas.ocupacionPct}%</div><div className="l">Ocupación de hoy</div></div>
+              <div className="agenda-viva-kpi"><div className="v">{estado.metricas.citasRestantes}</div><div className="l">{term.bloque.plural} restantes</div></div>
+              <div className="agenda-viva-kpi"><div className="v">{estado.metricas.puntualidadAproxPct}%</div><div className="l">Puntualidad (aprox.)</div></div>
+              <div className="agenda-viva-kpi"><div className="v agenda-viva-nodisp">No disponible</div><div className="l">Ganancias del día — Fase 2</div></div>
+              <div className="agenda-viva-kpi"><div className="v agenda-viva-nodisp">No disponible</div><div className="l">Tiempo promedio — Fase 2</div></div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -242,8 +337,12 @@ export default function AgendaViva() {
           clientesExistentes={clientesModal}
           fechaDefault={fecha}
           onCerrar={() => setMostrarNuevaCita(false)}
-          onCreada={() => setMostrarNuevaCita(false)}
+          onCreada={() => { setMostrarNuevaCita(false); recargar(); }}
         />
+      )}
+
+      {mostrarComando && (
+        <ComandoModal estado={estado} onCerrar={() => setMostrarComando(false)} onEjecutado={recargar} />
       )}
     </div>
   );
