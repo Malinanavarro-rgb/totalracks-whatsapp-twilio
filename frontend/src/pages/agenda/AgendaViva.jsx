@@ -4,16 +4,14 @@ import { api } from '../../lib/api';
 import { iniciales, colorDesdeTexto } from '../../lib/avatar';
 import NuevaCitaModal from './NuevaCitaModal';
 import ComandoModal from './ComandoModal';
+import AgendaResumenGrid from './AgendaResumenGrid';
+import { hoyISO, rangoParaVista, desplazarFecha, etiquetaRango } from './rangoFechas';
 
 // Identidad Atelier — TARA Canvas: el lienzo (línea de tiempo) es el
 // producto, ocupa la pantalla casi por completo. TARA no vive en un panel
 // aparte: las recomendaciones se anclan directo sobre el bloque (anillo de
 // pulso + popover al hacer clic), y ⌘K es la puerta de entrada a buscar,
 // preguntar y actuar. Arquitectura UX aprobada — ver plan "TARA Canvas".
-
-function hoyISO() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function minutosDeHHMMSS(hhmmss) {
   const [h, m] = (hhmmss || '00:00:00').split(':').map(Number);
@@ -114,8 +112,10 @@ const ACCION_TEXTO = {
 };
 
 export default function AgendaViva() {
-  const [fecha] = useState(hoyISO());
+  const [vista, setVista] = useState('dia'); // 'dia' | 'semana' | 'mes'
+  const [fecha, setFecha] = useState(hoyISO());
   const { datos: estado, setDatos, error, cargando } = usePolling(() => api.estadoDelDiaAgenda(fecha), 8000);
+  const [citasResumen, setCitasResumen] = useState(null);
   const [asesoresModal, setAsesoresModal] = useState([]);
   const [clientesModal, setClientesModal] = useState([]);
   const [mostrarNuevaCita, setMostrarNuevaCita] = useState(false);
@@ -138,6 +138,24 @@ export default function AgendaViva() {
     document.addEventListener('keydown', alTeclado);
     return () => document.removeEventListener('keydown', alTeclado);
   }, []);
+
+  // Vista día: recarga inmediata al cambiar de fecha (el polling normal de
+  // usePolling solo recoge el cambio hasta su próximo tick, hasta 8s después).
+  useEffect(() => { if (vista === 'dia') recargar(); }, [fecha, vista]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Vista semana/mes: resumen ligero — reusa /api/agenda/citas (mismo que la
+  // Agenda clásica), sin invocar el motor de alertas/recomendaciones día por
+  // día (evita escrituras de auditoría redundantes para un rango completo).
+  useEffect(() => {
+    if (vista === 'dia') return;
+    const { desde, hasta } = rangoParaVista(vista, fecha);
+    api.citas(desde, hasta).then(setCitasResumen).catch(() => setCitasResumen([]));
+  }, [vista, fecha]);
+
+  function irADia(iso) {
+    setFecha(iso);
+    setVista('dia');
+  }
 
   async function recargar() {
     try {
@@ -256,13 +274,33 @@ export default function AgendaViva() {
     <div>
       <div className="agenda-viva-header">
         <h1>Agenda</h1>
+        <div className="agenda-vista-toggle">
+          {['dia', 'semana', 'mes'].map((v) => (
+            <button key={v} className={vista === v ? 'activo' : ''} onClick={() => setVista(v)}>
+              {v === 'dia' ? 'Día' : v === 'semana' ? 'Semana' : 'Mes'}
+            </button>
+          ))}
+        </div>
+        {vista !== 'dia' && (
+          <div className="agenda-rango-nav">
+            <button onClick={() => setFecha(desplazarFecha(vista, fecha, -1))}>‹</button>
+            <span className="agenda-rango-etiqueta">{etiquetaRango(vista, fecha)}</span>
+            <button onClick={() => setFecha(desplazarFecha(vista, fecha, 1))}>›</button>
+            <button onClick={() => setFecha(hoyISO())}>Hoy</button>
+          </div>
+        )}
         <button onClick={() => abrirNuevaCita()}>Nueva {term.bloque.singular.toLowerCase()}</button>
       </div>
 
+      {vista !== 'dia' && (
+        <AgendaResumenGrid vista={vista} fechaBase={fecha} citas={citasResumen} fechaHoy={hoyISO()} tema="viva" onSeleccionarDia={irADia} />
+      )}
+
+      {vista === 'dia' && (
       <div className="agenda-viva-console">
         <div className="agenda-viva-cmdbar">
           <span className="agenda-viva-narrativa">
-            {new Date().toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' })} ·
+            {etiquetaRango('dia', fecha)} ·
             {' '}{estado.recursos.length} {term.recurso.plural.toLowerCase()} ·
             {' '}{alertasActivas === 0 ? 'todo en orden' : `${alertasActivas} cosa(s) necesitan tu atención`}
           </span>
@@ -398,6 +436,7 @@ export default function AgendaViva() {
           )}
         </div>
       </div>
+      )}
 
       {mostrarNuevaCita && (
         <NuevaCitaModal

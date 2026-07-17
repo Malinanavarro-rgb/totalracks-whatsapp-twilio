@@ -3,10 +3,8 @@ import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import NuevaCitaModal from './agenda/NuevaCitaModal';
 import AgendaViva from './agenda/AgendaViva';
-
-function hoyISO() {
-  return new Date().toISOString().slice(0, 10);
-}
+import AgendaResumenGrid from './agenda/AgendaResumenGrid';
+import { hoyISO, rangoParaVista, desplazarFecha, etiquetaRango } from './agenda/rangoFechas';
 
 function formatearHora(iso) {
   return new Date(iso).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
@@ -35,6 +33,7 @@ export default function Agenda() {
 // esta pantalla llama a las mismas rutas /api/agenda/* que reusan
 // SchedulingEngine, el mismo motor que usa la conversación de WhatsApp.
 function AgendaClasica() {
+  const [vista, setVista] = useState('dia'); // 'dia' | 'semana' | 'mes'
   const [fecha, setFecha] = useState(hoyISO());
   const [citas, setCitas] = useState(null);
   const [asesores, setAsesores] = useState([]);
@@ -53,12 +52,16 @@ function AgendaClasica() {
     api.serviciosConfig().then(setServicios).catch(() => {});
   }, []);
 
-  useEffect(() => { cargarCitas(); }, [fecha]);
+  useEffect(() => { cargarCitas(); }, [fecha, vista]);
 
   function cargarCitas() {
-    const desde = `${fecha}T00:00:00.000Z`;
-    const hasta = `${fecha}T23:59:59.999Z`;
+    const { desde, hasta } = rangoParaVista(vista, fecha);
     api.citas(desde, hasta).then(setCitas).catch((e) => setError(e.message));
+  }
+
+  function irADia(iso) {
+    setFecha(iso);
+    setVista('dia');
   }
 
   async function cancelar(citaId) {
@@ -81,15 +84,38 @@ function AgendaClasica() {
       <h1>Agenda</h1>
 
       <div className="agenda-controles">
-        <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
+        <div className="agenda-vista-toggle">
+          {['dia', 'semana', 'mes'].map((v) => (
+            <button key={v} className={vista === v ? 'activo' : ''} onClick={() => setVista(v)}>
+              {v === 'dia' ? 'Día' : v === 'semana' ? 'Semana' : 'Mes'}
+            </button>
+          ))}
+        </div>
+
+        {vista === 'dia' ? (
+          <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
+        ) : (
+          <div className="agenda-rango-nav">
+            <button onClick={() => setFecha(desplazarFecha(vista, fecha, -1))}>‹</button>
+            <span className="agenda-rango-etiqueta">{etiquetaRango(vista, fecha)}</span>
+            <button onClick={() => setFecha(desplazarFecha(vista, fecha, 1))}>›</button>
+            <button onClick={() => setFecha(hoyISO())}>Hoy</button>
+          </div>
+        )}
+
         <button onClick={() => setMostrarForm(true)}>Nueva cita</button>
       </div>
 
       {error && <p className="login-error">{error}</p>}
       {citas === null && <p className="operaciones-nota">Cargando…</p>}
-      {citas?.length === 0 && <p className="operaciones-nota">Sin citas este día.</p>}
 
-      {Object.entries(citasPorAsesor).map(([nombreAsesor, lista]) => (
+      {vista !== 'dia' && citas !== null && (
+        <AgendaResumenGrid vista={vista} fechaBase={fecha} citas={citas} fechaHoy={hoyISO()} tema="clasica" onSeleccionarDia={irADia} />
+      )}
+
+      {vista === 'dia' && citas?.length === 0 && <p className="operaciones-nota">Sin citas este día.</p>}
+
+      {vista === 'dia' && Object.entries(citasPorAsesor).map(([nombreAsesor, lista]) => (
         <div key={nombreAsesor} className="agenda-grupo-asesor">
           <h3>{nombreAsesor}</h3>
           <ul className="agenda-citas-lista">

@@ -421,6 +421,43 @@ body {
 .agenda-estado--cancelada { background: #fdecea; color: #a03a34; }
 .agenda-estado--completada { background: #e3f3e6; color: #226a34; }
 
+/* ── Vistas semana/mes — toggle y navegación de rango (compartido) ───────── */
+
+.agenda-vista-toggle { display: flex; gap: 0.2rem; background: #eef0f7; border-radius: 8px; padding: 0.2rem; }
+.agenda-vista-toggle button {
+  padding: 0.35rem 0.8rem; border: none; border-radius: 6px; background: transparent;
+  color: #555; cursor: pointer; font-size: 0.82rem;
+}
+.agenda-vista-toggle button.activo { background: #fff; color: #1a1a2e; box-shadow: 0 1px 3px rgba(0,0,0,0.12); font-weight: 600; }
+
+.agenda-rango-nav { display: flex; align-items: center; gap: 0.5rem; }
+.agenda-rango-nav button {
+  padding: 0.35rem 0.7rem; border: 1px solid #ddd; border-radius: 6px; background: #fff; cursor: pointer; font-size: 0.85rem;
+}
+.agenda-rango-etiqueta { font-weight: 600; color: #333; text-transform: capitalize; min-width: 9rem; text-align: center; }
+
+.agenda-resumen-grid { display: grid; gap: 0.6rem; margin: 1rem 0; }
+.agenda-resumen-grid--semana { grid-template-columns: repeat(7, 1fr); }
+.agenda-resumen-grid--mes { grid-template-columns: repeat(7, 1fr); gap: 0.4rem; }
+
+.agenda-resumen-mes-encabezado { text-align: center; font-size: 0.72rem; color: #888; text-transform: uppercase; letter-spacing: 0.04em; padding-bottom: 0.2rem; }
+
+.agenda-resumen-dia {
+  display: flex; flex-direction: column; align-items: center; gap: 0.15rem;
+  border: 1px solid #e3e3e8; border-radius: 8px; background: #fff; cursor: pointer;
+  padding: 0.7rem 0.4rem; font-family: inherit;
+}
+.agenda-resumen-grid--clasica .agenda-resumen-dia:hover { border-color: var(--acento); }
+.agenda-resumen-grid--clasica .agenda-resumen-dia--hoy { border-color: var(--acento); background: var(--acento-soft); }
+
+.agenda-resumen-dia-nombre { font-size: 0.7rem; color: #888; text-transform: uppercase; }
+.agenda-resumen-dia-num { font-size: 1.1rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.agenda-resumen-dia-total { font-size: 0.72rem; color: #666; }
+.agenda-resumen-dia-ingreso { font-size: 0.72rem; color: #226a34; font-weight: 600; }
+
+.agenda-resumen-dia--mes { padding: 0.5rem 0.3rem; min-height: 3.2rem; justify-content: flex-start; }
+.agenda-resumen-dia--fuera { opacity: 0.35; }
+
 /* ── Agenda Viva — Identidad Atelier (TARA Canvas) ───────────────────────────
    El lienzo es el producto: claro, luminoso, con aire — el color vive en
    la información (turquesa = TARA actuando, dorado = oportunidad/lujo,
@@ -453,10 +490,37 @@ body {
   --v3-green:  #4f9d6e; --v3-green-soft:  #e8f5ec;
 }
 
-.agenda-viva-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+.agenda-viva-header { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; }
+.agenda-viva-header h1 { margin: 0; }
+.agenda-viva-header > button { margin-left: auto; }
 .agenda-viva-header button {
   padding: 0.5rem 1rem; border: none; border-radius: 8px; background: var(--acento); color: #fff; cursor: pointer;
 }
+
+.agenda-viva-header .agenda-vista-toggle { background: var(--at-surface-2); }
+.agenda-viva-header .agenda-vista-toggle button { color: var(--at-text-dim); margin-left: 0; background: transparent; padding: 0.35rem 0.8rem; border-radius: 6px; }
+.agenda-viva-header .agenda-vista-toggle button.activo { background: var(--at-surface); color: var(--at-text); box-shadow: var(--at-shadow-sm); font-weight: 600; }
+
+.agenda-viva-header .agenda-rango-nav { display: flex; align-items: center; gap: 0.5rem; }
+.agenda-viva-header .agenda-rango-nav button {
+  padding: 0.35rem 0.7rem; border-radius: 8px; background: var(--at-surface-2); color: var(--at-text-dim); margin-left: 0; font-size: 0.85rem;
+}
+.agenda-viva-header .agenda-rango-etiqueta { font-weight: 600; color: var(--at-text); text-transform: capitalize; min-width: 9rem; text-align: center; }
+
+.agenda-resumen-grid--viva.agenda-resumen-grid--semana,
+.agenda-resumen-grid--viva.agenda-resumen-grid--mes {
+  background: var(--at-surface); border-radius: 20px; box-shadow: var(--at-shadow-lg); padding: 1.2rem;
+}
+.agenda-resumen-grid--viva .agenda-resumen-mes-encabezado { color: var(--at-text-dim); }
+.agenda-resumen-grid--viva .agenda-resumen-dia {
+  background: var(--at-surface-2); border: 1px solid transparent; border-radius: 12px; color: var(--at-text);
+  box-shadow: var(--at-shadow-sm); transition: transform 150ms var(--at-ease), box-shadow 150ms var(--at-ease);
+}
+.agenda-resumen-grid--viva .agenda-resumen-dia:hover { transform: translateY(-2px); box-shadow: var(--at-shadow-md); }
+.agenda-resumen-grid--viva .agenda-resumen-dia--hoy { border-color: var(--at-gold); background: var(--at-gold-soft); }
+.agenda-resumen-grid--viva .agenda-resumen-dia-nombre,
+.agenda-resumen-grid--viva .agenda-resumen-dia-total { color: var(--at-text-dim); }
+.agenda-resumen-grid--viva .agenda-resumen-dia-ingreso { color: var(--at-teal); font-weight: 600; }
 
 .agenda-viva-console {
   background: var(--at-surface); color: var(--at-text); border-radius: 20px; overflow: hidden;
