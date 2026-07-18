@@ -8,6 +8,7 @@ require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
 const OpenAI = require('openai');
 const twilio = require('twilio');
+const Stripe = require('stripe');
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -46,4 +47,9 @@ const twilioClient = twilio(
   process.env.TWILIO_AUTH_TOKEN
 );
 
-module.exports = { supabase, supabaseServicio, crearClienteConSesion, openai, twilioClient };
+// FASE 8.1 (Plataforma Comercial): sin cuenta de Stripe todavía — null hasta
+// que exista STRIPE_SECRET_KEY real (Sub-fase 8.3). modules/plataforma-billing.js
+// falla con un mensaje claro en vez de un TypeError si se invoca antes de eso.
+const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
+
+module.exports = { supabase, supabaseServicio, crearClienteConSesion, openai, twilioClient, stripe };

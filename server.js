@@ -12,7 +12,7 @@ const express      = require('express');
 const path         = require('path');
 const cookieParser = require('cookie-parser');
 
-const { supabase, supabaseServicio, crearClienteConSesion, twilioClient } = require('./modules/clients');
+const { supabase, supabaseServicio, crearClienteConSesion, twilioClient, stripe } = require('./modules/clients');
 const { obtenerConfigEmpresa }          = require('./modules/config');
 const { crearOrchestrator }             = require('./modules/orchestrator');
 const { TwilioWhatsAppAdapter }         = require('./adapters/channels/twilio-whatsapp');
@@ -62,6 +62,19 @@ const {
 const { responderSobreCliente }         = require('./modules/asistente-consultas');
 const { calcularCotizacion }             = require('./modules/cotizador');
 
+// FASE 8.1 — Plataforma Comercial (Panel Maestro, Suscripciones, Onboarding).
+const { crearOrganizacionConCompany, listarOrganizaciones, obtenerOrganizacion } = require('./modules/organizaciones');
+const { listarPlanes, crearPlan, actualizarPlan } = require('./modules/planes');
+const {
+  obtenerSuscripcionVigente, crearSuscripcionManual, suspenderOrganizacion, reactivarOrganizacion,
+  extenderPrueba, regalarMeses, cambiarPlan, crearCheckoutSession, crearPortalSession, manejarWebhookStripe,
+}                                        = require('./modules/plataforma-billing');
+const { iniciarSesionAdmin, resolverSesionAdmin, ErrorAdminAuth } = require('./modules/admin-auth');
+const { crearRequireAdmin }             = require('./modules/admin-auth-middleware');
+const { iniciarImpersonacion, resolverSesionImpersonada, finalizarImpersonacion } = require('./modules/plataforma-impersonacion');
+const { registrarEvento: registrarEventoAdmin, listarEventos: listarEventosAdmin } = require('./modules/plataforma-audit');
+const { dashboardGlobal }                = require('./modules/plataforma-analitica');
+
 const app           = express();
 const adapter       = new TwilioWhatsAppAdapter(twilioClient);
 // Instancia sin credenciales — solo para parseIncoming/validateSignature/
@@ -76,7 +89,26 @@ const orchestrator  = crearOrchestrator();
 // usuario del panel. Usa supabaseServicio siempre, sin importar desde qué
 // ruta se invoque.
 const channelRouter = new ChannelRouter(supabaseServicio);
-const requireAuth   = crearRequireAuth(crearClienteConSesion);
+const requireAuthDeTenant = crearRequireAuth(crearClienteConSesion);
+const requireAdmin        = crearRequireAdmin(crearClienteConSesion);
+
+// FASE 8.1: impersonation ("entrar como administrador a cualquier empresa
+// para soporte") se resuelve ANTES que el flujo normal de sesión de
+// tenant — cambio aditivo, no toca modules/auth-middleware.js ni el resto
+// del camino ya congelado. Usa supabaseServicio porque no hay JWT propio
+// de la empresa impersonada, solo el token de plataforma_impersonaciones.
+async function requireAuth(req, res, next) {
+  const tokenImpersonacion = req.cookies?.tara_impersonacion;
+  if (tokenImpersonacion) {
+    const usuarioImpersonado = await resolverSesionImpersonada(supabaseServicio, tokenImpersonacion);
+    if (usuarioImpersonado) {
+      req.usuario  = usuarioImpersonado;
+      req.supabase = supabaseServicio;
+      return next();
+    }
+  }
+  return requireAuthDeTenant(req, res, next);
+}
 
 // Configuración de empresa y gestión de usuarios: solo Owner/Administrador
 // (matriz de permisos aprobada, docs/anexos/plataforma-saas). Se usa como
@@ -1435,6 +1467,265 @@ app.post('/api/auth/logout', (req, res) => {
   res.clearCookie('tara_session', COOKIE_OPTS);
   res.clearCookie('tara_company', COOKIE_OPTS);
   res.json({ ok: true });
+});
+
+// ── PLATAFORMA COMERCIAL — Panel Maestro (FASE 8.1) ───────────────────────────
+// Rutas /api/admin/* — protegidas por requireAdmin, NUNCA por requireAuth.
+// Cookie separada (tara_admin_session) de la sesión normal de tenant.
+
+const ADMIN_COOKIE_OPTS = {
+  httpOnly: true,
+  secure:   process.env.NODE_ENV === 'production',
+  sameSite: 'lax',
+  maxAge:   7 * 24 * 60 * 60 * 1000,
+};
+
+app.post('/api/admin/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body || {};
+    if (!email || !password) return res.status(400).json({ error: 'email y password son requeridos' });
+
+    const { token, admin } = await iniciarSesionAdmin(supabase, email, password);
+    res.cookie('tara_admin_session', token, ADMIN_COOKIE_OPTS);
+    res.json({ admin });
+  } catch (e) {
+    const status = e instanceof ErrorAdminAuth ? e.status : 500;
+    res.status(status).json({ error: e.message });
+  }
+});
+
+app.get('/api/admin/auth/me', requireAdmin, (req, res) => res.json({ admin: req.admin }));
+
+app.post('/api/admin/auth/logout', (req, res) => {
+  res.clearCookie('tara_admin_session', ADMIN_COOKIE_OPTS);
+  res.json({ ok: true });
+});
+
+app.get('/api/admin/organizaciones', requireAdmin, async (req, res) => {
+  try {
+    res.json(await listarOrganizaciones(supabaseServicio));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/admin/organizaciones/:id', requireAdmin, async (req, res) => {
+  try {
+    const org = await obtenerOrganizacion(supabaseServicio, req.params.id);
+    if (!org) return res.status(404).json({ error: 'Organización no encontrada' });
+    const suscripcion = await obtenerSuscripcionVigente(supabaseServicio, req.params.id);
+    res.json({ ...org, suscripcionVigente: suscripcion });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/admin/organizaciones', requireAdmin, async (req, res) => {
+  try {
+    const { nombre, descripcion, slug, industriaSlug } = req.body || {};
+    if (!nombre || !slug) return res.status(400).json({ error: 'nombre y slug son requeridos' });
+
+    const resultado = await crearOrganizacionConCompany(supabaseServicio, {
+      nombre, descripcion, slug, industriaSlug, creadoPor: req.admin.id,
+    });
+    await registrarEventoAdmin(supabaseServicio, {
+      adminId: req.admin.id, accion: 'crear_organizacion',
+      organizationId: resultado.organization.id, companyId: resultado.company.id,
+    });
+    res.status(201).json(resultado);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/admin/organizaciones/:id/suspender', requireAdmin, async (req, res) => {
+  try {
+    await suspenderOrganizacion(supabaseServicio, req.params.id);
+    await registrarEventoAdmin(supabaseServicio, { adminId: req.admin.id, accion: 'suspender_empresa', organizationId: req.params.id });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/admin/organizaciones/:id/reactivar', requireAdmin, async (req, res) => {
+  try {
+    await reactivarOrganizacion(supabaseServicio, req.params.id);
+    await registrarEventoAdmin(supabaseServicio, { adminId: req.admin.id, accion: 'reactivar_empresa', organizationId: req.params.id });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Impersonation: "entrar como administrador a cualquier empresa para
+// soporte". Cookie tara_impersonacion, separada de tara_session — la
+// resuelve requireAuth (ver arriba) antes que el flujo normal de tenant.
+app.post('/api/admin/companies/:id/impersonar', requireAdmin, async (req, res) => {
+  try {
+    const fila = await iniciarImpersonacion(supabaseServicio, {
+      adminId: req.admin.id, companyId: req.params.id, motivo: req.body?.motivo,
+    });
+    res.cookie('tara_impersonacion', fila.token, { ...ADMIN_COOKIE_OPTS, maxAge: 2 * 60 * 60 * 1000 });
+    res.json({ ok: true, expiraEn: fila.expira_en });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/admin/impersonar/salir', requireAdmin, async (req, res) => {
+  try {
+    const token = req.cookies?.tara_impersonacion;
+    if (token) await finalizarImpersonacion(supabaseServicio, { token, adminId: req.admin.id });
+    res.clearCookie('tara_impersonacion', ADMIN_COOKIE_OPTS);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/admin/planes', requireAdmin, async (req, res) => {
+  try {
+    res.json(await listarPlanes(supabaseServicio));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/admin/planes', requireAdmin, async (req, res) => {
+  try {
+    const { clave, nombre, precioCentavos, moneda, periodo, limites, orden } = req.body || {};
+    if (!clave || !nombre || precioCentavos == null) {
+      return res.status(400).json({ error: 'clave, nombre y precioCentavos son requeridos' });
+    }
+    res.status(201).json(await crearPlan(supabaseServicio, { clave, nombre, precioCentavos, moneda, periodo, limites, orden }));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/admin/planes/:id', requireAdmin, async (req, res) => {
+  try {
+    res.json(await actualizarPlan(supabaseServicio, req.params.id, req.body || {}));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Suscripciones — alta manual (sin Stripe todavía) y acciones de "licencias".
+app.post('/api/admin/suscripciones', requireAdmin, async (req, res) => {
+  try {
+    const { organizationId, planId, mesesRegalo, notasPromocion } = req.body || {};
+    if (!organizationId || !planId) return res.status(400).json({ error: 'organizationId y planId son requeridos' });
+
+    const suscripcion = await crearSuscripcionManual(supabaseServicio, { organizationId, planId, mesesRegalo, notasPromocion });
+    await registrarEventoAdmin(supabaseServicio, {
+      adminId: req.admin.id, accion: 'cambiar_plan', organizationId, detalle: { planId, alta: true },
+    });
+    res.status(201).json(suscripcion);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/admin/suscripciones/:id/plan', requireAdmin, async (req, res) => {
+  try {
+    const { planId } = req.body || {};
+    if (!planId) return res.status(400).json({ error: 'planId es requerido' });
+    const data = await cambiarPlan(supabaseServicio, req.params.id, planId);
+    await registrarEventoAdmin(supabaseServicio, { adminId: req.admin.id, accion: 'cambiar_plan', detalle: { suscripcionId: req.params.id, planId } });
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/admin/suscripciones/:id/extender-prueba', requireAdmin, async (req, res) => {
+  try {
+    const dias = Number(req.body?.dias);
+    if (!dias) return res.status(400).json({ error: 'dias es requerido' });
+    const data = await extenderPrueba(supabaseServicio, req.params.id, dias);
+    await registrarEventoAdmin(supabaseServicio, { adminId: req.admin.id, accion: 'extender_prueba', detalle: { suscripcionId: req.params.id, dias } });
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/admin/suscripciones/:id/regalar-meses', requireAdmin, async (req, res) => {
+  try {
+    const meses = Number(req.body?.meses);
+    if (!meses) return res.status(400).json({ error: 'meses es requerido' });
+    const data = await regalarMeses(supabaseServicio, req.params.id, meses);
+    await registrarEventoAdmin(supabaseServicio, { adminId: req.admin.id, accion: 'regalar_meses', detalle: { suscripcionId: req.params.id, meses } });
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/admin/analitica', requireAdmin, async (req, res) => {
+  try {
+    res.json(await dashboardGlobal(supabaseServicio, req.query));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/admin/audit-log', requireAdmin, async (req, res) => {
+  try {
+    res.json(await listarEventosAdmin(supabaseServicio, { organizationId: req.query.organizationId }));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── PLATAFORMA COMERCIAL — Billing de tenant (Onboarding / Portal del Cliente) ─
+// Sesión normal de tenant (requireAuth), no de Super Admin.
+
+app.post('/api/billing/checkout-session', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    const { data: company } = await req.supabase.from('companies').select('organization_id').eq('id', req.usuario.company_id).maybeSingle();
+    const planes = await listarPlanes(supabaseServicio, { soloActivos: true });
+    const plan = planes.find(p => p.id === req.body?.planId);
+    if (!plan) return res.status(404).json({ error: 'Plan no encontrado' });
+
+    const session = await crearCheckoutSession(stripe, {
+      organizationId: company.organization_id, plan,
+      urlExito: req.body?.urlExito, urlCancelacion: req.body?.urlCancelacion,
+    });
+    res.json({ url: session.url });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/billing/portal-session', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    const { data: company } = await req.supabase.from('companies').select('organization_id').eq('id', req.usuario.company_id).maybeSingle();
+    const suscripcion = await obtenerSuscripcionVigente(supabaseServicio, company.organization_id);
+    if (!suscripcion?.stripe_customer_id) return res.status(400).json({ error: 'Esta empresa no tiene un cliente de Stripe todavía' });
+
+    const session = await crearPortalSession(stripe, { stripeCustomerId: suscripcion.stripe_customer_id, urlRetorno: req.body?.urlRetorno });
+    res.json({ url: session.url });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// Webhook de Stripe: SIN cookie/sesión — autenticado por firma. Reusa
+// req.rawBody, ya capturado globalmente para la firma de Meta (línea ~92).
+app.post('/api/webhooks/stripe', async (req, res) => {
+  if (!stripe) return res.status(501).json({ error: 'Stripe no está configurado todavía' });
+  try {
+    const firma = req.headers['stripe-signature'];
+    const evento = stripe.webhooks.constructEvent(req.rawBody, firma, process.env.STRIPE_WEBHOOK_SECRET);
+    await manejarWebhookStripe(supabaseServicio, evento);
+    res.json({ received: true });
+  } catch (e) {
+    console.error('❌ Webhook de Stripe rechazado:', e.message);
+    res.status(400).json({ error: `Webhook error: ${e.message}` });
+  }
 });
 
 // ── ROOT ──────────────────────────────────────────────────────────────────────
