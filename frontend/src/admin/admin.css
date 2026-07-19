@@ -5,26 +5,26 @@
    .btn, .panel, .pill, .kpi con otros estilos). */
 
 .pm-root {
-  --pm-bg:        #0b0d12;
-  --pm-surface:   #12151c;
-  --pm-surface-2: #1a1e27;
-  --pm-surface-3: #21262f;
-  --pm-line:      #262b36;
-  --pm-text:      #e7e9ee;
-  --pm-text-dim:  #9298a6;
-  --pm-text-faint:#5b616e;
-  --pm-accent:    #4c7cf3;
-  --pm-accent-soft: rgba(76,124,243,0.14);
-  --pm-ok:        #22c55e;
-  --pm-ok-soft:   rgba(34,197,94,0.14);
-  --pm-warn:      #f5a623;
-  --pm-warn-soft: rgba(245,166,35,0.14);
-  --pm-danger:    #f0575f;
-  --pm-danger-soft: rgba(240,87,95,0.14);
-  --pm-muted:     #6b7180;
-  --pm-muted-soft: rgba(107,113,128,0.14);
-  --pm-shadow-md: 0 12px 32px -12px rgba(0,0,0,0.55);
-  --pm-shadow-lg: 0 30px 70px -25px rgba(0,0,0,0.6);
+  --pm-bg:        #f5f6f8;
+  --pm-surface:   #ffffff;
+  --pm-surface-2: #eef0f4;
+  --pm-surface-3: #e4e7ed;
+  --pm-line:      #dfe2e8;
+  --pm-text:      #14161c;
+  --pm-text-dim:  #5c6270;
+  --pm-text-faint:#969bab;
+  --pm-accent:    #3660d6;
+  --pm-accent-soft: rgba(54,96,214,0.10);
+  --pm-ok:        #16a34a;
+  --pm-ok-soft:   rgba(22,163,74,0.12);
+  --pm-warn:      #d97706;
+  --pm-warn-soft: rgba(217,119,6,0.12);
+  --pm-danger:    #dc2626;
+  --pm-danger-soft: rgba(220,38,38,0.10);
+  --pm-muted:     #6b7280;
+  --pm-muted-soft: rgba(107,114,128,0.10);
+  --pm-shadow-md: 0 10px 26px -14px rgba(20,22,28,0.14);
+  --pm-shadow-lg: 0 26px 60px -22px rgba(20,22,28,0.16);
   --pm-radius: 12px;
   --pm-mono: ui-monospace, 'SF Mono', 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
   --pm-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
@@ -40,26 +40,26 @@
 /* ── Login ─────────────────────────────────────────────────────────── */
 .pm-login-pantalla {
   min-height: 100vh; width: 100%; display: flex; align-items: center; justify-content: center;
-  background: #0b0d12; color: #e7e9ee; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #f5f6f8; color: #14161c; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 .pm-login-tarjeta {
-  width: 340px; background: #12151c; border: 1px solid #262b36; border-radius: 14px; padding: 2rem;
-  box-shadow: 0 30px 70px -25px rgba(0,0,0,0.6); display: flex; flex-direction: column; gap: 0.6rem;
+  width: 340px; background: #ffffff; border: 1px solid #dfe2e8; border-radius: 14px; padding: 2rem;
+  box-shadow: 0 26px 60px -22px rgba(20,22,28,0.16); display: flex; flex-direction: column; gap: 0.6rem;
 }
 .pm-login-mark {
-  width: 34px; height: 34px; border-radius: 9px; background: #4c7cf3; color: #fff; font-weight: 800;
+  width: 34px; height: 34px; border-radius: 9px; background: #3660d6; color: #fff; font-weight: 800;
   display: flex; align-items: center; justify-content: center; margin-bottom: 0.4rem;
 }
 .pm-login-tarjeta h1 { margin: 0; font-size: 1.15rem; }
-.pm-login-sub { margin: 0 0 0.8rem; color: #9298a6; font-size: 0.82rem; }
-.pm-login-tarjeta label { font-size: 0.78rem; color: #9298a6; display: flex; flex-direction: column; gap: 0.3rem; }
+.pm-login-sub { margin: 0 0 0.8rem; color: #5c6270; font-size: 0.82rem; }
+.pm-login-tarjeta label { font-size: 0.78rem; color: #5c6270; display: flex; flex-direction: column; gap: 0.3rem; }
 .pm-login-tarjeta input {
-  background: #1a1e27; border: 1px solid #262b36; border-radius: 8px; padding: 0.55rem 0.7rem;
-  color: #e7e9ee; font-size: 0.88rem; margin-bottom: 0.5rem;
+  background: #f5f6f8; border: 1px solid #dfe2e8; border-radius: 8px; padding: 0.55rem 0.7rem;
+  color: #14161c; font-size: 0.88rem; margin-bottom: 0.5rem;
 }
-.pm-login-error { color: #f0575f; font-size: 0.8rem; margin: 0; }
+.pm-login-error { color: #dc2626; font-size: 0.8rem; margin: 0; }
 .pm-login-tarjeta button {
-  margin-top: 0.4rem; padding: 0.6rem; border: none; border-radius: 8px; background: #4c7cf3;
+  margin-top: 0.4rem; padding: 0.6rem; border: none; border-radius: 8px; background: #3660d6;
   color: #fff; font-weight: 700; cursor: pointer; font-size: 0.88rem;
 }
 
