@@ -117,7 +117,7 @@ export default function Shell() {
         <header className="shell-header">
           <SelectorEmpresa empresaActiva={sesion?.empresaActiva} empresas={sesion?.empresas} />
           <div className="shell-usuario">
-            {sesion?.usuario?.nombre || sesion?.usuario?.email}
+            {sesion?.empresaActiva?.nombre}
             <button onClick={cerrarSesion}>Cerrar sesión</button>
           </div>
         </header>
