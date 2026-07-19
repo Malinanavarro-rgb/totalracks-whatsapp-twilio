@@ -193,6 +193,50 @@ async function expirarPruebasVencidas(supabase) {
   return { expiradas: (vencidas || []).length };
 }
 
+/**
+ * Cancelación definitiva (a diferencia de suspenderOrganizacion, que es
+ * reversible) — estado→'cancelled', fecha_cancelacion=now(), y sincroniza
+ * el flag operativo de la organización (deja de recibir tráfico real de
+ * WhatsApp). Mismo patrón que expirarPruebasVencidas().
+ */
+async function cancelarSuscripcion(supabase, suscripcionId) {
+  const ahoraIso = new Date().toISOString();
+
+  const { data, error } = await supabase
+    .from('suscripciones')
+    .update({ estado: 'cancelled', fecha_cancelacion: ahoraIso, updated_at: ahoraIso })
+    .eq('id', suscripcionId)
+    .select()
+    .maybeSingle();
+
+  if (error || !data) throw new Error('No se pudo cancelar la suscripción');
+
+  await supabase.from('organizations').update({ estado: 'suspendida' }).eq('id', data.organization_id);
+  await sincronizarEstadoOperativo(supabase, data.organization_id);
+
+  return data;
+}
+
+/**
+ * Guarda el % de descuento — no recalcula ningún pago todavía (no hay
+ * proveedor de pagos real conectado). Se aplicará en
+ * modules/billing-engine/pagos.js::registrarPago() el día que exista
+ * facturación real que calcular.
+ */
+async function aplicarDescuento(supabase, suscripcionId, descuentoPct) {
+  if (descuentoPct < 0 || descuentoPct > 100) throw new Error('descuentoPct debe estar entre 0 y 100');
+
+  const { data, error } = await supabase
+    .from('suscripciones')
+    .update({ descuento_pct: descuentoPct, updated_at: new Date().toISOString() })
+    .eq('id', suscripcionId)
+    .select()
+    .maybeSingle();
+
+  if (error || !data) throw new Error('No se pudo aplicar el descuento');
+  return data;
+}
+
 async function cambiarPlan(supabase, suscripcionId, nuevoPlanId) {
   const { data, error } = await supabase
     .from('suscripciones')
@@ -322,6 +366,8 @@ module.exports = {
   extenderPrueba,
   regalarMeses,
   expirarPruebasVencidas,
+  cancelarSuscripcion,
+  aplicarDescuento,
   cambiarPlan,
   crearCheckoutSession,
   crearPortalSession,

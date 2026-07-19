@@ -50,6 +50,10 @@ export const adminApi = {
     pedir(`/api/admin/suscripciones/${suscripcionId}/extender-prueba`, { method: 'PATCH', body: JSON.stringify({ dias }) }),
   regalarMeses: (suscripcionId, meses) =>
     pedir(`/api/admin/suscripciones/${suscripcionId}/regalar-meses`, { method: 'PATCH', body: JSON.stringify({ meses }) }),
+  cancelarSuscripcion: (suscripcionId) =>
+    pedir(`/api/admin/suscripciones/${suscripcionId}/cancelar`, { method: 'POST' }),
+  aplicarDescuento: (suscripcionId, descuentoPct) =>
+    pedir(`/api/admin/suscripciones/${suscripcionId}/descuento`, { method: 'PATCH', body: JSON.stringify({ descuentoPct }) }),
 
   metodoPago: (organizationId) => pedir(`/api/admin/organizaciones/${organizationId}/metodo-pago`),
   actualizarMetodoPago: (organizationId, datos) =>

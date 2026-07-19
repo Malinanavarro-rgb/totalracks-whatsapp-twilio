@@ -67,7 +67,8 @@ const { crearOrganizacionConCompany, listarOrganizaciones, obtenerOrganizacion }
 const { listarPlanes, crearPlan, actualizarPlan } = require('./modules/planes');
 const {
   obtenerSuscripcionVigente, crearSuscripcionManual, suspenderOrganizacion, reactivarOrganizacion,
-  extenderPrueba, regalarMeses, cambiarPlan, crearCheckoutSession, crearPortalSession, manejarWebhookStripe,
+  extenderPrueba, regalarMeses, cancelarSuscripcion, aplicarDescuento,
+  cambiarPlan, crearCheckoutSession, crearPortalSession, manejarWebhookStripe,
 }                                        = require('./modules/plataforma-billing');
 const { registrarMetodoPago, obtenerMetodoPagoVigente } = require('./modules/billing-engine/metodos-pago');
 const { listarPagos }                    = require('./modules/billing-engine/pagos');
@@ -1697,6 +1698,30 @@ app.patch('/api/admin/suscripciones/:id/regalar-meses', requireAdmin, async (req
   }
 });
 
+// Cancelar es definitivo (a diferencia de suspender, que es reversible) —
+// requiere confirmación explícita del lado del frontend antes de llamar aquí.
+app.post('/api/admin/suscripciones/:id/cancelar', requireAdmin, async (req, res) => {
+  try {
+    const data = await cancelarSuscripcion(supabaseServicio, req.params.id);
+    await registrarEventoAdmin(supabaseServicio, { adminId: req.admin.id, accion: 'cancelar_suscripcion', organizationId: data.organization_id, detalle: { suscripcionId: req.params.id } });
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/admin/suscripciones/:id/descuento', requireAdmin, async (req, res) => {
+  try {
+    const descuentoPct = Number(req.body?.descuentoPct);
+    if (Number.isNaN(descuentoPct)) return res.status(400).json({ error: 'descuentoPct es requerido' });
+    const data = await aplicarDescuento(supabaseServicio, req.params.id, descuentoPct);
+    await registrarEventoAdmin(supabaseServicio, { adminId: req.admin.id, accion: 'aplicar_descuento', detalle: { suscripcionId: req.params.id, descuentoPct } });
+    res.json(data);
+  } catch (e) {
+    res.status(e.message?.includes('entre 0 y 100') ? 400 : 500).json({ error: e.message });
+  }
+});
+
 // Método de pago — sin gateway real todavía: guarda lo que se le mande tal
 // cual (mismo criterio "manual" que las suscripciones). El botón
 // "Actualizar método de pago" del Panel Maestro pega aquí.
@@ -1780,13 +1805,66 @@ app.post('/api/billing/portal-session', requireAuth, soloGerencial, async (req, 
   try {
     const { data: company } = await req.supabase.from('companies').select('organization_id').eq('id', req.usuario.company_id).maybeSingle();
     const suscripcion = await obtenerSuscripcionVigente(supabaseServicio, company.organization_id);
-    if (!suscripcion?.stripe_customer_id) return res.status(400).json({ error: 'Esta empresa no tiene un cliente de Stripe todavía' });
+    if (!suscripcion?.proveedor_customer_id) return res.status(400).json({ error: 'Esta empresa no tiene un cliente de Stripe todavía' });
 
-    const session = await crearPortalSession(stripe, { stripeCustomerId: suscripcion.stripe_customer_id, urlRetorno: req.body?.urlRetorno });
+    const session = await crearPortalSession(stripe, { stripeCustomerId: suscripcion.proveedor_customer_id, urlRetorno: req.body?.urlRetorno });
     res.json({ url: session.url });
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
   }
+});
+
+// Portal del Cliente — "Suscripción y Facturación" (Configuración): la
+// propia empresa viendo su propio plan/factura/método de pago. Todas
+// resuelven organization_id desde companies.organization_id del usuario en
+// sesión, mismo patrón que checkout-session/portal-session arriba.
+async function _organizationIdDeUsuario(req) {
+  const { data: company } = await req.supabase.from('companies').select('organization_id').eq('id', req.usuario.company_id).maybeSingle();
+  return company?.organization_id || null;
+}
+
+app.get('/api/billing/suscripcion', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    const organizationId = await _organizationIdDeUsuario(req);
+    res.json(await obtenerSuscripcionVigente(supabaseServicio, organizationId));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/billing/metodo-pago', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    const organizationId = await _organizationIdDeUsuario(req);
+    res.json(await obtenerMetodoPagoVigente(supabaseServicio, organizationId));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/billing/metodo-pago', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    const organizationId = await _organizationIdDeUsuario(req);
+    const { proveedor, token, ultimos4, marca, fechaExpiracion } = req.body || {};
+    if (!proveedor || !token) return res.status(400).json({ error: 'proveedor y token son requeridos' });
+    res.json(await registrarMetodoPago(supabaseServicio, { organizationId, proveedor, token, ultimos4, marca, fechaExpiracion }));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/billing/pagos', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    const organizationId = await _organizationIdDeUsuario(req);
+    res.json(await listarPagos(supabaseServicio, organizationId));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Placeholder honesto: sin proveedor de pagos conectado no existe ningún
+// pago real que reintentar — nunca simula un éxito falso.
+app.post('/api/billing/reintentar-pago', requireAuth, soloGerencial, async (req, res) => {
+  res.status(501).json({ error: 'Disponible cuando se conecte un proveedor de pagos' });
 });
 
 // Webhook de Stripe: SIN cookie/sesión — autenticado por firma. Reusa

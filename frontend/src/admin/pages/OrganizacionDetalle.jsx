@@ -306,6 +306,12 @@ function FormulariosLicencias({ suscripcion, planes, onAccion }) {
   const [planId, setPlanId] = useState(suscripcion.plan_id);
   const [dias, setDias] = useState(7);
   const [meses, setMeses] = useState(1);
+  const [descuento, setDescuento] = useState(suscripcion.descuento_pct || 0);
+
+  function cancelar() {
+    if (!window.confirm('¿Cancelar esta suscripción? Es definitivo — a diferencia de suspender, no se reactiva sola.')) return;
+    onAccion(() => adminApi.cancelarSuscripcion(suscripcion.id), 'Suscripción cancelada.');
+  }
 
   return (
     <div className="pm-panel-body">
@@ -331,6 +337,17 @@ function FormulariosLicencias({ suscripcion, planes, onAccion }) {
           <input type="number" min="1" value={meses} onChange={e => setMeses(Number(e.target.value))} style={{ width: 70 }} />
           <button className="pm-btn pm-btn--chico" onClick={() => onAccion(() => adminApi.regalarMeses(suscripcion.id, meses), `${meses} mes(es) de regalo aplicados.`)}>Regalar</button>
         </div>
+      </div>
+      <div className="pm-accion-fila">
+        <div className="pm-txt"><b>Aplicar descuento</b><span>Se aplicará al calcular el próximo cobro real (sin proveedor conectado, solo se guarda)</span></div>
+        <div className="pm-accion-control">
+          <input type="number" min="0" max="100" value={descuento} onChange={e => setDescuento(Number(e.target.value))} style={{ width: 70 }} />%
+          <button className="pm-btn pm-btn--chico" onClick={() => onAccion(() => adminApi.aplicarDescuento(suscripcion.id, descuento), `Descuento de ${descuento}% aplicado.`)}>Aplicar</button>
+        </div>
+      </div>
+      <div className="pm-accion-fila">
+        <div className="pm-txt"><b>Cancelar suscripción</b><span>Definitivo — la empresa deja de recibir tráfico de WhatsApp</span></div>
+        <button className="pm-btn pm-btn--chico pm-btn--peligro" onClick={cancelar}>Cancelar</button>
       </div>
     </div>
   );

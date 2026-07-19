@@ -3,7 +3,8 @@
 const {
   obtenerSuscripcionVigente, sincronizarEstadoOperativo, crearSuscripcionManual,
   suspenderOrganizacion, reactivarOrganizacion, extenderPrueba, regalarMeses,
-  expirarPruebasVencidas, cambiarPlan, crearCheckoutSession, crearPortalSession, manejarWebhookStripe,
+  expirarPruebasVencidas, cancelarSuscripcion, aplicarDescuento,
+  cambiarPlan, crearCheckoutSession, crearPortalSession, manejarWebhookStripe,
 } = require('../modules/plataforma-billing');
 
 function crearBuilder(resultado = { data: null, error: null }) {
@@ -189,6 +190,46 @@ describe('plataforma-billing', () => {
     test('lanza si la consulta inicial falla', async () => {
       const db = crearMockDb({ data: null, error: { message: 'fallo' } });
       await expect(expirarPruebasVencidas(db)).rejects.toThrow(/fallo/);
+    });
+  });
+
+  describe('cancelarSuscripcion()', () => {
+    test('marca cancelled, fija fecha_cancelacion y sincroniza estado operativo', async () => {
+      const db = crearMockDb(
+        { data: { id: 'sub-1', organization_id: ORG_ID, estado: 'cancelled' }, error: null }, // update suscripciones
+        { data: null, error: null }, // update organizations.estado = suspendida
+        { data: { estado: 'suspendida' }, error: null }, // sincronizar: select
+        { data: null, error: null }  // sincronizar: update companies
+      );
+
+      const resultado = await cancelarSuscripcion(db, 'sub-1');
+
+      expect(resultado.estado).toBe('cancelled');
+      expect(db._llamadas).toEqual(['suscripciones', 'organizations', 'organizations', 'companies']);
+    });
+
+    test('lanza si la suscripción no existe', async () => {
+      const db = crearMockDb({ data: null, error: null });
+      await expect(cancelarSuscripcion(db, 'sub-x')).rejects.toThrow(/No se pudo cancelar/);
+    });
+  });
+
+  describe('aplicarDescuento()', () => {
+    test('actualiza descuento_pct', async () => {
+      const db = crearMockDb({ data: { id: 'sub-1', descuento_pct: 20 }, error: null });
+      const resultado = await aplicarDescuento(db, 'sub-1', 20);
+      expect(resultado.descuento_pct).toBe(20);
+    });
+
+    test('lanza si el % está fuera de 0-100', async () => {
+      const db = crearMockDb();
+      await expect(aplicarDescuento(db, 'sub-1', 150)).rejects.toThrow(/entre 0 y 100/);
+      await expect(aplicarDescuento(db, 'sub-1', -5)).rejects.toThrow(/entre 0 y 100/);
+    });
+
+    test('lanza si la suscripción no existe', async () => {
+      const db = crearMockDb({ data: null, error: null });
+      await expect(aplicarDescuento(db, 'sub-x', 10)).rejects.toThrow(/No se pudo aplicar/);
     });
   });
 

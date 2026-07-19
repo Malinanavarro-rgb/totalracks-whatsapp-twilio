@@ -143,4 +143,13 @@ export const api = {
   obtenerInvitacion:       (token) => pedir(`/api/invitaciones/${token}`),
   aceptarInvitacion:       (token, password) =>
     pedir(`/api/invitaciones/${token}/aceptar`, { method: 'POST', body: JSON.stringify({ password }) }),
+
+  // Portal del Cliente — Suscripción y Facturación (Configuración)
+  suscripcionBilling:      () => pedir('/api/billing/suscripcion'),
+  metodoPagoBilling:       () => pedir('/api/billing/metodo-pago'),
+  actualizarMetodoPagoBilling: (datos) => pedir('/api/billing/metodo-pago', { method: 'PATCH', body: JSON.stringify(datos) }),
+  pagosBilling:            () => pedir('/api/billing/pagos'),
+  checkoutSession:         (datos) => pedir('/api/billing/checkout-session', { method: 'POST', body: JSON.stringify(datos) }),
+  portalSession:           (datos) => pedir('/api/billing/portal-session', { method: 'POST', body: JSON.stringify(datos) }),
+  reintentarPago:          () => pedir('/api/billing/reintentar-pago', { method: 'POST' }),
 };
