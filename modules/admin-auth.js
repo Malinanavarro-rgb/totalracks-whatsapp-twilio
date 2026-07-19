@@ -24,6 +24,12 @@ const { supabaseServicio } = require('./clients');
 // la encuentra). "¿Eres Super Admin?" es además una pregunta de plataforma,
 // no de un tenant — no debería depender de RLS por empresa de todos modos,
 // así que esta consulta puntual usa supabaseServicio a propósito.
+//
+// El embed `usuarios!plataforma_admins_id_fkey(...)` es obligatorio, no
+// cosmético: plataforma_admins tiene DOS FKs hacia usuarios (id y
+// creado_por), así que PostgREST no puede resolver `usuarios(...)` a
+// secas — responde "Could not embed because more than one relationship
+// was found" (confirmado en producción).
 
 class ErrorAdminAuth extends Error {
   constructor(message, status) {
@@ -49,7 +55,7 @@ async function iniciarSesionAdmin(supabase, email, password) {
 
   const { data: fila, error: errorAdmin } = await supabaseServicio
     .from('plataforma_admins')
-    .select('rol, activo, usuarios(id, nombre, email)')
+    .select('rol, activo, usuarios!plataforma_admins_id_fkey(id, nombre, email)')
     .eq('id', usuarioId)
     .eq('activo', true)
     .maybeSingle();
@@ -82,7 +88,7 @@ async function resolverSesionAdmin(supabase, token) {
 
   const { data: fila, error: errorFila } = await supabaseServicio
     .from('plataforma_admins')
-    .select('rol, usuarios(id, nombre, email)')
+    .select('rol, usuarios!plataforma_admins_id_fkey(id, nombre, email)')
     .eq('id', userData.user.id)
     .eq('activo', true)
     .maybeSingle();
