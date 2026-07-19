@@ -1,30 +1,36 @@
--- TARA — FASE 8.1: suscripciones (estado comercial de una organization).
+-- TARA — Módulo de Billing: suscripciones.
 --
--- estado es un espejo textual de Stripe (trialing|active|past_due|canceled|
--- unpaid|incomplete|incomplete_expired|paused) — nunca se inventa un estado
--- propio que Stripe no tenga. Sin Stripe conectado todavía (confirmado con
--- la dueña), las suscripciones que se creen manualmente desde el Panel
--- Maestro usan 'active' con stripe_customer_id/stripe_subscription_id NULL.
+-- `estado` es el vocabulario CANÓNICO de negocio, no un espejo de Stripe —
+-- ver modules/billing-engine/estados.js::mapearEstadoProveedor(). Esto es
+-- lo que permite cambiar de proveedor de pagos sin tocar lógica de negocio:
+-- ningún módulo de plataforma conoce el vocabulario propio de Stripe/
+-- Mercado Pago/OpenPay, solo el canónico.
+--
+-- `proveedor='manual'` (default): suscripciones que administra un Super
+-- Admin a mano, sin ningún gateway de pago real detrás (ej. Enterprise,
+-- promociones, o mientras no exista cuenta conectada). `proveedor_customer_id`/
+-- `proveedor_suscripcion_id` quedan NULL en ese caso.
 --
 -- No hay UNIQUE(organization_id): si una organización cancela y vuelve a
--- suscribirse después con un stripe_subscription_id nuevo, es una fila
--- nueva legítima. La vigente siempre se resuelve por
--- ORDER BY created_at DESC LIMIT 1 (ver modules/plataforma-billing.js).
+-- suscribirse después, es una fila nueva legítima. La vigente siempre se
+-- resuelve por ORDER BY created_at DESC LIMIT 1.
 
 CREATE TABLE suscripciones (
   id                            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   organization_id               uuid NOT NULL REFERENCES organizations(id),
   plan_id                       uuid NOT NULL REFERENCES planes(id),
-  estado                        text NOT NULL DEFAULT 'active',
-  stripe_customer_id            text,
-  stripe_subscription_id        text UNIQUE,
+  estado                        text NOT NULL CHECK (estado IN (
+    'trial', 'active', 'past_due', 'suspended', 'cancelled', 'expired'
+  )),
+  proveedor                     text NOT NULL DEFAULT 'manual' CHECK (proveedor IN ('manual', 'stripe', 'mercadopago', 'openpay')),
+  proveedor_customer_id         text,
+  proveedor_suscripcion_id      text UNIQUE,
   fecha_inicio                  timestamptz NOT NULL DEFAULT now(),
   fecha_prueba_fin              timestamptz,
   fecha_periodo_actual_inicio   timestamptz,
-  fecha_periodo_actual_fin      timestamptz, -- "próximo pago"
+  fecha_periodo_actual_fin      timestamptz, -- "próximo cobro"
   cancelar_al_fin_periodo       boolean NOT NULL DEFAULT false,
   fecha_cancelacion             timestamptz,
-  metodo_pago_resumen           jsonb, -- {brand, last4, exp_month, exp_year} — nunca el PAN completo
   meses_regalo                  integer NOT NULL DEFAULT 0,
   notas_promocion               text,
   created_at                    timestamptz NOT NULL DEFAULT now(),

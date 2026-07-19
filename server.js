@@ -62,13 +62,16 @@ const {
 const { responderSobreCliente }         = require('./modules/asistente-consultas');
 const { calcularCotizacion }             = require('./modules/cotizador');
 
-// FASE 8.1 — Plataforma Comercial (Panel Maestro, Suscripciones, Onboarding).
+// Plataforma Comercial (Panel Maestro, Billing, Onboarding).
 const { crearOrganizacionConCompany, listarOrganizaciones, obtenerOrganizacion } = require('./modules/organizaciones');
 const { listarPlanes, crearPlan, actualizarPlan } = require('./modules/planes');
 const {
   obtenerSuscripcionVigente, crearSuscripcionManual, suspenderOrganizacion, reactivarOrganizacion,
   extenderPrueba, regalarMeses, cambiarPlan, crearCheckoutSession, crearPortalSession, manejarWebhookStripe,
 }                                        = require('./modules/plataforma-billing');
+const { registrarMetodoPago, obtenerMetodoPagoVigente } = require('./modules/billing-engine/metodos-pago');
+const { listarPagos }                    = require('./modules/billing-engine/pagos');
+const { resumenPorOrganizacion }         = require('./modules/billing-engine/centro-cobro');
 const { iniciarSesionAdmin, resolverSesionAdmin, ErrorAdminAuth } = require('./modules/admin-auth');
 const { crearRequireAdmin }             = require('./modules/admin-auth-middleware');
 const { iniciarImpersonacion, resolverSesionImpersonada, finalizarImpersonacion } = require('./modules/plataforma-impersonacion');
@@ -1594,11 +1597,13 @@ app.get('/api/admin/planes', requireAdmin, async (req, res) => {
 
 app.post('/api/admin/planes', requireAdmin, async (req, res) => {
   try {
-    const { clave, nombre, precioCentavos, moneda, periodo, limites, orden } = req.body || {};
-    if (!clave || !nombre || precioCentavos == null) {
-      return res.status(400).json({ error: 'clave, nombre y precioCentavos son requeridos' });
+    const { clave, nombre, precioCentavos, moneda, periodo, esAutoservicio, diasPrueba, perks, limites, orden } = req.body || {};
+    if (!clave || !nombre) {
+      return res.status(400).json({ error: 'clave y nombre son requeridos' }); // precioCentavos puede ser null (plan tipo Enterprise)
     }
-    res.status(201).json(await crearPlan(supabaseServicio, { clave, nombre, precioCentavos, moneda, periodo, limites, orden }));
+    res.status(201).json(await crearPlan(supabaseServicio, {
+      clave, nombre, precioCentavos, moneda, periodo, esAutoservicio, diasPrueba, perks, limites, orden,
+    }));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -1659,6 +1664,49 @@ app.patch('/api/admin/suscripciones/:id/regalar-meses', requireAdmin, async (req
     const data = await regalarMeses(supabaseServicio, req.params.id, meses);
     await registrarEventoAdmin(supabaseServicio, { adminId: req.admin.id, accion: 'regalar_meses', detalle: { suscripcionId: req.params.id, meses } });
     res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Método de pago — sin gateway real todavía: guarda lo que se le mande tal
+// cual (mismo criterio "manual" que las suscripciones). El botón
+// "Actualizar método de pago" del Panel Maestro pega aquí.
+app.patch('/api/admin/organizaciones/:id/metodo-pago', requireAdmin, async (req, res) => {
+  try {
+    const { proveedor, token, ultimos4, marca, fechaExpiracion } = req.body || {};
+    if (!proveedor || !token) return res.status(400).json({ error: 'proveedor y token son requeridos' });
+
+    const metodo = await registrarMetodoPago(supabaseServicio, { organizationId: req.params.id, proveedor, token, ultimos4, marca, fechaExpiracion });
+    await registrarEventoAdmin(supabaseServicio, { adminId: req.admin.id, accion: 'actualizar_metodo_pago', organizationId: req.params.id });
+    res.json(metodo);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/admin/organizaciones/:id/metodo-pago', requireAdmin, async (req, res) => {
+  try {
+    res.json(await obtenerMetodoPagoVigente(supabaseServicio, req.params.id));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/admin/organizaciones/:id/pagos', requireAdmin, async (req, res) => {
+  try {
+    res.json(await listarPagos(supabaseServicio, req.params.id));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Centro de Cobro: plan/vencimiento/ingreso/costo de IA/margen, por organización.
+app.get('/api/admin/centro-cobro', requireAdmin, async (req, res) => {
+  try {
+    const hasta = req.query.hasta || new Date().toISOString();
+    const desde = req.query.desde || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    res.json(await resumenPorOrganizacion(supabaseServicio, { desde, hasta }));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

@@ -26,7 +26,7 @@ CREATE INDEX idx_impersonaciones_token ON plataforma_impersonaciones(token);
 -- Verificación
 SELECT count(*) AS impersonaciones_registradas FROM plataforma_impersonaciones;
 
-INSERT INTO schema_migrations (archivo) VALUES ('068') ON CONFLICT (archivo) DO NOTHING;
+INSERT INTO schema_migrations (archivo) VALUES ('069') ON CONFLICT (archivo) DO NOTHING;
 
 -- ── ROLLBACK (comentado) ─────────────────────────────────────────────────
 -- DROP TABLE IF EXISTS plataforma_impersonaciones;

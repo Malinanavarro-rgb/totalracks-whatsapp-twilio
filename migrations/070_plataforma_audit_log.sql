@@ -14,7 +14,8 @@ CREATE TABLE plataforma_audit_log (
   accion                text NOT NULL CHECK (accion IN (
     'suspender_empresa', 'reactivar_empresa', 'cambiar_plan', 'crear_organizacion',
     'impersonar_inicio', 'impersonar_fin', 'reset_password', 'extender_prueba',
-    'regalar_meses', 'bloquear_cuenta', 'desbloquear_cuenta'
+    'regalar_meses', 'bloquear_cuenta', 'desbloquear_cuenta',
+    'actualizar_metodo_pago', 'registrar_pago'
   )),
   organization_id       uuid REFERENCES organizations(id),
   company_id            uuid REFERENCES companies(id),
@@ -28,7 +29,7 @@ CREATE INDEX idx_audit_org   ON plataforma_audit_log(organization_id);
 -- Verificación
 SELECT count(*) AS eventos_registrados FROM plataforma_audit_log;
 
-INSERT INTO schema_migrations (archivo) VALUES ('069') ON CONFLICT (archivo) DO NOTHING;
+INSERT INTO schema_migrations (archivo) VALUES ('070') ON CONFLICT (archivo) DO NOTHING;
 
 -- ── ROLLBACK (comentado) ─────────────────────────────────────────────────
 -- DROP TABLE IF EXISTS plataforma_audit_log;

@@ -28,7 +28,7 @@ ON CONFLICT (id) DO NOTHING;
 SELECT pa.id, u.email, u.nombre, pa.rol, pa.activo FROM plataforma_admins pa
   JOIN usuarios u ON u.id = pa.id;
 
-INSERT INTO schema_migrations (archivo) VALUES ('067') ON CONFLICT (archivo) DO NOTHING;
+INSERT INTO schema_migrations (archivo) VALUES ('068') ON CONFLICT (archivo) DO NOTHING;
 
 -- ── ROLLBACK (comentado) ─────────────────────────────────────────────────
 -- DROP TABLE IF EXISTS plataforma_admins;

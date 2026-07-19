@@ -18,14 +18,17 @@ async function listarPlanes(supabase, { soloActivos } = {}) {
   return error ? [] : (data || []);
 }
 
-async function crearPlan(supabase, { clave, nombre, precioCentavos, moneda, periodo, limites, orden }) {
+async function crearPlan(supabase, { clave, nombre, precioCentavos, moneda, periodo, esAutoservicio, diasPrueba, perks, limites, orden }) {
   const { data, error } = await supabase
     .from('planes')
     .insert([{
       clave, nombre,
-      precio_centavos: precioCentavos,
+      precio_centavos: precioCentavos ?? null, // NULL permitido — plan tipo Enterprise, precio personalizado
       moneda: moneda || 'MXN',
       periodo: periodo || 'mensual',
+      es_autoservicio: esAutoservicio ?? true,
+      dias_prueba: diasPrueba ?? null,
+      perks: perks || [],
       limites: limites || {},
       orden: orden ?? 0,
     }])
@@ -37,7 +40,10 @@ async function crearPlan(supabase, { clave, nombre, precioCentavos, moneda, peri
 }
 
 async function actualizarPlan(supabase, id, cambios) {
-  const campos = ['nombre', 'precio_centavos', 'moneda', 'periodo', 'stripe_price_id', 'limites', 'activo', 'orden'];
+  const campos = [
+    'nombre', 'precio_centavos', 'moneda', 'periodo', 'stripe_price_id',
+    'es_autoservicio', 'dias_prueba', 'perks', 'limites', 'activo', 'orden',
+  ];
   const payload = {};
   for (const campo of campos) if (cambios[campo] !== undefined) payload[campo] = cambios[campo];
 

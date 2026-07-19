@@ -1,24 +1,28 @@
 /**
  * TARA Matrix™ — plataforma-billing.js
  * ─────────────────────────────────────────────────────────────────────────────
- * FASE 8.1 — Plataforma Comercial. Único punto de escritura de
- * `suscripciones`/`pagos`. Ningún frontend escribe esas tablas directamente
- * — solo redirige a Stripe hosted (Checkout/Billing Portal) o invoca
- * acciones auditadas de Super Admin que reusan estas mismas funciones.
+ * Módulo de Billing — único punto de escritura de `suscripciones`. Ningún
+ * frontend escribe esa tabla directamente — solo redirige a Checkout/
+ * Billing Portal hosted del proveedor conectado, o invoca acciones
+ * auditadas de Super Admin que reusan estas mismas funciones.
+ *
+ * `suscripciones.estado` es SIEMPRE el vocabulario canónico de negocio
+ * (trial|active|past_due|suspended|cancelled|expired, ver
+ * modules/billing-engine/estados.js) — nunca el vocabulario propio de un
+ * proveedor. `manejarWebhookStripe` es el único lugar que traduce.
  *
  * Sin cuenta de Stripe conectada todavía (confirmado explícitamente con la
  * dueña) — `crearCheckoutSession`/`crearPortalSession`/`manejarWebhookStripe`
  * lanzan un error claro si se invocan antes de que exista STRIPE_SECRET_KEY.
  * `crearSuscripcionManual`/`sincronizarEstadoOperativo` NO dependen de
- * Stripe — permiten operar las 8 empresas reales desde hoy (Panel Maestro,
- * Sub-fase 8.2) sin esperar a Sub-fase 8.3.
+ * ningún proveedor — permiten operar las empresas reales desde hoy.
  *
  * @module modules/plataforma-billing
  */
 
 'use strict';
 
-const ESTADOS_SUSCRIPCION_ACTIVA = ['trialing', 'active', 'past_due']; // past_due sigue operativa — Stripe maneja el dunning, no nosotros
+const { ESTADOS_OPERATIVOS, mapearEstadoProveedor } = require('./billing-engine/estados');
 
 function requerirStripe(stripe) {
   if (!stripe) {
@@ -30,8 +34,8 @@ function requerirStripe(stripe) {
 
 /**
  * La suscripción vigente de una organización es la más reciente — cancelar
- * y volver a suscribirse después (con un stripe_subscription_id nuevo) crea
- * una fila nueva legítima, nunca se sobreescribe la anterior.
+ * y volver a suscribirse después (con un proveedor_suscripcion_id nuevo)
+ * crea una fila nueva legítima, nunca se sobreescribe la anterior.
  */
 async function obtenerSuscripcionVigente(supabase, organizationId) {
   const { data, error } = await supabase
@@ -73,19 +77,27 @@ async function sincronizarEstadoOperativo(supabase, organizationId) {
 }
 
 /**
- * Alta manual de suscripción, SIN Stripe (mientras no exista cuenta
- * conectada) — es como el Panel Maestro asigna un plan real a las 8
- * empresas ya existentes. stripe_customer_id/stripe_subscription_id quedan
- * NULL; cuando se conecte Stripe (Sub-fase 8.3), estas filas manuales
- * conviven con las que sí traen datos de Stripe sin ningún cambio de schema.
+ * Alta manual de suscripción, SIN gateway de pago (proveedor='manual') —
+ * es como el Panel Maestro asigna un plan real a una organización
+ * (incluyendo Enterprise, que nunca pasa por autoservicio). Si el plan
+ * tiene días de prueba (Launch), la suscripción nace en estado 'trial' con
+ * fecha_prueba_fin calculada; si no, nace 'active' directo.
  */
 async function crearSuscripcionManual(supabase, { organizationId, planId, mesesRegalo, notasPromocion }) {
+  const { data: plan, error: errPlan } = await supabase.from('planes').select('dias_prueba').eq('id', planId).maybeSingle();
+  if (errPlan || !plan) throw new Error('Plan no encontrado');
+
+  const esPrueba = !!plan.dias_prueba;
+  const fechaPruebaFin = esPrueba ? new Date(Date.now() + plan.dias_prueba * 24 * 60 * 60 * 1000).toISOString() : null;
+
   const { data, error } = await supabase
     .from('suscripciones')
     .insert([{
       organization_id: organizationId,
       plan_id: planId,
-      estado: 'active',
+      estado: esPrueba ? 'trial' : 'active',
+      proveedor: 'manual',
+      fecha_prueba_fin: fechaPruebaFin,
       meses_regalo: mesesRegalo || 0,
       notas_promocion: notasPromocion || null,
     }])
@@ -112,7 +124,7 @@ async function reactivarOrganizacion(supabase, organizationId) {
   await sincronizarEstadoOperativo(supabase, organizationId);
 }
 
-/** Licencias — acciones auditadas del Super Admin sobre una suscripción existente, sin pasar por Stripe. */
+/** Licencias — acciones auditadas del Super Admin sobre una suscripción existente, sin pasar por ningún gateway. */
 async function extenderPrueba(supabase, suscripcionId, dias) {
   const { data: actual, error: errActual } = await supabase.from('suscripciones').select('fecha_prueba_fin').eq('id', suscripcionId).maybeSingle();
   if (errActual || !actual) throw new Error('Suscripción no encontrada');
@@ -122,7 +134,7 @@ async function extenderPrueba(supabase, suscripcionId, dias) {
 
   const { data, error } = await supabase
     .from('suscripciones')
-    .update({ fecha_prueba_fin: nuevaFecha.toISOString(), estado: 'trialing', updated_at: new Date().toISOString() })
+    .update({ fecha_prueba_fin: nuevaFecha.toISOString(), estado: 'trial', updated_at: new Date().toISOString() })
     .eq('id', suscripcionId)
     .select()
     .maybeSingle();
@@ -154,6 +166,33 @@ async function regalarMeses(supabase, suscripcionId, meses) {
   return data;
 }
 
+/**
+ * Cron diario (scripts/expirar-pruebas.js): toda suscripción en 'trial' con
+ * fecha_prueba_fin ya vencida pasa a 'expired'. Que el frontend le pida al
+ * cliente contratar un plan al ver estado='expired' es responsabilidad de
+ * la UI, no de este cron — aquí solo se garantiza que el dato esté
+ * correcto y a tiempo.
+ */
+async function expirarPruebasVencidas(supabase) {
+  const ahoraIso = new Date().toISOString();
+
+  const { data: vencidas, error } = await supabase
+    .from('suscripciones')
+    .select('id, organization_id')
+    .eq('estado', 'trial')
+    .lte('fecha_prueba_fin', ahoraIso);
+
+  if (error) throw new Error(`plataforma-billing.expirarPruebasVencidas: ${error.message}`);
+
+  for (const sub of vencidas || []) {
+    await supabase.from('suscripciones').update({ estado: 'expired', updated_at: ahoraIso }).eq('id', sub.id);
+    await supabase.from('organizations').update({ estado: 'suspendida' }).eq('id', sub.organization_id);
+    await sincronizarEstadoOperativo(supabase, sub.organization_id);
+  }
+
+  return { expiradas: (vencidas || []).length };
+}
+
 async function cambiarPlan(supabase, suscripcionId, nuevoPlanId) {
   const { data, error } = await supabase
     .from('suscripciones')
@@ -167,11 +206,17 @@ async function cambiarPlan(supabase, suscripcionId, nuevoPlanId) {
 }
 
 /**
- * Stripe Checkout hosted — cero UI de tarjeta propia. Usado por Onboarding
- * (Sub-fase 8.3).
+ * Stripe Checkout hosted — cero UI de tarjeta propia. Solo para planes
+ * es_autoservicio=true (Enterprise nunca llega aquí — su alta es siempre
+ * manual, vía crearSuscripcionManual, después de la conversación comercial).
  */
 async function crearCheckoutSession(stripe, { organizationId, plan, urlExito, urlCancelacion }) {
   requerirStripe(stripe);
+  if (!plan.es_autoservicio) {
+    const err = new Error(`El plan "${plan.clave}" no es de autoservicio — requiere alta manual`);
+    err.status = 400;
+    throw err;
+  }
   if (!plan.stripe_price_id) {
     const err = new Error(`El plan "${plan.clave}" todavía no tiene un stripe_price_id configurado`);
     err.status = 400;
@@ -195,32 +240,37 @@ async function crearPortalSession(stripe, { stripeCustomerId, urlRetorno }) {
 
 /**
  * Único punto de escritura a partir de eventos reales de Stripe. Todos los
- * upserts son idempotentes por stripe_subscription_id/stripe_invoice_id —
- * Stripe puede reenviar el mismo evento más de una vez.
+ * upserts son idempotentes por proveedor_suscripcion_id/proveedor_invoice_id
+ * — Stripe puede reenviar el mismo evento más de una vez. El estado bruto
+ * de Stripe SIEMPRE pasa por mapearEstadoProveedor() antes de escribirse —
+ * suscripciones.estado nunca ve vocabulario de Stripe directo.
  *
- * invoice.payment_failed NO dispara suspensión inmediata: se confía en las
- * transiciones de subscription.status que Stripe ya emite (su propio
- * dunning/reintentos), no se reimplementa un temporizador de gracia propio.
+ * past_due no dispara suspensión inmediata: se confía en las transiciones
+ * de subscription.status que Stripe ya emite (su propio dunning/reintentos),
+ * no se reimplementa un temporizador de gracia propio.
  */
 async function manejarWebhookStripe(supabase, evento) {
   switch (evento.type) {
     case 'customer.subscription.created':
     case 'customer.subscription.updated': {
       const sub = evento.data.object;
+      const estadoCanonico = mapearEstadoProveedor('stripe', sub.status);
+
       await supabase.from('suscripciones').upsert({
         organization_id: sub.metadata?.organization_id,
         plan_id: sub.metadata?.plan_id,
-        estado: sub.status,
-        stripe_customer_id: sub.customer,
-        stripe_subscription_id: sub.id,
+        estado: estadoCanonico,
+        proveedor: 'stripe',
+        proveedor_customer_id: sub.customer,
+        proveedor_suscripcion_id: sub.id,
         fecha_periodo_actual_inicio: new Date(sub.current_period_start * 1000).toISOString(),
         fecha_periodo_actual_fin: new Date(sub.current_period_end * 1000).toISOString(),
         cancelar_al_fin_periodo: sub.cancel_at_period_end,
         updated_at: new Date().toISOString(),
-      }, { onConflict: 'stripe_subscription_id' });
+      }, { onConflict: 'proveedor_suscripcion_id' });
 
       if (sub.metadata?.organization_id) {
-        const estadoOrg = ESTADOS_SUSCRIPCION_ACTIVA.includes(sub.status) ? 'activa' : 'suspendida';
+        const estadoOrg = ESTADOS_OPERATIVOS.includes(estadoCanonico) ? 'activa' : 'suspendida';
         await supabase.from('organizations').update({ estado: estadoOrg }).eq('id', sub.metadata.organization_id);
         await sincronizarEstadoOperativo(supabase, sub.metadata.organization_id);
       }
@@ -229,8 +279,8 @@ async function manejarWebhookStripe(supabase, evento) {
     case 'customer.subscription.deleted': {
       const sub = evento.data.object;
       await supabase.from('suscripciones')
-        .update({ estado: 'canceled', fecha_cancelacion: new Date().toISOString() })
-        .eq('stripe_subscription_id', sub.id);
+        .update({ estado: 'cancelled', fecha_cancelacion: new Date().toISOString() })
+        .eq('proveedor_suscripcion_id', sub.id);
 
       if (sub.metadata?.organization_id) {
         await supabase.from('organizations').update({ estado: 'suspendida' }).eq('id', sub.metadata.organization_id);
@@ -243,15 +293,18 @@ async function manejarWebhookStripe(supabase, evento) {
       const inv = evento.data.object;
       await supabase.from('pagos').upsert({
         organization_id: inv.metadata?.organization_id || null,
-        stripe_invoice_id: inv.id,
-        monto_centavos: inv.amount_due,
+        proveedor: 'stripe',
+        proveedor_invoice_id: inv.id,
+        subtotal_centavos: inv.subtotal ?? inv.amount_due,
+        iva_centavos: inv.tax || 0,
+        total_centavos: inv.total ?? inv.amount_due,
         moneda: (inv.currency || 'mxn').toUpperCase(),
         estado: inv.status,
         fecha_emision: inv.created ? new Date(inv.created * 1000).toISOString() : null,
         fecha_pago: inv.status_transitions?.paid_at ? new Date(inv.status_transitions.paid_at * 1000).toISOString() : null,
         factura_pdf_url: inv.hosted_invoice_url || inv.invoice_pdf || null,
         raw_evento: evento,
-      }, { onConflict: 'stripe_invoice_id' });
+      }, { onConflict: 'proveedor_invoice_id' });
       break;
     }
     default:
@@ -268,6 +321,7 @@ module.exports = {
   reactivarOrganizacion,
   extenderPrueba,
   regalarMeses,
+  expirarPruebasVencidas,
   cambiarPlan,
   crearCheckoutSession,
   crearPortalSession,

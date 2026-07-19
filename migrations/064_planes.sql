@@ -1,37 +1,63 @@
--- TARA — FASE 8.1: catálogo de planes de suscripción.
+-- TARA — Módulo de Billing: catálogo real de planes THERA.
 --
--- `limites` en jsonb es el gancho que resuelve el hallazgo #5 de la
--- Auditoría 2026-07 ("rate limit de OpenAI compartido entre todas las
--- empresas, sin enforcement por plan") — el dato para aplicarlo
--- (decision_logs.costo_usd/tokens_total) ya existe, solo faltaba el techo
--- por plan. El enforcement en sí no es parte de esta entrega.
+-- `es_autoservicio=false` (solo Enterprise) le indica al frontend que NO
+-- debe ofrecer un flujo de compra normal — solo el botón "Solicitar
+-- demostración". La suscripción Enterprise la crea un Super Admin a mano
+-- (proveedor='manual') después de la conversación comercial.
 --
--- Seed: 3 planes PLACEHOLDER (nombres/precios de ejemplo, editables desde
--- el Panel Maestro en 8.2) — confirmado explícitamente con la dueña que
--- todavía no tiene precios finales definidos. `stripe_price_id` queda NULL
--- hasta que exista una cuenta de Stripe real conectada (8.3).
+-- `dias_prueba` (solo Launch, 30 días): junto con `perks`/`limites` iguales
+-- a los de Professional ("acceso completo a Professional"), define el
+-- comportamiento de la prueba gratuita. Al vencer, scripts/expirar-pruebas.js
+-- pasa la suscripción a estado='expired' — el frontend, al verlo, solicita
+-- la contratación de un plan (no es responsabilidad del backend decidir
+-- CÓMO se lo pide al cliente).
+--
+-- `limites`/`perks` en jsonb: el Panel Maestro puede editar precios/features
+-- sin tocar código (Constitución P2, "configuración sobre código").
 
 CREATE TABLE planes (
   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  clave             text UNIQUE NOT NULL,        -- estable, nunca cambia una vez usado por una suscripción real
-  nombre            text NOT NULL,               -- display, sí puede cambiar
-  precio_centavos   integer NOT NULL,            -- dinero como entero, nunca float
+  clave             text UNIQUE NOT NULL,        -- 'launch'|'professional'|'unlimited'|'enterprise'
+  nombre            text NOT NULL,
+  precio_centavos   integer,                     -- NULL para enterprise (precio personalizado)
   moneda            text NOT NULL DEFAULT 'MXN',
-  periodo           text NOT NULL DEFAULT 'mensual', -- 'mensual' | 'anual'
+  periodo           text NOT NULL DEFAULT 'mensual',
+  es_autoservicio   boolean NOT NULL DEFAULT true,
+  dias_prueba       integer,
+  perks             jsonb NOT NULL DEFAULT '[]',
+  limites           jsonb NOT NULL DEFAULT '{}',
   stripe_price_id   text,
-  limites           jsonb NOT NULL DEFAULT '{}', -- {max_companies, max_usuarios, max_conversaciones_mes, max_tokens_mes}
-  activo            boolean NOT NULL DEFAULT true, -- retirar de venta sin romper suscripciones ya creadas
+  activo            boolean NOT NULL DEFAULT true,
   orden             integer NOT NULL DEFAULT 0,
   created_at        timestamptz NOT NULL DEFAULT now()
 );
 
-INSERT INTO planes (clave, nombre, precio_centavos, periodo, limites, orden) VALUES
-  ('starter',  'Starter (placeholder)',  99900,  'mensual', '{"max_companies":1,"max_usuarios":3,"max_conversaciones_mes":500,"max_tokens_mes":null}', 1),
-  ('pro',      'Pro (placeholder)',      249900, 'mensual', '{"max_companies":1,"max_usuarios":10,"max_conversaciones_mes":2000,"max_tokens_mes":null}', 2),
-  ('business', 'Business (placeholder)', 499900, 'mensual', '{"max_companies":3,"max_usuarios":30,"max_conversaciones_mes":null,"max_tokens_mes":null}', 3);
+INSERT INTO planes (clave, nombre, precio_centavos, es_autoservicio, dias_prueba, perks, limites, orden) VALUES
+  ('launch', 'THERA Launch', 0, true, 30,
+   '["Acceso completo a Professional", "Sin tarjeta de crédito"]'::jsonb,
+   '{"max_sucursales": 2, "max_usuarios": null, "api": false, "webhooks": false}'::jsonb,
+   1),
+  ('professional', 'THERA Professional', 299000, true, null,
+   '["1-2 sucursales", "Usuarios ilimitados", "Agenda inteligente", "CRM", "IA THERA",
+     "WhatsApp Business", "Dashboard", "Reportes", "Automatizaciones", "Google Calendar",
+     "Portal administrativo"]'::jsonb,
+   '{"max_sucursales": 2, "max_usuarios": null, "api": false, "webhooks": false}'::jsonb,
+   2),
+  ('unlimited', 'THERA Unlimited', 449000, true, null,
+   '["Todo Professional", "Sucursales ilimitadas", "Dashboard corporativo",
+     "Comparativo entre sucursales", "Roles avanzados", "API", "Webhooks",
+     "Automatizaciones ilimitadas", "Mayor capacidad de IA", "Reportes ejecutivos",
+     "Soporte prioritario"]'::jsonb,
+   '{"max_sucursales": null, "max_usuarios": null, "api": true, "webhooks": true}'::jsonb,
+   3),
+  ('enterprise', 'THERA Enterprise', null, false, null,
+   '["Integraciones personalizadas", "ERP", "Desarrollo a medida", "IA personalizada",
+     "Implementación", "Capacitación", "SLA", "Soporte dedicado"]'::jsonb,
+   '{"max_sucursales": null, "max_usuarios": null, "api": true, "webhooks": true}'::jsonb,
+   4);
 
 -- Verificación
-SELECT clave, nombre, precio_centavos, moneda, limites FROM planes ORDER BY orden;
+SELECT clave, nombre, precio_centavos, es_autoservicio, dias_prueba FROM planes ORDER BY orden;
 
 INSERT INTO schema_migrations (archivo) VALUES ('064') ON CONFLICT (archivo) DO NOTHING;
 

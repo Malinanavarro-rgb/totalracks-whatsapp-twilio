@@ -64,6 +64,22 @@ describe('planes', () => {
       const db = crearMockDb({ data: null, error: { message: 'clave duplicada' } });
       await expect(crearPlan(db, { clave: 'starter', nombre: 'Starter', precioCentavos: 1 })).rejects.toThrow(/clave duplicada/);
     });
+
+    test('acepta precioCentavos null (plan tipo Enterprise, precio personalizado)', async () => {
+      const enterprise = { id: 'plan-ent', clave: 'enterprise', nombre: 'THERA Enterprise', precio_centavos: null, es_autoservicio: false };
+      const db = crearMockDb({ data: enterprise, error: null });
+      const resultado = await crearPlan(db, { clave: 'enterprise', nombre: 'THERA Enterprise', precioCentavos: null, esAutoservicio: false });
+      expect(resultado.precio_centavos).toBeNull();
+      expect(resultado.es_autoservicio).toBe(false);
+    });
+
+    test('acepta diasPrueba y perks (plan tipo Launch)', async () => {
+      const launch = { id: 'plan-launch', clave: 'launch', nombre: 'THERA Launch', precio_centavos: 0, dias_prueba: 30, perks: ['Acceso completo a Professional'] };
+      const db = crearMockDb({ data: launch, error: null });
+      const resultado = await crearPlan(db, { clave: 'launch', nombre: 'THERA Launch', precioCentavos: 0, diasPrueba: 30, perks: ['Acceso completo a Professional'] });
+      expect(resultado.dias_prueba).toBe(30);
+      expect(resultado.perks).toEqual(['Acceso completo a Professional']);
+    });
   });
 
   describe('actualizarPlan()', () => {
