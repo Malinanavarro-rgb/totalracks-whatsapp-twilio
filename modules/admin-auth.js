@@ -15,7 +15,15 @@
 
 'use strict';
 
-const { crearClienteConSesion } = require('./clients');
+const { supabaseServicio } = require('./clients');
+
+// plataforma_admins es una tabla nueva — Supabase le activa Row Level
+// Security automáticamente sin ninguna política (comportamiento reciente
+// del proyecto por defecto), así que un cliente anon+JWT la ve vacía
+// aunque la fila exista (confirmado: la misma consulta con service_role sí
+// la encuentra). "¿Eres Super Admin?" es además una pregunta de plataforma,
+// no de un tenant — no debería depender de RLS por empresa de todos modos,
+// así que esta consulta puntual usa supabaseServicio a propósito.
 
 class ErrorAdminAuth extends Error {
   constructor(message, status) {
@@ -38,9 +46,8 @@ async function iniciarSesionAdmin(supabase, email, password) {
   }
 
   const usuarioId = data.user.id;
-  const clienteSesion = crearClienteConSesion(data.session.access_token);
 
-  const { data: fila, error: errorAdmin } = await clienteSesion
+  const { data: fila, error: errorAdmin } = await supabaseServicio
     .from('plataforma_admins')
     .select('rol, activo, usuarios(id, nombre, email)')
     .eq('id', usuarioId)
@@ -73,7 +80,7 @@ async function resolverSesionAdmin(supabase, token) {
   const { data: userData, error } = await supabase.auth.getUser(token);
   if (error || !userData?.user) return null;
 
-  const { data: fila, error: errorFila } = await supabase
+  const { data: fila, error: errorFila } = await supabaseServicio
     .from('plataforma_admins')
     .select('rol, usuarios(id, nombre, email)')
     .eq('id', userData.user.id)

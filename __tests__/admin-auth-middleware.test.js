@@ -1,6 +1,12 @@
 'use strict';
 
-jest.mock('../modules/clients', () => ({ crearClienteConSesion: jest.fn() }));
+// admin-auth.js consulta plataforma_admins vía supabaseServicio (RLS activo
+// sin políticas en esa tabla nueva — ver admin-auth.js) — se mockea aparte
+// del cliente de sesión que requireAdmin usa solo para auth.getUser().
+const mockServicioFrom = jest.fn();
+jest.mock('../modules/clients', () => ({
+  supabaseServicio: { from: (...args) => mockServicioFrom(...args) },
+}));
 
 const { crearRequireAdmin } = require('../modules/admin-auth-middleware');
 
@@ -15,7 +21,17 @@ function crearRes() {
   return res;
 }
 
+function crearBuilderServicio(resultado) {
+  return {
+    select:      jest.fn().mockReturnThis(),
+    eq:          jest.fn().mockReturnThis(),
+    maybeSingle: jest.fn().mockResolvedValue(resultado),
+  };
+}
+
 describe('admin-auth-middleware', () => {
+  beforeEach(() => { mockServicioFrom.mockReset(); });
+
   describe('requireAdmin()', () => {
     test('401 si no hay cookie tara_admin_session', async () => {
       const supabase = { auth: { getUser: jest.fn() } };
@@ -49,15 +65,11 @@ describe('admin-auth-middleware', () => {
     test('adjunta req.admin, req.supabase y llama next() cuando la sesión es válida', async () => {
       const supabase = {
         auth: { getUser: jest.fn().mockResolvedValue({ data: { user: { id: 'admin-1', email: 'a@b.com' } }, error: null }) },
-        from: jest.fn(() => ({
-          select: jest.fn().mockReturnThis(),
-          eq: jest.fn().mockReturnThis(),
-          maybeSingle: jest.fn().mockResolvedValue({
-            data: { rol: 'super_admin', usuarios: { id: 'admin-1', nombre: 'Gabriel', email: 'a@b.com' } },
-            error: null,
-          }),
-        })),
       };
+      mockServicioFrom.mockReturnValue(crearBuilderServicio({
+        data: { rol: 'super_admin', usuarios: { id: 'admin-1', nombre: 'Gabriel', email: 'a@b.com' } },
+        error: null,
+      }));
       const crearClienteConSesion = jest.fn().mockReturnValue(supabase);
       const requireAdmin = crearRequireAdmin(crearClienteConSesion);
       const req = crearReq({ tara_admin_session: 'tok-bueno' });
