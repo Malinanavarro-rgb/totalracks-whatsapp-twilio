@@ -31,6 +31,12 @@ export const api = {
 
   cambiarEmpresa: (company_id) => pedir('/api/auth/cambiar-empresa', { method: 'POST', body: JSON.stringify({ company_id }) }),
 
+  // Panel Maestro — "entrar como administrador": el botón para SALIR vive
+  // en el panel de tenant (Shell.jsx muestra el banner mientras dura),
+  // aunque la ruta sea de administración — la cookie es la que autoriza,
+  // no qué módulo del frontend hizo el fetch.
+  salirImpersonacion: () => pedir('/api/admin/impersonar/salir', { method: 'POST' }),
+
   dashboard: () => pedir('/api/dashboard'),
 
   conversaciones:          () => pedir('/api/conversaciones'),

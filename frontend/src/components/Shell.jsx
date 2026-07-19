@@ -74,8 +74,20 @@ export default function Shell() {
   const { sesion, cerrarSesion } = useAuth();
   const modulos = modulosParaEmpresa(sesion?.empresaActiva);
 
+  async function salirDelModoSoporte() {
+    await api.salirImpersonacion().catch(() => {});
+    window.location.href = '/admin';
+  }
+
   return (
-    <div className="shell" style={{ '--acento': sesion?.empresaActiva?.color_acento || '#1a1a2e' }}>
+    <div className="shell-raiz" style={{ '--acento': sesion?.empresaActiva?.color_acento || '#1a1a2e' }}>
+      {sesion?.empresaActiva?.es_impersonacion && (
+        <div className="shell-banner-soporte">
+          ⚠ Estás viendo el panel como <b>{sesion.empresaActiva.nombre}</b> — modo soporte de Super Admin
+          <button onClick={salirDelModoSoporte}>Salir del modo soporte</button>
+        </div>
+      )}
+      <div className="shell">
       <aside className="shell-sidebar">
         <div className="shell-logo">
           <LogoTara size={40} className="shell-logo-icono" />
@@ -113,6 +125,7 @@ export default function Shell() {
         <main className="shell-main">
           <Outlet />
         </main>
+      </div>
       </div>
     </div>
   );

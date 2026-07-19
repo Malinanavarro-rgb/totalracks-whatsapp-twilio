@@ -87,7 +87,17 @@ body {
 /* ── Shell ─────────────────────────────────────────────────────────────── */
 /* Sidebar en Ink (marca fija, no cambia por empresa — Brand Guidelines V1.0) */
 
-.shell { display: flex; min-height: 100vh; }
+.shell-raiz { display: flex; flex-direction: column; min-height: 100vh; }
+.shell { display: flex; flex: 1; min-height: 0; }
+
+.shell-banner-soporte {
+  display: flex; align-items: center; gap: 0.7rem; background: #f5a623; color: #1a1305;
+  font-weight: 700; font-size: 0.85rem; padding: 0.55rem 1.2rem;
+}
+.shell-banner-soporte button {
+  margin-left: auto; background: rgba(0,0,0,0.15); border: none; color: inherit;
+  padding: 0.3rem 0.8rem; border-radius: 6px; font-weight: 700; cursor: pointer; font-size: 0.8rem;
+}
 
 .shell-sidebar {
   width: 236px;

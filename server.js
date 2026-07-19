@@ -1433,6 +1433,34 @@ app.post('/api/auth/login', async (req, res) => {
 
 app.get('/api/auth/me', requireAuth, async (req, res) => {
   try {
+    // Sesión impersonada (Panel Maestro → "entrar como administrador"):
+    // req.usuario.id es el Super Admin, no un miembro real de esta empresa
+    // — obtenerEmpresasDeUsuario() no aplica aquí. Se resuelve la empresa
+    // impersonada directo, y se marca es_impersonacion para que Shell.jsx
+    // muestre el banner de soporte.
+    if (req.usuario.es_impersonacion) {
+      const { data: company } = await req.supabase
+        .from('companies')
+        .select('nombre, logo_url, color_acento, industria_slug, nav_labels')
+        .eq('id', req.usuario.company_id)
+        .maybeSingle();
+
+      return res.json({
+        usuario: { id: req.usuario.id, nombre: req.usuario.nombre, email: req.usuario.email },
+        empresaActiva: {
+          company_id: req.usuario.company_id,
+          rol: req.usuario.rol,
+          nombre: company?.nombre || null,
+          logo_url: company?.logo_url || null,
+          color_acento: company?.color_acento || null,
+          industria_slug: company?.industria_slug || null,
+          nav_labels: company?.nav_labels || null,
+          es_impersonacion: true,
+        },
+        empresas: [],
+      });
+    }
+
     const empresas = await obtenerEmpresasDeUsuario(req.supabase, req.usuario.id);
     const empresaActiva = empresas.find(e => e.company_id === req.usuario.company_id)
       || { company_id: req.usuario.company_id, rol: req.usuario.rol, nombre: null };

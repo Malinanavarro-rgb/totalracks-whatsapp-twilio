@@ -1,3 +1,4 @@
+import { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import RutaProtegida from './components/RutaProtegida';
@@ -15,6 +16,11 @@ import Catalogo from './pages/Catalogo';
 import AceptarInvitacion from './pages/AceptarInvitacion';
 import './App.css';
 
+// Panel Maestro (Plataforma Comercial): árbol completamente aparte, cargado
+// solo cuando alguien navega a /admin/* — un usuario normal de empresa
+// nunca descarga este bundle. Primer code-splitting real del proyecto.
+const AdminApp = lazy(() => import('./admin/AdminApp'));
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -22,6 +28,14 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/aceptar-invitacion/:token" element={<AceptarInvitacion />} />
+          <Route
+            path="/admin/*"
+            element={
+              <Suspense fallback={<div className="pantalla-cargando">Cargando…</div>}>
+                <AdminApp />
+              </Suspense>
+            }
+          />
 
           <Route
             element={
