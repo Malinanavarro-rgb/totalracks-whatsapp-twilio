@@ -16,7 +16,7 @@ export default function Planes() {
   return (
     <div>
       <div className="pm-topline">
-        <div><h1>Planes</h1><p>Catálogo THERA — editable, sin tocar código</p></div>
+        <div><h1>Planes</h1><p>Catálogo TARA — editable, sin tocar código</p></div>
       </div>
 
       <div className="pm-plan-grid">

@@ -1,4 +1,4 @@
--- TARA — Módulo de Billing: catálogo real de planes THERA.
+-- TARA — Módulo de Billing: catálogo real de planes TARA.
 --
 -- `es_autoservicio=false` (solo Enterprise) le indica al frontend que NO
 -- debe ofrecer un flujo de compra normal — solo el botón "Solicitar
@@ -33,24 +33,24 @@ CREATE TABLE planes (
 );
 
 INSERT INTO planes (clave, nombre, precio_centavos, es_autoservicio, dias_prueba, perks, limites, orden) VALUES
-  ('launch', 'THERA Launch', 0, true, 30,
+  ('launch', 'TARA Launch', 0, true, 30,
    '["Acceso completo a Professional", "Sin tarjeta de crédito"]'::jsonb,
    '{"max_sucursales": 2, "max_usuarios": null, "api": false, "webhooks": false}'::jsonb,
    1),
-  ('professional', 'THERA Professional', 299000, true, null,
-   '["1-2 sucursales", "Usuarios ilimitados", "Agenda inteligente", "CRM", "IA THERA",
+  ('professional', 'TARA Professional', 299000, true, null,
+   '["1-2 sucursales", "Usuarios ilimitados", "Agenda inteligente", "CRM", "IA TARA",
      "WhatsApp Business", "Dashboard", "Reportes", "Automatizaciones", "Google Calendar",
      "Portal administrativo"]'::jsonb,
    '{"max_sucursales": 2, "max_usuarios": null, "api": false, "webhooks": false}'::jsonb,
    2),
-  ('unlimited', 'THERA Unlimited', 449000, true, null,
+  ('unlimited', 'TARA Unlimited', 449000, true, null,
    '["Todo Professional", "Sucursales ilimitadas", "Dashboard corporativo",
      "Comparativo entre sucursales", "Roles avanzados", "API", "Webhooks",
      "Automatizaciones ilimitadas", "Mayor capacidad de IA", "Reportes ejecutivos",
      "Soporte prioritario"]'::jsonb,
    '{"max_sucursales": null, "max_usuarios": null, "api": true, "webhooks": true}'::jsonb,
    3),
-  ('enterprise', 'THERA Enterprise', null, false, null,
+  ('enterprise', 'TARA Enterprise', null, false, null,
    '["Integraciones personalizadas", "ERP", "Desarrollo a medida", "IA personalizada",
      "Implementación", "Capacitación", "SLA", "Soporte dedicado"]'::jsonb,
    '{"max_sucursales": null, "max_usuarios": null, "api": true, "webhooks": true}'::jsonb,

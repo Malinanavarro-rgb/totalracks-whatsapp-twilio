@@ -181,8 +181,8 @@ describe('plataforma-analitica', () => {
       const db = crearMockDb({
         suscripciones: () => ({
           data: [
-            { organization_id: 'org-1', estado: 'past_due', created_at: '2026-07-10', organizations: { nombre: 'SPAZIO' }, planes: { nombre: 'THERA Professional', precio_centavos: 299000 } },
-            { organization_id: 'org-2', estado: 'active', created_at: '2026-07-01', organizations: { nombre: 'Total Racks' }, planes: { nombre: 'THERA Unlimited', precio_centavos: 449000 } },
+            { organization_id: 'org-1', estado: 'past_due', created_at: '2026-07-10', organizations: { nombre: 'SPAZIO' }, planes: { nombre: 'TARA Professional', precio_centavos: 299000 } },
+            { organization_id: 'org-2', estado: 'active', created_at: '2026-07-01', organizations: { nombre: 'Total Racks' }, planes: { nombre: 'TARA Unlimited', precio_centavos: 449000 } },
           ],
           error: null,
         }),
@@ -201,8 +201,8 @@ describe('plataforma-analitica', () => {
       const db = crearMockDb({
         suscripciones: () => ({
           data: [
-            { organization_id: 'org-1', estado: 'trial', fecha_prueba_fin: enDosDias, fecha_periodo_actual_fin: null, created_at: '2026-07-10', organizations: { nombre: 'SPAZIO' }, planes: { nombre: 'THERA Launch' } },
-            { organization_id: 'org-2', estado: 'active', fecha_prueba_fin: null, fecha_periodo_actual_fin: enVeinteDias, created_at: '2026-07-01', organizations: { nombre: 'Total Racks' }, planes: { nombre: 'THERA Professional' } },
+            { organization_id: 'org-1', estado: 'trial', fecha_prueba_fin: enDosDias, fecha_periodo_actual_fin: null, created_at: '2026-07-10', organizations: { nombre: 'SPAZIO' }, planes: { nombre: 'TARA Launch' } },
+            { organization_id: 'org-2', estado: 'active', fecha_prueba_fin: null, fecha_periodo_actual_fin: enVeinteDias, created_at: '2026-07-01', organizations: { nombre: 'Total Racks' }, planes: { nombre: 'TARA Professional' } },
           ],
           error: null,
         }),
@@ -218,7 +218,7 @@ describe('plataforma-analitica', () => {
     test('combina todas las métricas en un solo objeto', async () => {
       const db = crearMockDb({
         suscripciones: () => ({
-          data: [{ organization_id: 'org-1', estado: 'active', created_at: '2026-07-01', planes: { ...PLAN_MENSUAL, nombre: 'THERA Professional' }, fecha_cancelacion: null, fecha_periodo_actual_fin: null, fecha_prueba_fin: null, organizations: { nombre: 'Total Racks' } }],
+          data: [{ organization_id: 'org-1', estado: 'active', created_at: '2026-07-01', planes: { ...PLAN_MENSUAL, nombre: 'TARA Professional' }, fecha_cancelacion: null, fecha_periodo_actual_fin: null, fecha_prueba_fin: null, organizations: { nombre: 'Total Racks' } }],
           error: null,
         }),
         pagos: () => ({ data: [], error: null }),

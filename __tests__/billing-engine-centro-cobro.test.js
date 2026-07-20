@@ -27,7 +27,7 @@ describe('billing-engine/centro-cobro', () => {
           data: [{
             organization_id: 'org-1', estado: 'active', fecha_periodo_actual_fin: '2026-08-01T00:00:00Z',
             cancelar_al_fin_periodo: false, created_at: '2026-07-01T00:00:00Z',
-            planes: { clave: 'professional', nombre: 'THERA Professional', precio_centavos: 299000, periodo: 'mensual' },
+            planes: { clave: 'professional', nombre: 'TARA Professional', precio_centavos: 299000, periodo: 'mensual' },
           }],
           error: null,
         }),
@@ -37,7 +37,7 @@ describe('billing-engine/centro-cobro', () => {
       const [fila] = await resumenPorOrganizacion(db, { desde: '2026-07-01', hasta: '2026-07-31' });
 
       expect(fila.nombre).toBe('Sugar Salon');
-      expect(fila.plan).toBe('THERA Professional');
+      expect(fila.plan).toBe('TARA Professional');
       expect(fila.ingresoCentavos).toBe(299000);
       expect(fila.costoUsd).toBe(10);
       expect(fila.costoCentavosMxn).toBe(Math.round(10 * TIPO_CAMBIO_USD_MXN * 100));
@@ -62,7 +62,7 @@ describe('billing-engine/centro-cobro', () => {
       const db = crearMockDb({
         organizations: () => ({ data: [{ id: 'org-3', nombre: 'SPAZIO', estado: 'activo', companies: [{ id: 'c-3', nombre: 'SPAZIO' }] }], error: null }),
         suscripciones: () => ({
-          data: [{ organization_id: 'org-3', estado: 'trial', fecha_periodo_actual_fin: null, created_at: '2026-07-01', planes: { nombre: 'THERA Launch', precio_centavos: 0, periodo: 'mensual' } }],
+          data: [{ organization_id: 'org-3', estado: 'trial', fecha_periodo_actual_fin: null, created_at: '2026-07-01', planes: { nombre: 'TARA Launch', precio_centavos: 0, periodo: 'mensual' } }],
           error: null,
         }),
         decision_logs: () => ({ data: [], error: null }),

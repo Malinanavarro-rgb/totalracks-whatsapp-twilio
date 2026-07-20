@@ -5,7 +5,7 @@
  * scripts/enviar-recordatorios.js). No es parte del servidor Express —
  * corre una vez y termina.
  *
- * Pasa a 'expired' toda suscripción THERA Launch (u otro plan con prueba)
+ * Pasa a 'expired' toda suscripción TARA Launch (u otro plan con prueba)
  * cuya fecha_prueba_fin ya venció — "al terminar debe solicitar la
  * contratación de un plan" lo resuelve el frontend al ver ese estado, no
  * este script.
