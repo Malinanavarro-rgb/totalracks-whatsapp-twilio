@@ -6,6 +6,12 @@
  * (Embedded Signup) — ver ADR-007. El access_token se cifra en el proceso,
  * nunca se guarda en texto plano.
  *
+ * También registra el endpoint en `channel_endpoints` (proveedor='meta',
+ * endpoint=phone_number_id) en el mismo paso — sin esto, el webhook de Meta
+ * recibe el mensaje pero channel-router.js no encuentra empresa y lo
+ * descarta en silencio (ningún otro módulo escribía antes en esta tabla
+ * para Meta; era un segundo paso manual que se olvidaba fácilmente).
+ *
  * Uso:
  *   node scripts/conectar-empresa-meta.js \
  *     --company-id <uuid> \
@@ -23,6 +29,16 @@ require('dotenv').config();
 
 const { supabaseServicio: supabase } = require('../modules/clients');
 const { guardarCredencialesMeta } = require('../modules/meta-auth');
+
+async function registrarChannelEndpoint(companyId, phoneNumberId) {
+  const { error } = await supabase
+    .from('channel_endpoints')
+    .upsert(
+      { company_id: companyId, endpoint: phoneNumberId, canal: 'whatsapp', proveedor: 'meta', activo: true },
+      { onConflict: 'endpoint' }
+    );
+  if (error) throw new Error(`registrando channel_endpoints: ${error.message}`);
+}
 
 function leerArgs() {
   const args = {};
@@ -54,7 +70,10 @@ function leerArgs() {
     accessToken,
   });
 
+  await registrarChannelEndpoint(companyId, phoneNumberId);
+
   console.log(`✅ Empresa ${companyId} conectada a Meta — phone_number_id=${phoneNumberId} (fila ${fila.id})`);
+  console.log(`✅ channel_endpoints registrado — los mensajes entrantes de este número ya enrutan a esta empresa.`);
   process.exit(0);
 })().catch(err => {
   console.error('❌ Error conectando empresa a Meta:', err.message);
