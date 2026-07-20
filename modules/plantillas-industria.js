@@ -34,6 +34,7 @@
 
 const { crearKnowledgeBase, crearServicio, crearPipelineEtapa } = require('./configuracion');
 const { crearWorkflow, crearNodo } = require('./workflow-admin');
+const { crearOrganizacionConCompany } = require('./organizaciones');
 
 /**
  * Detecta la plantilla que mejor coincide con la descripción del negocio,
@@ -132,19 +133,17 @@ async function aplicarPlantilla(supabase, company_id, plantilla) {
  * Crea una empresa nueva y la configura automáticamente según la industria
  * detectada a partir de su descripción de negocio.
  *
+ * Desde FASE 8.1, `companies.organization_id` es NOT NULL (Constitución Art.
+ * 9/16: toda Company cuelga de una Organization) — por eso esta función ya
+ * no inserta en `companies` directo, sino que pasa por
+ * `crearOrganizacionConCompany()` (organizaciones.js), el único camino de
+ * escritura permitido para esa tabla.
+ *
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {{nombre: string, descripcionNegocio: string, slug: string}} datos
- * @returns {Promise<{company: Object, industriaDetectada: string|null, huboCoincidencia: boolean}>}
+ * @returns {Promise<{organization: Object, company: Object, industriaDetectada: string|null, huboCoincidencia: boolean}>}
  */
 async function crearEmpresaConIndustria(supabase, { nombre, descripcionNegocio, slug }) {
-  const { data: company, error: errCompany } = await supabase
-    .from('companies')
-    .insert([{ nombre, descripcion: descripcionNegocio, slug, estado: 'activo' }])
-    .select()
-    .single();
-
-  if (errCompany) throw new Error(`plantillas-industria.crearEmpresaConIndustria: ${errCompany.message}`);
-
   const { data: plantillas, error: errPlantillas } = await supabase
     .from('plantillas_industria')
     .select('*');
@@ -153,11 +152,16 @@ async function crearEmpresaConIndustria(supabase, { nombre, descripcionNegocio, 
 
   const plantilla = detectarIndustria(plantillas || [], descripcionNegocio);
 
+  const { organization, company } = await crearOrganizacionConCompany(supabase, {
+    nombre, descripcion: descripcionNegocio, slug, industriaSlug: plantilla?.slug || null,
+  });
+
   if (plantilla) {
     await aplicarPlantilla(supabase, company.id, plantilla);
   }
 
   return {
+    organization,
     company,
     industriaDetectada: plantilla?.nombre_visible || null,
     huboCoincidencia: Boolean(plantilla),

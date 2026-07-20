@@ -5,6 +5,7 @@ const mockCrearServicio      = jest.fn().mockResolvedValue({ id: 's1' });
 const mockCrearPipelineEtapa = jest.fn().mockResolvedValue({ id: 'pe1' });
 const mockCrearWorkflow      = jest.fn().mockResolvedValue({ id: 'wf1' });
 const mockCrearNodo          = jest.fn().mockResolvedValue({ id: 'n1' });
+const mockCrearOrganizacionConCompany = jest.fn();
 
 jest.mock('../modules/configuracion', () => ({
   crearKnowledgeBase: (...args) => mockCrearKnowledgeBase(...args),
@@ -15,6 +16,10 @@ jest.mock('../modules/configuracion', () => ({
 jest.mock('../modules/workflow-admin', () => ({
   crearWorkflow: (...args) => mockCrearWorkflow(...args),
   crearNodo:     (...args) => mockCrearNodo(...args),
+}));
+
+jest.mock('../modules/organizaciones', () => ({
+  crearOrganizacionConCompany: (...args) => mockCrearOrganizacionConCompany(...args),
 }));
 
 const { detectarIndustria, aplicarPlantilla, crearEmpresaConIndustria } = require('../modules/plantillas-industria');
@@ -143,12 +148,15 @@ describe('plantillas-industria', () => {
   });
 
   describe('crearEmpresaConIndustria()', () => {
-    test('crea la empresa, detecta la industria y aplica la plantilla', async () => {
+    test('crea la organización+empresa, detecta la industria y aplica la plantilla', async () => {
       const db = crearMockDb(
-        { data: { id: COMPANY_A, nombre: 'Salón de Belleza Ejemplo 2' }, error: null }, // insert companies
-        { data: [PLANTILLA_SALON, PLANTILLA_SOCCER], error: null },                     // select plantillas_industria
-        { error: null },                                                                 // insert personalities (dentro de aplicarPlantilla)
+        { data: [PLANTILLA_SALON, PLANTILLA_SOCCER], error: null }, // select plantillas_industria
+        { error: null },                                            // insert personalities (dentro de aplicarPlantilla)
       );
+      mockCrearOrganizacionConCompany.mockResolvedValue({
+        organization: { id: 'org-1', nombre: 'Salón de Belleza Ejemplo 2' },
+        company: { id: COMPANY_A, nombre: 'Salón de Belleza Ejemplo 2' },
+      });
 
       const resultado = await crearEmpresaConIndustria(db, {
         nombre: 'Salón de Belleza Ejemplo 2',
@@ -156,6 +164,10 @@ describe('plantillas-industria', () => {
         slug: 'salon-belleza-ejemplo-2',
       });
 
+      expect(mockCrearOrganizacionConCompany).toHaveBeenCalledWith(db, expect.objectContaining({
+        nombre: 'Salón de Belleza Ejemplo 2', slug: 'salon-belleza-ejemplo-2', industriaSlug: 'salon_belleza',
+      }));
+      expect(resultado.organization.id).toBe('org-1');
       expect(resultado.company.id).toBe(COMPANY_A);
       expect(resultado.industriaDetectada).toBe('Salón de belleza / uñas');
       expect(resultado.huboCoincidencia).toBe(true);
@@ -163,10 +175,11 @@ describe('plantillas-industria', () => {
     });
 
     test('si no hay coincidencia, crea la empresa pero no aplica ninguna plantilla', async () => {
-      const db = crearMockDb(
-        { data: { id: COMPANY_A, nombre: 'Taquería Ejemplo' }, error: null },
-        { data: [PLANTILLA_SALON, PLANTILLA_SOCCER], error: null },
-      );
+      const db = crearMockDb({ data: [PLANTILLA_SALON, PLANTILLA_SOCCER], error: null });
+      mockCrearOrganizacionConCompany.mockResolvedValue({
+        organization: { id: 'org-2', nombre: 'Taquería Ejemplo' },
+        company: { id: COMPANY_A, nombre: 'Taquería Ejemplo' },
+      });
 
       const resultado = await crearEmpresaConIndustria(db, {
         nombre: 'Taquería Ejemplo',
@@ -174,13 +187,15 @@ describe('plantillas-industria', () => {
         slug: 'taqueria-ejemplo',
       });
 
+      expect(mockCrearOrganizacionConCompany).toHaveBeenCalledWith(db, expect.objectContaining({ industriaSlug: null }));
       expect(resultado.huboCoincidencia).toBe(false);
       expect(resultado.industriaDetectada).toBeNull();
       expect(mockCrearWorkflow).not.toHaveBeenCalled();
     });
 
-    test('lanza si falla la creación de la empresa', async () => {
-      const db = crearMockDb({ data: null, error: new Error('slug duplicado') });
+    test('lanza si falla la creación de la organización/empresa', async () => {
+      const db = crearMockDb({ data: [], error: null });
+      mockCrearOrganizacionConCompany.mockRejectedValue(new Error('slug duplicado'));
       await expect(crearEmpresaConIndustria(db, { nombre: 'X', descripcionNegocio: 'Y', slug: 'x' }))
         .rejects.toThrow('slug duplicado');
     });
