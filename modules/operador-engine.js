@@ -119,7 +119,7 @@ async function preguntar({ supabase, openaiClient, pregunta, alcance, usuario, h
 
         let resultado;
         try {
-          resultado = await ejecutarTool(toolCall.function.name, argumentos, supabase, alcance, usuario);
+          resultado = await ejecutarTool(toolCall.function.name, argumentos, supabase, alcance, usuario, openaiClient);
           toolsUsadas.push(toolCall.function.name);
         } catch (e) {
           resultado = { error: e.message };

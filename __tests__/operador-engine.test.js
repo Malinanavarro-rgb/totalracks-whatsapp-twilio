@@ -60,7 +60,7 @@ describe('operador-engine', () => {
 
       const resultado = await preguntar({ supabase: { marcador: true }, openaiClient, pregunta: '¿Qué tareas hay?', alcance: ALCANCE_EMPRESA, usuario: USUARIO_TEST });
 
-      expect(mockEjecutarTool).toHaveBeenCalledWith('tareas_abiertas', { limite: 5 }, { marcador: true }, ALCANCE_EMPRESA, USUARIO_TEST);
+      expect(mockEjecutarTool).toHaveBeenCalledWith('tareas_abiertas', { limite: 5 }, { marcador: true }, ALCANCE_EMPRESA, USUARIO_TEST, openaiClient);
       expect(resultado.respuesta_texto).toBe('Tienes 3 tareas abiertas.');
       expect(resultado.tools_usadas).toEqual(['tareas_abiertas']);
       expect(resultado.iteraciones).toBe(2);
@@ -133,7 +133,7 @@ describe('operador-engine', () => {
       const alcancePlataforma = { nivel: 'plataforma' };
       await preguntar({ supabase: {}, openaiClient, pregunta: 'x', alcance: alcancePlataforma });
 
-      expect(mockEjecutarTool).toHaveBeenCalledWith('tareas_abiertas', {}, {}, alcancePlataforma, undefined);
+      expect(mockEjecutarTool).toHaveBeenCalledWith('tareas_abiertas', {}, {}, alcancePlataforma, undefined, openaiClient);
     });
 
     describe('Business Memory Core (BMC)', () => {

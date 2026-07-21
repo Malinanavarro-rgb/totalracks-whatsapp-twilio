@@ -33,6 +33,9 @@
 const {
   registrarAprendizaje, confirmarAprendizaje, rechazarAprendizaje, marcarObsoleto, listarPropuestasPendientes,
 } = require('./business-memory-core');
+const {
+  ejecutarKCE, listarAlertasPendientes, aplicarRefuerzo, fusionarAprendizajes, resolverAlerta,
+} = require('./kce');
 
 /**
  * Resuelve el alcance a una lista de company_id a filtrar, o `null` si no
@@ -189,6 +192,42 @@ async function marcarAprendizajeObsoletoTool(supabase, alcance, { aprendizaje_id
   return marcarObsoleto(supabase, alcance.company_id, aprendizaje_id, usuario?.id || null, razon);
 }
 
+// ── Knowledge Consolidation Engine (KCE, Fase 3A) — solo bajo demanda ───────
+// El KCE nunca corre solo: exige que un operador lo solicite explícitamente
+// (esta tool). Nunca escribe en memoria_empresarial — solo genera alertas
+// que un humano aprueba después con las tools de abajo.
+
+/** Ejecuta el KCE bajo demanda — nunca se programa, siempre lo solicita un operador. */
+async function ejecutarKceTool(supabase, alcance, _argumentos, usuario, openaiClient) {
+  _exigirAlcanceEmpresa(alcance);
+  const { reporteTexto } = await ejecutarKCE({ supabase, openaiClient, company_id: alcance.company_id, usuario_id: usuario?.id || null });
+  return reporteTexto;
+}
+
+/** Lista las alertas de consolidación (refuerzo/duplicado/contradicción/obsolescencia) pendientes de revisión. */
+async function listarAlertasKceTool(supabase, alcance) {
+  _exigirAlcanceEmpresa(alcance);
+  return listarAlertasPendientes(supabase, alcance.company_id);
+}
+
+/** Aplica un refuerzo de confianza sugerido por el KCE — único camino para que llegue a memoria_empresarial. */
+async function aplicarRefuerzoKceTool(supabase, alcance, { alerta_id } = {}, usuario) {
+  _exigirAlcanceEmpresa(alcance);
+  return aplicarRefuerzo(supabase, alcance.company_id, alerta_id, usuario?.id || null);
+}
+
+/** Fusiona dos aprendizajes por decisión humana — el descartado pasa a rechazado, nunca se borra. */
+async function fusionarAprendizajesTool(supabase, alcance, { id_conservar, id_descartar, razon, alerta_id } = {}, usuario) {
+  _exigirAlcanceEmpresa(alcance);
+  return fusionarAprendizajes(supabase, alcance.company_id, id_conservar, id_descartar, usuario?.id || null, razon, alerta_id);
+}
+
+/** Cierra una alerta de contradicción/obsolescencia/duplicado después de que un humano ya actuó por su cuenta. */
+async function resolverAlertaKceTool(supabase, alcance, { alerta_id, accion_tomada, razon } = {}, usuario) {
+  _exigirAlcanceEmpresa(alcance);
+  return resolverAlerta(supabase, alcance.company_id, alerta_id, usuario?.id || null, accion_tomada, razon);
+}
+
 /**
  * Catálogo de tools en formato OpenAI (tools/tool_choice) — nombre y
  * parámetros visibles al modelo. Los parámetros NUNCA incluyen
@@ -329,6 +368,67 @@ const CATALOGO_TOOLS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'ejecutar_kce',
+      description: 'Ejecuta el Knowledge Consolidation Engine (KCE) bajo demanda: analiza la memoria empresarial y genera un Knowledge Consolidation Report con refuerzos sugeridos, posibles duplicados, contradicciones y obsolescencia. NUNCA modifica memoria_empresarial — solo propone. No existe ejecución automática; solo corre cuando un operador la solicita explícitamente.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'listar_alertas_kce',
+      description: 'Lista las alertas de consolidación (refuerzo/duplicado/contradicción/obsolescencia) generadas por el KCE que siguen pendientes de revisión humana.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'aplicar_refuerzo_kce',
+      description: 'Aplica un refuerzo de confianza que el KCE sugirió — esta es la única forma en que un refuerzo del KCE llega a modificar memoria_empresarial. Requiere revisión y aprobación explícita.',
+      parameters: {
+        type: 'object',
+        properties: { alerta_id: { type: 'string' } },
+        required: ['alerta_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'fusionar_aprendizajes',
+      description: 'Fusiona dos aprendizajes que un humano determinó que son el mismo — el descartado pasa a rechazado (nunca se borra), el conservado no se toca. Decisión humana, el KCE nunca fusiona solo.',
+      parameters: {
+        type: 'object',
+        properties: {
+          id_conservar: { type: 'string' },
+          id_descartar: { type: 'string' },
+          razon: { type: 'string' },
+          alerta_id: { type: 'string', description: 'opcional — si esta fusión resuelve una alerta de posible_duplicado del KCE' },
+        },
+        required: ['id_conservar', 'id_descartar', 'razon'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'resolver_alerta_kce',
+      description: 'Cierra una alerta de contradicción/obsolescencia/duplicado del KCE dejando constancia de qué decidió y ejecutó el humano (usando las tools correspondientes) — no ejecuta ninguna acción sobre memoria_empresarial por sí misma.',
+      parameters: {
+        type: 'object',
+        properties: {
+          alerta_id: { type: 'string' },
+          accion_tomada: { type: 'string', description: 'ej. "confirmado_obsoleto", "descartada", "ignorada"' },
+          razon: { type: 'string' },
+        },
+        required: ['alerta_id', 'accion_tomada'],
+      },
+    },
+  },
 ];
 
 const IMPLEMENTACIONES = {
@@ -343,6 +443,11 @@ const IMPLEMENTACIONES = {
   confirmar_aprendizaje:           confirmarAprendizajeTool,
   rechazar_aprendizaje:            rechazarAprendizajeTool,
   marcar_aprendizaje_obsoleto:     marcarAprendizajeObsoletoTool,
+  ejecutar_kce:            ejecutarKceTool,
+  listar_alertas_kce:      listarAlertasKceTool,
+  aplicar_refuerzo_kce:    aplicarRefuerzoKceTool,
+  fusionar_aprendizajes:   fusionarAprendizajesTool,
+  resolver_alerta_kce:     resolverAlertaKceTool,
 };
 
 /**
@@ -354,13 +459,14 @@ const IMPLEMENTACIONES = {
  * @param {Object} argumentos - lo que decidió el modelo (sin campos de alcance)
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {{nivel: string, organization_id?: string, company_id?: string}} alcance
- * @param {{id: string, rol: string}} [usuario] - calculado por el servidor, nunca por el LLM; requerido por las tools de escritura de BMC
+ * @param {{id: string, rol: string}} [usuario] - calculado por el servidor, nunca por el LLM; requerido por las tools de escritura de BMC/KCE
+ * @param {{chat: {completions: {create: Function}}}} [openaiClient] - requerido solo por ejecutar_kce (el KCE hace su propia llamada de IA)
  * @returns {Promise<*>}
  */
-async function ejecutarTool(nombre, argumentos, supabase, alcance, usuario) {
+async function ejecutarTool(nombre, argumentos, supabase, alcance, usuario, openaiClient) {
   const fn = IMPLEMENTACIONES[nombre];
   if (!fn) throw new Error(`operador-tools.ejecutarTool: tool desconocida "${nombre}"`);
-  return fn(supabase, alcance, argumentos || {}, usuario);
+  return fn(supabase, alcance, argumentos || {}, usuario, openaiClient);
 }
 
 module.exports = {
@@ -375,6 +481,11 @@ module.exports = {
   confirmarAprendizajeTool,
   rechazarAprendizajeTool,
   marcarAprendizajeObsoletoTool,
+  ejecutarKceTool,
+  listarAlertasKceTool,
+  aplicarRefuerzoKceTool,
+  fusionarAprendizajesTool,
+  resolverAlertaKceTool,
   ejecutarTool,
   CATALOGO_TOOLS,
   IMPLEMENTACIONES,

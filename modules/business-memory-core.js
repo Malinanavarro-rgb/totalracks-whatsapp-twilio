@@ -422,7 +422,7 @@ async function obtenerResumenEjecutivo(supabase, company_id) {
 }
 
 module.exports = {
-  CATEGORIAS, ORIGENES, CONFIANZA_MINIMA,
+  CATEGORIAS, ORIGENES, CONFIANZA_MINIMA, ESTADOS_REFORZABLES,
   nivelConfianza,
   registrarAprendizaje, confirmarAprendizaje, rechazarAprendizaje, marcarObsoleto,
   listarPropuestasPendientes, resumenParaCliente, generarResumenEjecutivo, obtenerResumenEjecutivo,

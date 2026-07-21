@@ -14,11 +14,26 @@ jest.mock('../modules/business-memory-core', () => ({
   listarPropuestasPendientes: (...args) => mockListarPropuestasPendientes(...args),
 }));
 
+const mockEjecutarKCE = jest.fn();
+const mockListarAlertasPendientes = jest.fn();
+const mockAplicarRefuerzo = jest.fn();
+const mockFusionarAprendizajesKce = jest.fn();
+const mockResolverAlertaKce = jest.fn();
+
+jest.mock('../modules/kce', () => ({
+  ejecutarKCE: (...args) => mockEjecutarKCE(...args),
+  listarAlertasPendientes: (...args) => mockListarAlertasPendientes(...args),
+  aplicarRefuerzo: (...args) => mockAplicarRefuerzo(...args),
+  fusionarAprendizajes: (...args) => mockFusionarAprendizajesKce(...args),
+  resolverAlerta: (...args) => mockResolverAlertaKce(...args),
+}));
+
 const {
   tareasAbiertas, proyectosEnRiesgo, decisionesRecientes, buscarDocumentos,
   resumenPipeline, buscarCliente, ejecutarTool, CATALOGO_TOOLS, IMPLEMENTACIONES,
   registrarAprendizajeNegocio, listarAprendizajesPendientes,
   confirmarAprendizajeTool, rechazarAprendizajeTool, marcarAprendizajeObsoletoTool,
+  ejecutarKceTool, listarAlertasKceTool, aplicarRefuerzoKceTool, fusionarAprendizajesTool, resolverAlertaKceTool,
 } = require('../modules/operador-tools');
 
 // ─── Mock builder: registra cada llamada (.eq/.in/.or) para poder afirmar
@@ -272,6 +287,82 @@ describe('operador-tools', () => {
       mockConfirmarAprendizaje.mockResolvedValue({ id: 'a1', estado: 'confirmado' });
       await ejecutarTool('confirmar_aprendizaje', { aprendizaje_id: 'a1' }, {}, ALCANCE_EMPRESA, USUARIO);
       expect(mockConfirmarAprendizaje).toHaveBeenCalledWith({}, COMPANY_A, 'a1', 'user-1');
+    });
+  });
+
+  describe('Knowledge Consolidation Engine (KCE, Fase 3A) — tools de solo bajo demanda', () => {
+    const ALCANCE_EMPRESA = { nivel: 'empresa', company_id: COMPANY_A };
+    const USUARIO = { id: 'user-1', rol: 'owner' };
+    const OPENAI_MOCK = { chat: { completions: { create: jest.fn() } } };
+
+    beforeEach(() => jest.clearAllMocks());
+
+    describe('alcance no es "empresa": las 5 tools rechazan sin tocar nada', () => {
+      const alcancesInvalidos = [{ nivel: 'organizacion', organization_id: 'org-1' }, { nivel: 'plataforma' }, null];
+
+      test.each(alcancesInvalidos)('ejecutar_kce rechaza con alcance %p', async (alcance) => {
+        await expect(ejecutarKceTool({}, alcance, {}, USUARIO, OPENAI_MOCK)).rejects.toThrow('una empresa específica');
+        expect(mockEjecutarKCE).not.toHaveBeenCalled();
+      });
+
+      test.each(alcancesInvalidos)('listar_alertas_kce rechaza con alcance %p', async (alcance) => {
+        await expect(listarAlertasKceTool({}, alcance)).rejects.toThrow('una empresa específica');
+        expect(mockListarAlertasPendientes).not.toHaveBeenCalled();
+      });
+
+      test.each(alcancesInvalidos)('aplicar_refuerzo_kce rechaza con alcance %p', async (alcance) => {
+        await expect(aplicarRefuerzoKceTool({}, alcance, { alerta_id: 'al1' }, USUARIO)).rejects.toThrow('una empresa específica');
+        expect(mockAplicarRefuerzo).not.toHaveBeenCalled();
+      });
+
+      test.each(alcancesInvalidos)('fusionar_aprendizajes rechaza con alcance %p', async (alcance) => {
+        await expect(fusionarAprendizajesTool({}, alcance, { id_conservar: 'a1', id_descartar: 'a2', razon: 'x' }, USUARIO)).rejects.toThrow('una empresa específica');
+        expect(mockFusionarAprendizajesKce).not.toHaveBeenCalled();
+      });
+
+      test.each(alcancesInvalidos)('resolver_alerta_kce rechaza con alcance %p', async (alcance) => {
+        await expect(resolverAlertaKceTool({}, alcance, { alerta_id: 'al1', accion_tomada: 'ignorada' }, USUARIO)).rejects.toThrow('una empresa específica');
+        expect(mockResolverAlertaKce).not.toHaveBeenCalled();
+      });
+    });
+
+    test('ejecutar_kce: pasa company_id, usuario.id y el openaiClient recibido, devuelve el reporte en texto', async () => {
+      mockEjecutarKCE.mockResolvedValue({ ejecucion: { id: 'ex1' }, alertas: [], reporteTexto: 'Knowledge Consolidation Report\n...' });
+      const resultado = await ejecutarKceTool({}, ALCANCE_EMPRESA, {}, USUARIO, OPENAI_MOCK);
+
+      expect(mockEjecutarKCE).toHaveBeenCalledWith({ supabase: {}, openaiClient: OPENAI_MOCK, company_id: COMPANY_A, usuario_id: 'user-1' });
+      expect(resultado).toBe('Knowledge Consolidation Report\n...');
+    });
+
+    test('listar_alertas_kce: usa el company_id del alcance', async () => {
+      mockListarAlertasPendientes.mockResolvedValue([{ id: 'al1' }]);
+      const resultado = await listarAlertasKceTool({}, ALCANCE_EMPRESA);
+      expect(mockListarAlertasPendientes).toHaveBeenCalledWith({}, COMPANY_A);
+      expect(resultado).toEqual([{ id: 'al1' }]);
+    });
+
+    test('aplicar_refuerzo_kce: pasa alerta_id y usuario.id', async () => {
+      mockAplicarRefuerzo.mockResolvedValue({ id: 'a1', confianza: 90 });
+      await aplicarRefuerzoKceTool({}, ALCANCE_EMPRESA, { alerta_id: 'al1' }, USUARIO);
+      expect(mockAplicarRefuerzo).toHaveBeenCalledWith({}, COMPANY_A, 'al1', 'user-1');
+    });
+
+    test('fusionar_aprendizajes: pasa conservar/descartar/razon/alerta_id', async () => {
+      mockFusionarAprendizajesKce.mockResolvedValue({ id: 'a2', estado: 'rechazado' });
+      await fusionarAprendizajesTool({}, ALCANCE_EMPRESA, { id_conservar: 'a1', id_descartar: 'a2', razon: 'mismo patrón', alerta_id: 'al1' }, USUARIO);
+      expect(mockFusionarAprendizajesKce).toHaveBeenCalledWith({}, COMPANY_A, 'a1', 'a2', 'user-1', 'mismo patrón', 'al1');
+    });
+
+    test('resolver_alerta_kce: pasa accion_tomada y razon', async () => {
+      mockResolverAlertaKce.mockResolvedValue({ id: 'al1', estado: 'aplicada' });
+      await resolverAlertaKceTool({}, ALCANCE_EMPRESA, { alerta_id: 'al1', accion_tomada: 'confirmado_obsoleto', razon: 'ya no aplica' }, USUARIO);
+      expect(mockResolverAlertaKce).toHaveBeenCalledWith({}, COMPANY_A, 'al1', 'user-1', 'confirmado_obsoleto', 'ya no aplica');
+    });
+
+    test('ejecutarTool() propaga usuario y openaiClient a ejecutar_kce', async () => {
+      mockEjecutarKCE.mockResolvedValue({ ejecucion: {}, alertas: [], reporteTexto: 'reporte' });
+      await ejecutarTool('ejecutar_kce', {}, {}, ALCANCE_EMPRESA, USUARIO, OPENAI_MOCK);
+      expect(mockEjecutarKCE).toHaveBeenCalledWith({ supabase: {}, openaiClient: OPENAI_MOCK, company_id: COMPANY_A, usuario_id: 'user-1' });
     });
   });
 });
