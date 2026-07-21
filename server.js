@@ -39,6 +39,7 @@ const { calcularEstadoDelDia }           = require('./modules/agenda-engine');
 const { resolverEvento }                = require('./modules/agenda-engine/recomendaciones');
 const { calcularCambiosNombreEmpresa }  = require('./modules/nombre-cliente');
 const { preguntar: preguntarOperador }  = require('./modules/operador-engine');
+const { resolverOCrearHilo, registrarMensaje } = require('./modules/inbox');
 const { interpretarComando, confirmarComando, cancelarComando } = require('./modules/agenda-comandos');
 const {
   listarClientes, obtenerFichaCliente, actualizarCliente, eliminarCliente,
@@ -182,11 +183,29 @@ const MENSAJE_ERROR_TECNICO_DEFAULT = 'Error técnico. Intenta de nuevo.';
 //
 // @param {import('./adapters/channels/channel-adapter').Message} message - ya con company_id asignado
 // @param {(destinatario: string, texto: string) => Promise<void>} enviar
-async function procesarMensajeEntrante(message, enviar) {
+async function procesarMensajeEntrante(message, enviar, proveedor = 'desconocido') {
   // FASE 5 (Fase 3 — intervención humana): si un humano ya tomó esta
   // conversación, TARA no responde. Se resuelve el cliente aquí (capa de
   // plataforma) sin tocar el Orchestrator/WorkflowEngine (ADR-005).
   const cliente = await obtenerOCrearCliente(message.from, message.company_id);
+
+  // Inbox Inteligente (v0.4) — escritura doble: además de lo que el Core ya
+  // escribe en `conversaciones` (congelada), cada mensaje se refleja en
+  // `hilos`/`mensajes` (multi-canal, con soporte de adjuntos). Nunca debe
+  // tumbar la respuesta al cliente si algo aquí falla.
+  let hilo = null;
+  try {
+    hilo = await resolverOCrearHilo(supabaseServicio, {
+      company_id: message.company_id, cliente_id: cliente.id, canal: message.channel, proveedor,
+    });
+    await registrarMensaje(supabaseServicio, {
+      hilo_id: hilo.id, company_id: message.company_id, direccion: 'entrante', remitente_tipo: 'cliente',
+      tipo_contenido: 'texto', contenido: message.content,
+    });
+  } catch (e) {
+    console.error('Inbox: error en escritura doble (mensaje entrante):', e.message);
+  }
+
   if (cliente?.atendido_por === 'humano') {
     console.log(`📩 ${message.from} — atendido por humano, TARA no responde (cliente ${cliente.id})`);
     await registrarMensajeEntranteHumano(supabaseServicio, message.company_id, cliente.id, message.content);
@@ -201,7 +220,17 @@ async function procesarMensajeEntrante(message, enviar) {
   // plataforma, igual que el de intervención humana (ADR-005).
   const dentroDeHorario = await estaDentroDeHorarioAtencion(supabaseServicio, message.company_id);
   if (!dentroDeHorario) {
-    await enviar(message.from, personality?.mensaje_fuera_horario || MENSAJE_FUERA_HORARIO_DEFAULT);
+    const textoFueraDeHorario = personality?.mensaje_fuera_horario || MENSAJE_FUERA_HORARIO_DEFAULT;
+    await enviar(message.from, textoFueraDeHorario);
+    if (hilo) {
+      try {
+        await registrarMensaje(supabaseServicio, {
+          hilo_id: hilo.id, company_id: message.company_id, direccion: 'saliente', remitente_tipo: 'ia', contenido: textoFueraDeHorario,
+        });
+      } catch (e) {
+        console.error('Inbox: error en escritura doble (mensaje saliente, fuera de horario):', e.message);
+      }
+    }
     return;
   }
 
@@ -311,6 +340,16 @@ async function procesarMensajeEntrante(message, enviar) {
 
   await enviar(message.from, textoFinal);
   console.log(`✅ ${message.from} — respuesta enviada (empresa ${message.company_id})`);
+
+  if (hilo) {
+    try {
+      await registrarMensaje(supabaseServicio, {
+        hilo_id: hilo.id, company_id: message.company_id, direccion: 'saliente', remitente_tipo: 'ia', contenido: textoFinal,
+      });
+    } catch (e) {
+      console.error('Inbox: error en escritura doble (mensaje saliente):', e.message);
+    }
+  }
 }
 
 // ── WEBHOOK TWILIO ────────────────────────────────────────────────────────────
@@ -334,7 +373,7 @@ app.post('/webhook/twilio', async (req, res) => {
 
     const numeroOrigen = await channelRouter.resolverEndpointDeEmpresa(message.company_id);
 
-    await procesarMensajeEntrante(message, (destinatario, texto) => adapter.enviarMensaje(destinatario, texto, numeroOrigen));
+    await procesarMensajeEntrante(message, (destinatario, texto) => adapter.enviarMensaje(destinatario, texto, numeroOrigen), 'twilio');
 
     res.status(200).end();
   } catch (e) {
@@ -393,7 +432,7 @@ app.post('/webhook/meta', async (req, res) => {
       return res.status(200).end();
     }
 
-    await procesarMensajeEntrante(message, (destinatario, texto) => metaAdapterEmpresa.enviarMensaje(destinatario, texto));
+    await procesarMensajeEntrante(message, (destinatario, texto) => metaAdapterEmpresa.enviarMensaje(destinatario, texto), 'meta');
 
     res.status(200).end();
   } catch (e) {
