@@ -12,9 +12,11 @@
  * obtenerAdapterMetaParaEmpresa() arma una nueva cada vez, a partir de las
  * credenciales de esa empresa.
  *
- * Sin portal de onboarding todavía (Embedded Signup queda para una fase
- * posterior) — guardarCredencialesMeta() se usa manualmente (SQL/script) por
- * ahora, igual que el bootstrap de cada empresa/usuario hasta hoy.
+ * Sin Embedded Signup de Meta todavía (requiere App Review — queda para una
+ * fase posterior) — conectarWhatsAppMeta() se usa desde un formulario guiado
+ * en el panel (Configuración → Canales) o desde scripts/conectar-empresa-
+ * meta.js; en ambos casos el dueño de la empresa sigue teniendo que sacar
+ * phone_number_id/access_token de Meta Business Manager a mano.
  *
  * @module modules/meta-auth
  */
@@ -65,6 +67,44 @@ async function guardarCredencialesMeta(supabase, company_id, { whatsappBusinessA
 }
 
 /**
+ * Registra el endpoint de enrutamiento para un phone_number_id de Meta
+ * (proveedor='meta', canal='whatsapp') — sin esto, el webhook recibe el
+ * mensaje pero channel-router.js no encuentra empresa y lo descarta en
+ * silencio. Extraído de scripts/conectar-empresa-meta.js para que tanto el
+ * script de terminal como el formulario del panel (Portal de Cliente,
+ * Centro de Conexiones) compartan la misma lógica.
+ *
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} company_id
+ * @param {string} phoneNumberId
+ */
+async function registrarChannelEndpointMeta(supabase, company_id, phoneNumberId) {
+  const { error } = await supabase
+    .from('channel_endpoints')
+    .upsert(
+      { company_id, endpoint: phoneNumberId, canal: 'whatsapp', proveedor: 'meta', activo: true },
+      { onConflict: 'endpoint' }
+    );
+  if (error) throw new Error(`meta-auth.registrarChannelEndpointMeta: ${error.message}`);
+}
+
+/**
+ * Conecta el WhatsApp Cloud API de una empresa en un solo paso: guarda las
+ * credenciales cifradas y registra el enrutamiento — mismo criterio de
+ * seguridad que Modo Operador (nada de esto se decide desde el cliente sin
+ * pasar por el company_id ya autenticado del caller).
+ *
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} company_id
+ * @param {Object} datos - ver guardarCredencialesMeta()
+ */
+async function conectarWhatsAppMeta(supabase, company_id, datos) {
+  const fila = await guardarCredencialesMeta(supabase, company_id, datos);
+  await registrarChannelEndpointMeta(supabase, company_id, datos.phoneNumberId);
+  return fila;
+}
+
+/**
  * Reconstruye un MetaCloudWhatsAppAdapter autenticado para una empresa, a
  * partir de sus credenciales guardadas (cifradas).
  *
@@ -86,4 +126,7 @@ async function obtenerAdapterMetaParaEmpresa(supabase, company_id) {
   return new MetaCloudWhatsAppAdapter({ phoneNumberId: fila.phone_number_id, accessToken: access_token });
 }
 
-module.exports = { guardarCredencialesMeta, obtenerAdapterMetaParaEmpresa };
+module.exports = {
+  guardarCredencialesMeta, registrarChannelEndpointMeta, conectarWhatsAppMeta,
+  obtenerAdapterMetaParaEmpresa,
+};

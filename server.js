@@ -17,7 +17,7 @@ const { obtenerConfigEmpresa }          = require('./modules/config');
 const { crearOrchestrator }             = require('./modules/orchestrator');
 const { TwilioWhatsAppAdapter }         = require('./adapters/channels/twilio-whatsapp');
 const { MetaCloudWhatsAppAdapter }      = require('./adapters/channels/meta-cloud-whatsapp');
-const { obtenerAdapterMetaParaEmpresa } = require('./modules/meta-auth');
+const { obtenerAdapterMetaParaEmpresa, conectarWhatsAppMeta } = require('./modules/meta-auth');
 const { ChannelRouter }                 = require('./modules/channel-router');
 const { generarUrlAutorizacion, manejarCallback } = require('./modules/google-auth');
 const { iniciarSesion, obtenerEmpresasDeUsuario, solicitarRecuperacion, restablecerPassword, ErrorAuth } = require('./modules/auth');
@@ -1259,6 +1259,27 @@ app.delete('/api/config/pipeline-etapas/:id', requireAuth, soloGerencial, async 
 app.get('/api/config/canales', requireAuth, async (req, res) => {
   try {
     res.json(await listarCanales(req.supabase, req.usuario.company_id));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Portal de Cliente — Centro de Conexiones: reemplaza el paso de terminal
+// (scripts/conectar-empresa-meta.js) por un formulario dentro del panel.
+// El dueño de la empresa sigue teniendo que sacar estos valores de Meta
+// Business Manager a mano (sin Embedded Signup todavía) — esto solo evita
+// que Alina tenga que correr el script por cada empresa.
+app.post('/api/config/canales/whatsapp-meta', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    const { whatsappBusinessAccountId, phoneNumberId, metaBusinessId, accessToken } = req.body || {};
+    if (!whatsappBusinessAccountId || !phoneNumberId || !accessToken) {
+      return res.status(400).json({ error: 'whatsappBusinessAccountId, phoneNumberId y accessToken son requeridos' });
+    }
+
+    await conectarWhatsAppMeta(supabaseServicio, req.usuario.company_id, {
+      whatsappBusinessAccountId, phoneNumberId, metaBusinessId, accessToken,
+    });
+    res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

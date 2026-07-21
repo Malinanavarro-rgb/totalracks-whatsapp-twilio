@@ -28,17 +28,7 @@
 require('dotenv').config();
 
 const { supabaseServicio: supabase } = require('../modules/clients');
-const { guardarCredencialesMeta } = require('../modules/meta-auth');
-
-async function registrarChannelEndpoint(companyId, phoneNumberId) {
-  const { error } = await supabase
-    .from('channel_endpoints')
-    .upsert(
-      { company_id: companyId, endpoint: phoneNumberId, canal: 'whatsapp', proveedor: 'meta', activo: true },
-      { onConflict: 'endpoint' }
-    );
-  if (error) throw new Error(`registrando channel_endpoints: ${error.message}`);
-}
+const { conectarWhatsAppMeta } = require('../modules/meta-auth');
 
 function leerArgs() {
   const args = {};
@@ -63,14 +53,12 @@ function leerArgs() {
     process.exit(1);
   }
 
-  const fila = await guardarCredencialesMeta(supabase, companyId, {
+  const fila = await conectarWhatsAppMeta(supabase, companyId, {
     whatsappBusinessAccountId: wabaId,
     phoneNumberId,
     metaBusinessId,
     accessToken,
   });
-
-  await registrarChannelEndpoint(companyId, phoneNumberId);
 
   console.log(`✅ Empresa ${companyId} conectada a Meta — phone_number_id=${phoneNumberId} (fila ${fila.id})`);
   console.log(`✅ channel_endpoints registrado — los mensajes entrantes de este número ya enrutan a esta empresa.`);

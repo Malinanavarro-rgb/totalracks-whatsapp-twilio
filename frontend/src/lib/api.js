@@ -144,6 +144,7 @@ export const api = {
   eliminarNodo:            (id) => pedir(`/api/config/nodos/${id}`, { method: 'DELETE' }),
 
   canalesConfig:           () => pedir('/api/config/canales'),
+  conectarWhatsAppMeta:    (datos) => pedir('/api/config/canales/whatsapp-meta', { method: 'POST', body: JSON.stringify(datos) }),
 
   usuariosConfig:          () => pedir('/api/config/usuarios'),
   invitarUsuario:          (datos) => pedir('/api/config/usuarios/invitar', { method: 'POST', body: JSON.stringify(datos) }),
