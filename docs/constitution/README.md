@@ -24,6 +24,14 @@ El documento de la Constitución de TARA Matrix™ v3 fue definido por la fundad
 
 ---
 
+## Documento complementario — Diferenciadores de Producto
+
+**[diferenciadores-producto-v1.md](diferenciadores-producto-v1.md)** (TARA-CONST-002, aprobado el 21 de julio de 2026).
+
+Mientras la Constitución (TARA-CONST-001) define **qué es** TARA Matrix a nivel de arquitectura, este documento define **por qué gana en el mercado**: seis diferenciadores obligatorios (TARA piensa sin que se lo pidan, un solo cerebro empresarial, memoria empresarial permanente, explicar el porqué de cada recomendación, obsesión por la simplicidad, y TARA aprende del negocio con el tiempo) más un filtro de seis preguntas que toda función nueva debe pasar antes de implementarse.
+
+---
+
 ## Principios irrenunciables (resumen)
 
 1. **TARA es un OS, no un bot.** Cada empresa instancia su propio asistente encima del mismo Kernel.
