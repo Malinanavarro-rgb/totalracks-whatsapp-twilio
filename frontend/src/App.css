@@ -347,6 +347,35 @@ body {
   background: #f0f0f2; border-radius: 999px; padding: 0.1rem 0.6rem;
 }
 
+/* ── Inbox Inteligente (v0.4) ──────────────────────────────────────────── */
+
+.inbox-filtros { display: flex; gap: 0.6rem; margin: 1rem 0 0.5rem; flex-wrap: wrap; }
+.inbox-filtros select { padding: 0.4rem 0.7rem; border-radius: 8px; border: 1px solid #ddd; background: #fff; font-size: 0.85rem; }
+
+.inbox-fecha { font-size: 0.78rem; color: #999; white-space: nowrap; }
+
+.inbox-badges { margin-top: 0.4rem; display: flex; gap: 0.35rem; flex-wrap: wrap; }
+
+.inbox-badge {
+  font-size: 0.72rem; padding: 0.15rem 0.55rem; border-radius: 999px;
+  background: #eef0f7; color: #444; text-transform: capitalize;
+}
+.inbox-badge--canal { background: #e6effe; color: #1d5fbf; }
+.inbox-badge--estado-abierta { background: #e3f3e6; color: #226a34; }
+.inbox-badge--estado-seguimiento { background: #fff3d6; color: #96700a; }
+.inbox-badge--estado-cerrada { background: #f0f0f2; color: #777; }
+.inbox-badge--prioridad-urgente { background: #fde2e2; color: #b52020; }
+.inbox-badge--prioridad-alta { background: #ffe6cc; color: #b45f06; }
+.inbox-badge--prioridad-normal { background: #eef0f7; color: #555; }
+.inbox-badge--prioridad-baja { background: #f0f0f2; color: #888; }
+.inbox-badge--etiqueta { background: #ece5fb; color: #5b34a8; }
+
+.inbox-cargar-mas {
+  margin-top: 0.75rem; padding: 0.5rem 1rem; border-radius: 8px; border: 1px solid #ddd;
+  background: #fff; cursor: pointer; font-size: 0.85rem;
+}
+.inbox-cargar-mas:disabled { opacity: 0.6; cursor: default; }
+
 .conversacion-acciones { margin: 1rem 0; }
 .conversacion-acciones button {
   padding: 0.5rem 1rem;

@@ -11,6 +11,7 @@ import LogoTara from './LogoTara';
 const ICONOS = {
   inicio:        <path d="M4 11l8-7 8 7M6 10v10h12V10"/>,
   conversaciones: <path d="M4 4h16v12H8l-4 4V4z"/>,
+  inbox:         <><path d="M4 4h16v16H4z"/><path d="M4 13h4l2 3h4l2-3h4"/></>,
   agenda:        <><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></>,
   ventas:        <><path d="M20 12l-8 8-9-9V4h7l10 8z"/><circle cx="7.5" cy="7.5" r="1.2" fill="currentColor" stroke="none"/></>,
   clientes:      <><circle cx="9" cy="8" r="3"/><path d="M2 20c0-4 3-6 7-6s7 2 7 6M16 8a3 3 0 100-6M17 14c3 0 5 2 5 6"/></>,
@@ -32,6 +33,7 @@ function Icono({ nombre }) {
 const MODULOS = [
   { ruta: '/operaciones',   etiqueta: 'Centro de Operaciones', icono: 'inicio',         habilitado: true },
   { ruta: '/conversaciones', etiqueta: 'Conversaciones',        icono: 'conversaciones', habilitado: true },
+  { ruta: '/inbox',          etiqueta: 'Inbox',                 icono: 'inbox',          habilitado: true },
   { ruta: '/agenda',         etiqueta: 'Agenda TARA',           icono: 'agenda',         habilitado: true },
   { ruta: '/crm',            etiqueta: 'Ventas',                icono: 'ventas',         habilitado: true },
   { ruta: '/configuracion',  etiqueta: 'Configuración',         icono: 'configuracion',  habilitado: true },
@@ -46,6 +48,7 @@ const MODULOS = [
 const MODULOS_UNIFORMES_DEPORTIVOS = [
   { ruta: '/operaciones',    etiqueta: 'Inicio',         icono: 'inicio',         habilitado: true },
   { ruta: '/conversaciones', etiqueta: 'Conversaciones', icono: 'conversaciones', habilitado: true },
+  { ruta: '/inbox',          etiqueta: 'Inbox',          icono: 'inbox',          habilitado: true },
   { ruta: '/crm/pipeline',   etiqueta: 'Ventas',         icono: 'ventas',         habilitado: true },
   { ruta: '/crm',            etiqueta: 'Clientes',       icono: 'clientes',       habilitado: true },
   { ruta: '/catalogo',       etiqueta: 'Catálogo',       icono: 'catalogo',       habilitado: true },
@@ -58,6 +61,7 @@ const MODULOS_UNIFORMES_DEPORTIVOS = [
 const MODULOS_SALON_BELLEZA = [
   { ruta: '/operaciones',    etiqueta: 'Inicio',         icono: 'inicio',         habilitado: true },
   { ruta: '/conversaciones', etiqueta: 'Conversaciones', icono: 'conversaciones', habilitado: true },
+  { ruta: '/inbox',          etiqueta: 'Inbox',          icono: 'inbox',          habilitado: true },
   { ruta: '/agenda',         etiqueta: 'Agenda',         icono: 'agenda',         habilitado: true },
   { ruta: '/crm',            etiqueta: 'Clientas',       icono: 'clientes',       habilitado: true },
   { ruta: '/catalogo',       etiqueta: 'Catálogo',       icono: 'catalogo',       habilitado: true },

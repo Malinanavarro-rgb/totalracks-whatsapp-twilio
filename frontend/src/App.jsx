@@ -7,6 +7,8 @@ import Login from './pages/Login';
 import Operaciones from './pages/Operaciones';
 import Conversaciones from './pages/Conversaciones';
 import ConversacionDetalle from './pages/ConversacionDetalle';
+import Inbox from './pages/Inbox';
+import InboxHilo from './pages/InboxHilo';
 import Agenda from './pages/Agenda';
 import Crm from './pages/Crm';
 import CrmClienteDetalle from './pages/CrmClienteDetalle';
@@ -63,6 +65,8 @@ export default function App() {
             <Route path="/operaciones" element={<Operaciones />} />
             <Route path="/conversaciones" element={<Conversaciones />} />
             <Route path="/conversaciones/:clienteId" element={<ConversacionDetalle />} />
+            <Route path="/inbox" element={<Inbox />} />
+            <Route path="/inbox/:hiloId" element={<InboxHilo />} />
             <Route path="/agenda" element={<Agenda />} />
             <Route path="/crm" element={<Crm />} />
             <Route path="/crm/pipeline" element={<CrmPipeline />} />

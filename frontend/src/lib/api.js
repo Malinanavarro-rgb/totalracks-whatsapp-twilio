@@ -52,6 +52,15 @@ export const api = {
   enviarMensaje:           (clienteId, texto) =>
     pedir(`/api/conversaciones/${clienteId}/mensajes`, { method: 'POST', body: JSON.stringify({ texto }) }),
 
+  // Inbox Inteligente (v0.4) — convive con /api/conversaciones de arriba.
+  hilosInbox: (filtros = {}) => {
+    const params = new URLSearchParams(Object.fromEntries(Object.entries(filtros).filter(([, v]) => v)));
+    const qs = params.toString();
+    return pedir(`/api/inbox/hilos${qs ? `?${qs}` : ''}`);
+  },
+  mensajesDeHilo: (hiloId) => pedir(`/api/inbox/hilos/${hiloId}/mensajes`),
+  actualizarHilo: (hiloId, cambios) => pedir(`/api/inbox/hilos/${hiloId}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
+
   asesores:      () => pedir('/api/agenda/asesores'),
   citas:         (desde, hasta) => pedir(`/api/agenda/citas?desde=${desde}&hasta=${hasta}`),
   crearClienteManual: (datos) => pedir('/api/agenda/clientes', { method: 'POST', body: JSON.stringify(datos) }),

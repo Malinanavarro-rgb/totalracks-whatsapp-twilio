@@ -39,7 +39,7 @@ const { calcularEstadoDelDia }           = require('./modules/agenda-engine');
 const { resolverEvento }                = require('./modules/agenda-engine/recomendaciones');
 const { calcularCambiosNombreEmpresa }  = require('./modules/nombre-cliente');
 const { preguntar: preguntarOperador }  = require('./modules/operador-engine');
-const { resolverOCrearHilo, registrarMensaje } = require('./modules/inbox');
+const { resolverOCrearHilo, registrarMensaje, listarHilos, listarMensajesDeHilo, actualizarHilo } = require('./modules/inbox');
 const { esGerencial } = require('./modules/permisos');
 const { interpretarComando, confirmarComando, cancelarComando } = require('./modules/agenda-comandos');
 const {
@@ -741,6 +741,48 @@ app.post('/api/conversaciones/:clienteId/mensajes', requireAuth, async (req, res
     res.status(201).json({ ok: true });
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// ── INBOX INTELIGENTE (v0.4) ──────────────────────────────────────────────────
+// Lógica real en modules/inbox.js. Convive con /api/conversaciones (arriba,
+// sin cambios) — el Inbox es la evolución, no un reemplazo inmediato.
+
+app.get('/api/inbox/hilos', requireAuth, async (req, res) => {
+  try {
+    const { canal, sucursalId, asesorId, estado, prioridad, etiqueta, cursor } = req.query;
+    const hilos = await listarHilos(req.supabase, req.usuario.company_id, {
+      usuario: req.usuario, canal, sucursal_id: sucursalId, asesor_id: asesorId, estado, prioridad, etiqueta, cursor,
+    });
+    res.json(hilos);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/inbox/hilos/:hiloId/mensajes', requireAuth, async (req, res) => {
+  try {
+    const mensajes = await listarMensajesDeHilo(req.supabase, req.params.hiloId);
+    res.json(mensajes);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/inbox/hilos/:hiloId', requireAuth, async (req, res) => {
+  try {
+    const { estado, prioridad, etiquetas, asesorId } = req.body || {};
+    // Reasignar a otro asesor (distinto de uno mismo) es solo gerencial —
+    // mismo criterio que "transferir" en soporte tradicional.
+    if (asesorId !== undefined && asesorId !== req.usuario.id && !esGerencial(req.usuario.rol)) {
+      return res.status(403).json({ error: 'Solo un rol gerencial puede reasignar a otro asesor' });
+    }
+    const hilo = await actualizarHilo(req.supabase, req.usuario.company_id, req.params.hiloId, {
+      estado, prioridad, etiquetas, asesor_id: asesorId,
+    });
+    res.json(hilo);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
