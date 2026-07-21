@@ -18,8 +18,7 @@
 const { SchedulingEngine }     = require('./scheduling-engine');
 const { obtenerProviderParaEmpresa } = require('./google-auth');
 const { MockCalendarProvider } = require('../adapters/calendar/mock-calendar-provider');
-
-const ROLES_GERENCIALES = ['owner', 'administrador', 'supervisor'];
+const { ROLES_GERENCIALES }    = require('./permisos');
 
 async function _schedulingEngineParaEmpresa(supabase, company_id) {
   const provider = (await obtenerProviderParaEmpresa(supabase, company_id)) || new MockCalendarProvider();

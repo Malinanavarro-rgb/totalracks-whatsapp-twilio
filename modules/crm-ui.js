@@ -16,8 +16,8 @@
 'use strict';
 
 const { obtenerHistorial } = require('./conversaciones');
+const { ROLES_GERENCIALES } = require('./permisos');
 
-const ROLES_GERENCIALES = ['owner', 'administrador', 'supervisor'];
 const CAMPOS_EDITABLES  = ['nombre', 'empresa', 'ciudad', 'notas', 'estado'];
 const CAMPOS_SEGUIMIENTO = ['texto', 'fecha_programada', 'prioridad', 'completado'];
 // tipo_rack: nombre histórico de la columna (Total Racks, pre-multiempresa) —

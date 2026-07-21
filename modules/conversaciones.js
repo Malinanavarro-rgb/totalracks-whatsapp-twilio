@@ -13,7 +13,7 @@
 
 'use strict';
 
-const ROLES_GERENCIALES = ['owner', 'administrador', 'supervisor'];
+const { ROLES_GERENCIALES } = require('./permisos');
 
 /**
  * Lista los clientes/conversaciones visibles para el usuario que consulta.

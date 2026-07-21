@@ -40,6 +40,7 @@ const { resolverEvento }                = require('./modules/agenda-engine/recom
 const { calcularCambiosNombreEmpresa }  = require('./modules/nombre-cliente');
 const { preguntar: preguntarOperador }  = require('./modules/operador-engine');
 const { resolverOCrearHilo, registrarMensaje } = require('./modules/inbox');
+const { esGerencial } = require('./modules/permisos');
 const { interpretarComando, confirmarComando, cancelarComando } = require('./modules/agenda-comandos');
 const {
   listarClientes, obtenerFichaCliente, actualizarCliente, eliminarCliente,
@@ -1001,11 +1002,9 @@ app.post('/api/crm/clientes/:id/preguntar', requireAuth, async (req, res) => {
 // partir de la sesión ya autenticada — nunca viene del body de la petición.
 // Ver modules/operador-engine.js / modules/operador-tools.js. Gateado a
 // roles gerenciales, mismo criterio que Suscripción y Facturación.
-const ROLES_GERENCIALES_OPERADOR = ['owner', 'administrador', 'supervisor'];
-
 app.post('/api/operador/preguntar', requireAuth, async (req, res) => {
   try {
-    if (!ROLES_GERENCIALES_OPERADOR.includes(req.usuario.rol)) {
+    if (!esGerencial(req.usuario.rol)) {
       return res.status(403).json({ error: 'No tienes acceso a Modo Operador' });
     }
 
