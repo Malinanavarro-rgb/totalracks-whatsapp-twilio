@@ -376,6 +376,38 @@ body {
 }
 .inbox-cargar-mas:disabled { opacity: 0.6; cursor: default; }
 
+.inbox-badge--sentimiento-positivo { background: #e3f3e6; color: #226a34; }
+.inbox-badge--sentimiento-negativo { background: #fde2e2; color: #b52020; }
+.inbox-badge--sentimiento-neutral  { background: #eef0f7; color: #555; }
+
+.panel-inteligente {
+  background: #fff; border-radius: 12px; padding: 1.1rem 1.25rem;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06); align-self: flex-start;
+}
+.panel-inteligente-encabezado { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+.panel-inteligente-encabezado h2 { margin: 0; font-size: 1rem; }
+.panel-inteligente-encabezado button {
+  padding: 0.35rem 0.8rem; border-radius: 6px; border: 1px solid #ddd; background: #fff;
+  font-size: 0.78rem; cursor: pointer;
+}
+.panel-inteligente-encabezado button:disabled { opacity: 0.6; cursor: default; }
+
+.panel-inteligente-resumen { margin: 0.9rem 0; font-size: 0.9rem; color: #333; }
+.panel-inteligente-campo { font-size: 0.85rem; margin: 0.6rem 0; }
+
+.panel-inteligente-proxima-accion {
+  background: #eef4ff; border-radius: 8px; padding: 0.6rem 0.8rem; margin: 0.8rem 0; font-size: 0.85rem;
+}
+.panel-inteligente-proxima-accion strong { display: block; font-size: 0.75rem; color: #1d5fbf; text-transform: uppercase; letter-spacing: 0.03em; }
+.panel-inteligente-proxima-accion p { margin: 0.3rem 0 0; }
+
+.panel-inteligente-seccion { margin: 0.8rem 0; font-size: 0.85rem; }
+.panel-inteligente-seccion strong { display: block; margin-bottom: 0.25rem; font-size: 0.78rem; color: #777; text-transform: uppercase; letter-spacing: 0.03em; }
+.panel-inteligente-seccion ul { margin: 0; padding-left: 1.1rem; }
+.panel-inteligente-seccion li { margin-bottom: 0.2rem; }
+
+.panel-inteligente-fecha { margin-top: 1rem; font-size: 0.72rem; color: #aaa; }
+
 .conversacion-acciones { margin: 1rem 0; }
 .conversacion-acciones button {
   padding: 0.5rem 1rem;

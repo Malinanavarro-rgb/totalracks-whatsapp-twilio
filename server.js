@@ -40,6 +40,7 @@ const { resolverEvento }                = require('./modules/agenda-engine/recom
 const { calcularCambiosNombreEmpresa }  = require('./modules/nombre-cliente');
 const { preguntar: preguntarOperador }  = require('./modules/operador-engine');
 const { resolverOCrearHilo, registrarMensaje, listarHilos, obtenerHilo, listarMensajesDeHilo, actualizarHilo } = require('./modules/inbox');
+const { analizarHilo, programarAnalisis, obtenerAnalisisHilo } = require('./modules/inbox-analisis');
 const { esGerencial } = require('./modules/permisos');
 const { interpretarComando, confirmarComando, cancelarComando } = require('./modules/agenda-comandos');
 const {
@@ -184,6 +185,14 @@ const MENSAJE_ERROR_TECNICO_DEFAULT = 'Error técnico. Intenta de nuevo.';
 //
 // @param {import('./adapters/channels/channel-adapter').Message} message - ya con company_id asignado
 // @param {(destinatario: string, texto: string) => Promise<void>} enviar
+// Inbox Inteligente (v0.4) — Motor de Decisiones: se programa (con
+// debounce) después de cada mensaje, nunca se corre en línea — no debe
+// agregar latencia a la respuesta que ya recibió el cliente.
+function _programarAnalisisSiHayHilo(hilo, cliente_id, company_id) {
+  if (!hilo) return;
+  programarAnalisis(hilo.id, () => analizarHilo({ supabase: supabaseServicio, openaiClient: openai, company_id, hilo_id: hilo.id, cliente_id, hilo }));
+}
+
 async function procesarMensajeEntrante(message, enviar, proveedor = 'desconocido') {
   // FASE 5 (Fase 3 — intervención humana): si un humano ya tomó esta
   // conversación, TARA no responde. Se resuelve el cliente aquí (capa de
@@ -203,6 +212,7 @@ async function procesarMensajeEntrante(message, enviar, proveedor = 'desconocido
       hilo_id: hilo.id, company_id: message.company_id, direccion: 'entrante', remitente_tipo: 'cliente',
       tipo_contenido: 'texto', contenido: message.content,
     });
+    _programarAnalisisSiHayHilo(hilo, cliente.id, message.company_id);
   } catch (e) {
     console.error('Inbox: error en escritura doble (mensaje entrante):', e.message);
   }
@@ -228,6 +238,7 @@ async function procesarMensajeEntrante(message, enviar, proveedor = 'desconocido
         await registrarMensaje(supabaseServicio, {
           hilo_id: hilo.id, company_id: message.company_id, direccion: 'saliente', remitente_tipo: 'ia', contenido: textoFueraDeHorario,
         });
+        _programarAnalisisSiHayHilo(hilo, cliente.id, message.company_id);
       } catch (e) {
         console.error('Inbox: error en escritura doble (mensaje saliente, fuera de horario):', e.message);
       }
@@ -347,6 +358,7 @@ async function procesarMensajeEntrante(message, enviar, proveedor = 'desconocido
       await registrarMensaje(supabaseServicio, {
         hilo_id: hilo.id, company_id: message.company_id, direccion: 'saliente', remitente_tipo: 'ia', contenido: textoFinal,
       });
+      _programarAnalisisSiHayHilo(hilo, cliente.id, message.company_id);
     } catch (e) {
       console.error('Inbox: error en escritura doble (mensaje saliente):', e.message);
     }
@@ -762,6 +774,7 @@ app.post('/api/conversaciones/:clienteId/mensajes', requireAuth, async (req, res
       await registrarMensaje(supabaseServicio, {
         hilo_id: hilo.id, company_id: req.usuario.company_id, direccion: 'saliente', remitente_tipo: 'humano', contenido: textoLimpio,
       });
+      _programarAnalisisSiHayHilo(hilo, req.params.clienteId, req.usuario.company_id);
     } catch (e) {
       console.error('Inbox: error en escritura doble (mensaje humano saliente):', e.message);
     }
@@ -793,6 +806,32 @@ app.get('/api/inbox/hilos/:hiloId', requireAuth, async (req, res) => {
     const hilo = await obtenerHilo(req.supabase, req.usuario.company_id, req.params.hiloId);
     if (!hilo) return res.status(404).json({ error: 'Hilo no encontrado' });
     res.json(hilo);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/inbox/hilos/:hiloId/analisis', requireAuth, async (req, res) => {
+  try {
+    const analisis = await obtenerAnalisisHilo(req.supabase, req.params.hiloId);
+    res.json(analisis); // null si todavía no se ha analizado — el frontend lo maneja
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// "Analizar ahora" — corre el Motor de Decisiones de inmediato, sin esperar
+// el debounce normal (útil justo después de tomar una conversación).
+app.post('/api/inbox/hilos/:hiloId/analisis', requireAuth, async (req, res) => {
+  try {
+    const hilo = await obtenerHilo(req.supabase, req.usuario.company_id, req.params.hiloId);
+    if (!hilo) return res.status(404).json({ error: 'Hilo no encontrado' });
+
+    const analisis = await analizarHilo({
+      supabase: supabaseServicio, openaiClient: openai, company_id: req.usuario.company_id,
+      hilo_id: hilo.id, cliente_id: hilo.cliente_id, hilo,
+    });
+    res.json(analisis);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

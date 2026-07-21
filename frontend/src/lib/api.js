@@ -61,6 +61,8 @@ export const api = {
   hiloInbox: (hiloId) => pedir(`/api/inbox/hilos/${hiloId}`),
   mensajesDeHilo: (hiloId) => pedir(`/api/inbox/hilos/${hiloId}/mensajes`),
   actualizarHilo: (hiloId, cambios) => pedir(`/api/inbox/hilos/${hiloId}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
+  analisisDeHilo: (hiloId) => pedir(`/api/inbox/hilos/${hiloId}/analisis`),
+  analizarHiloAhora: (hiloId) => pedir(`/api/inbox/hilos/${hiloId}/analisis`, { method: 'POST' }),
 
   asesores:      () => pedir('/api/agenda/asesores'),
   citas:         (desde, hasta) => pedir(`/api/agenda/citas?desde=${desde}&hasta=${hasta}`),
