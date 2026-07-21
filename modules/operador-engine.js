@@ -31,6 +31,7 @@
 'use strict';
 
 const { ejecutarTool, CATALOGO_TOOLS } = require('./operador-tools');
+const { obtenerResumenEjecutivo } = require('./business-memory-core');
 
 const MODELO_DEFAULT          = 'gpt-4o-mini';
 const MAX_ITERACIONES_TOOLS   = 5;
@@ -61,8 +62,26 @@ async function preguntar({ supabase, openaiClient, pregunta, alcance, historialC
     throw new Error('operador-engine.preguntar: alcance requerido (lo calcula el caller, nunca el usuario final)');
   }
 
+  // Business Memory Core (BMC): solo a nivel 'empresa' (una sola compañía) —
+  // a nivel organización/plataforma habría que agregar el resumen de N
+  // empresas distintas, lo cual es trabajo de Business Intelligence (v0.9),
+  // no de esta fase. Lectura pura (sin IA, ver business-memory-core.js);
+  // si falla, nunca bloquea a Modo Operador — sigue igual que antes de BMC.
+  let resumenNegocio = null;
+  if (alcance.nivel === 'empresa' && alcance.company_id) {
+    try {
+      resumenNegocio = await obtenerResumenEjecutivo(supabase, alcance.company_id);
+    } catch {
+      resumenNegocio = null;
+    }
+  }
+
+  const systemPrompt = resumenNegocio?.resumen
+    ? `${SYSTEM_PROMPT} Memoria empresarial de este negocio (resumen ejecutivo ya validado por un humano): ${resumenNegocio.resumen}`
+    : SYSTEM_PROMPT;
+
   const messages = [
-    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'system', content: systemPrompt },
     ...historialCorto,
     { role: 'user', content: pregunta },
   ];

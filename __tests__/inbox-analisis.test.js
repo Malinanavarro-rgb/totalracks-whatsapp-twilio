@@ -2,12 +2,16 @@
 
 const mockObtenerHistorial = jest.fn();
 const mockObtenerFichaCliente = jest.fn();
+const mockResumenParaCliente = jest.fn();
 
 jest.mock('../modules/conversaciones', () => ({
   obtenerHistorial: (...args) => mockObtenerHistorial(...args),
 }));
 jest.mock('../modules/crm-ui', () => ({
   obtenerFichaCliente: (...args) => mockObtenerFichaCliente(...args),
+}));
+jest.mock('../modules/business-memory-core', () => ({
+  resumenParaCliente: (...args) => mockResumenParaCliente(...args),
 }));
 
 const { analizarHilo, programarAnalisis, DEBOUNCE_MS_DEFAULT } = require('../modules/inbox-analisis');
@@ -33,6 +37,7 @@ describe('inbox-analisis', () => {
     jest.clearAllMocks();
     mockObtenerHistorial.mockResolvedValue(HISTORIAL);
     mockObtenerFichaCliente.mockResolvedValue(FICHA);
+    mockResumenParaCliente.mockResolvedValue('');
   });
 
   describe('analizarHilo()', () => {
@@ -105,6 +110,39 @@ describe('inbox-analisis', () => {
 
       await expect(analizarHilo({ supabase, openaiClient, company_id: 'c1', hilo_id: 'hilo-1', cliente_id: 60, hilo: HILO }))
         .resolves.toBeDefined();
+    });
+
+    test('Business Memory Core: incluye la memoria empresarial confirmada en el contexto enviado a la IA', async () => {
+      mockResumenParaCliente.mockResolvedValue('- [preferencia] Prefiere pagar con tarjeta (confianza: 90%) — nunca ha pagado en efectivo.');
+      const supabase = crearMockSupabase();
+      const openaiClient = { chat: { completions: { create: jest.fn().mockResolvedValue(respuestaIA({})) } } };
+
+      await analizarHilo({ supabase, openaiClient, company_id: 'c1', hilo_id: 'hilo-1', cliente_id: 60, hilo: HILO });
+
+      expect(mockResumenParaCliente).toHaveBeenCalledWith(supabase, 'c1', 60);
+      const mensajeUsuario = openaiClient.chat.completions.create.mock.calls[0][0].messages[1].content;
+      expect(mensajeUsuario).toContain('Memoria empresarial confirmada');
+      expect(mensajeUsuario).toContain('Prefiere pagar con tarjeta');
+      expect(mensajeUsuario).toContain('90%');
+    });
+
+    test('sigue funcionando si resumenParaCliente (BMC) falla — nunca tumba el análisis del hilo', async () => {
+      mockResumenParaCliente.mockRejectedValue(new Error('bmc caído'));
+      const supabase = crearMockSupabase();
+      const openaiClient = { chat: { completions: { create: jest.fn().mockResolvedValue(respuestaIA({})) } } };
+
+      await expect(analizarHilo({ supabase, openaiClient, company_id: 'c1', hilo_id: 'hilo-1', cliente_id: 60, hilo: HILO }))
+        .resolves.toBeDefined();
+    });
+
+    test('sin memoria empresarial confirmada todavía: no agrega la sección al contexto', async () => {
+      mockResumenParaCliente.mockResolvedValue('');
+      const supabase = crearMockSupabase();
+      const openaiClient = { chat: { completions: { create: jest.fn().mockResolvedValue(respuestaIA({})) } } };
+
+      await analizarHilo({ supabase, openaiClient, company_id: 'c1', hilo_id: 'hilo-1', cliente_id: 60, hilo: HILO });
+      const mensajeUsuario = openaiClient.chat.completions.create.mock.calls[0][0].messages[1].content;
+      expect(mensajeUsuario).not.toContain('Memoria empresarial confirmada');
     });
   });
 

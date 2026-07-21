@@ -20,6 +20,7 @@
 
 const { obtenerHistorial } = require('./conversaciones');
 const { obtenerFichaCliente } = require('./crm-ui');
+const { resumenParaCliente } = require('./business-memory-core');
 
 const MODELO_DEFAULT = 'gpt-4o-mini';
 const DEBOUNCE_MS_DEFAULT = 60 * 1000;
@@ -44,7 +45,7 @@ const SYSTEM_PROMPT = [
   '"resumen" en vez de inventar — probabilidad_compra puede ser baja y riesgos/recomendaciones pueden ir vacíos.',
 ].join(' ');
 
-function _armarContexto({ hilo, cliente, historial, citas, oportunidades }) {
+function _armarContexto({ hilo, cliente, historial, citas, oportunidades, memoriaEmpresarial }) {
   const partes = [
     `Canal: ${hilo?.canal || 'desconocido'} — Estado del hilo: ${hilo?.estado || 'abierta'} — Prioridad actual: ${hilo?.prioridad || 'normal'}`,
     `Cliente: ${cliente?.nombre || 'Sin nombre'}${cliente?.empresa ? ` (${cliente.empresa})` : ''} — Etapa: ${cliente?.estado || 'Nuevo'}`,
@@ -52,6 +53,11 @@ function _armarContexto({ hilo, cliente, historial, citas, oportunidades }) {
       ? `Oportunidades registradas: ${oportunidades.map(o => `${o.estado}${o.presupuesto_confirmado ? ` ($${o.presupuesto_confirmado})` : ''}`).join(', ')}`
       : 'Sin oportunidades registradas todavía.',
     citas?.length ? `Citas: ${citas.map(c => `${c.estado} (${c.inicio})`).join(', ')}` : null,
+    // Business Memory Core (BMC) — solo aprendizajes ya CONFIRMADOS por un
+    // humano (nunca propuestas pendientes); es contexto de negocio permanente,
+    // no de esta sola conversación. Cada línea trae su % de confianza para
+    // que el análisis pese distinto un hecho al 95% que uno al 60%.
+    memoriaEmpresarial ? `Memoria empresarial confirmada:\n${memoriaEmpresarial}` : null,
     `Conversación completa:\n${
       historial?.length
         ? historial.map(m => `${m.de === 'cliente' ? 'Cliente' : 'Negocio'}: ${m.texto}`).join('\n')
@@ -90,13 +96,14 @@ function _normalizar(analisis) {
  * @returns {Promise<Object>} el análisis normalizado guardado
  */
 async function analizarHilo({ supabase, openaiClient, company_id, hilo_id, cliente_id, hilo, modelo = MODELO_DEFAULT }) {
-  const [historial, ficha] = await Promise.all([
+  const [historial, ficha, memoriaEmpresarial] = await Promise.all([
     obtenerHistorial(supabase, company_id, cliente_id),
     obtenerFichaCliente(supabase, company_id, cliente_id).catch(() => null),
+    resumenParaCliente(supabase, company_id, cliente_id).catch(() => ''),
   ]);
 
   const contexto = _armarContexto({
-    hilo, cliente: ficha?.cliente, historial, citas: ficha?.citas, oportunidades: ficha?.oportunidades,
+    hilo, cliente: ficha?.cliente, historial, citas: ficha?.citas, oportunidades: ficha?.oportunidades, memoriaEmpresarial,
   });
 
   const respuesta = await openaiClient.chat.completions.create({

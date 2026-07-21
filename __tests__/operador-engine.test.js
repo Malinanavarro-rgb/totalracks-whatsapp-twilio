@@ -1,13 +1,17 @@
 'use strict';
 
 const mockEjecutarTool = jest.fn();
+const mockObtenerResumenEjecutivo = jest.fn();
 
 jest.mock('../modules/operador-tools', () => ({
   ejecutarTool: (...args) => mockEjecutarTool(...args),
   CATALOGO_TOOLS: [{ type: 'function', function: { name: 'tareas_abiertas', parameters: {} } }],
 }));
+jest.mock('../modules/business-memory-core', () => ({
+  obtenerResumenEjecutivo: (...args) => mockObtenerResumenEjecutivo(...args),
+}));
 
-const { preguntar, MAX_ITERACIONES_TOOLS } = require('../modules/operador-engine');
+const { preguntar, MAX_ITERACIONES_TOOLS, SYSTEM_PROMPT } = require('../modules/operador-engine');
 
 function respuestaTextoDirecta(texto, tokens = 100) {
   return {
@@ -29,7 +33,10 @@ function respuestaConToolCall(nombreTool, args, id = 'call_1') {
 const ALCANCE_EMPRESA = { nivel: 'empresa', company_id: 'company-1' };
 
 describe('operador-engine', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockObtenerResumenEjecutivo.mockResolvedValue(null);
+  });
 
   describe('preguntar()', () => {
     test('sin tool calls: regresa la respuesta directa del modelo', async () => {
@@ -126,6 +133,47 @@ describe('operador-engine', () => {
       await preguntar({ supabase: {}, openaiClient, pregunta: 'x', alcance: alcancePlataforma });
 
       expect(mockEjecutarTool).toHaveBeenCalledWith('tareas_abiertas', {}, {}, alcancePlataforma);
+    });
+
+    describe('Business Memory Core (BMC)', () => {
+      test('alcance empresa: antepone el resumen ejecutivo confirmado al system prompt', async () => {
+        mockObtenerResumenEjecutivo.mockResolvedValue({ resumen: 'Vende más los martes y tiene 3 clientes VIP.' });
+        const openaiClient = { chat: { completions: { create: jest.fn().mockResolvedValue(respuestaTextoDirecta('ok')) } } };
+
+        await preguntar({ supabase: {}, openaiClient, pregunta: 'x', alcance: ALCANCE_EMPRESA });
+
+        expect(mockObtenerResumenEjecutivo).toHaveBeenCalledWith({}, 'company-1');
+        const systemMsg = openaiClient.chat.completions.create.mock.calls[0][0].messages[0];
+        expect(systemMsg.content).toContain(SYSTEM_PROMPT);
+        expect(systemMsg.content).toContain('Vende más los martes y tiene 3 clientes VIP.');
+      });
+
+      test('sin resumen ejecutivo generado todavía: el system prompt queda igual, sin sección extra', async () => {
+        mockObtenerResumenEjecutivo.mockResolvedValue(null);
+        const openaiClient = { chat: { completions: { create: jest.fn().mockResolvedValue(respuestaTextoDirecta('ok')) } } };
+
+        await preguntar({ supabase: {}, openaiClient, pregunta: 'x', alcance: ALCANCE_EMPRESA });
+
+        const systemMsg = openaiClient.chat.completions.create.mock.calls[0][0].messages[0];
+        expect(systemMsg.content).toBe(SYSTEM_PROMPT);
+      });
+
+      test('alcance organizacion/plataforma: no consulta BMC (evita mezclar N empresas en un solo prompt)', async () => {
+        const openaiClient = { chat: { completions: { create: jest.fn().mockResolvedValue(respuestaTextoDirecta('ok')) } } };
+
+        await preguntar({ supabase: {}, openaiClient, pregunta: 'x', alcance: { nivel: 'organizacion', organization_id: 'org-1' } });
+        await preguntar({ supabase: {}, openaiClient, pregunta: 'x', alcance: { nivel: 'plataforma' } });
+
+        expect(mockObtenerResumenEjecutivo).not.toHaveBeenCalled();
+      });
+
+      test('si obtenerResumenEjecutivo falla, nunca bloquea a Modo Operador', async () => {
+        mockObtenerResumenEjecutivo.mockRejectedValue(new Error('bmc caído'));
+        const openaiClient = { chat: { completions: { create: jest.fn().mockResolvedValue(respuestaTextoDirecta('ok')) } } };
+
+        const resultado = await preguntar({ supabase: {}, openaiClient, pregunta: 'x', alcance: ALCANCE_EMPRESA });
+        expect(resultado.respuesta_texto).toBe('ok');
+      });
     });
   });
 });
