@@ -39,7 +39,7 @@ const { calcularEstadoDelDia }           = require('./modules/agenda-engine');
 const { resolverEvento }                = require('./modules/agenda-engine/recomendaciones');
 const { calcularCambiosNombreEmpresa }  = require('./modules/nombre-cliente');
 const { preguntar: preguntarOperador }  = require('./modules/operador-engine');
-const { resolverOCrearHilo, registrarMensaje, listarHilos, listarMensajesDeHilo, actualizarHilo } = require('./modules/inbox');
+const { resolverOCrearHilo, registrarMensaje, listarHilos, obtenerHilo, listarMensajesDeHilo, actualizarHilo } = require('./modules/inbox');
 const { esGerencial } = require('./modules/permisos');
 const { interpretarComando, confirmarComando, cancelarComando } = require('./modules/agenda-comandos');
 const {
@@ -734,11 +734,39 @@ app.post('/api/conversaciones/:clienteId/mensajes', requireAuth, async (req, res
   try {
     const { texto } = req.body;
     if (!texto || !texto.trim()) return res.status(400).json({ error: 'texto requerido' });
+    const textoLimpio = texto.trim();
 
-    await enviarMensajeHumano(
-      supabase, adapter, channelRouter, req.usuario.company_id, req.params.clienteId, req.usuario.id, texto.trim()
+    // Fix real: antes esto siempre mandaba por Twilio, sin importar el
+    // proveedor real de la empresa — "responder" quedaba roto en silencio
+    // para cualquier empresa conectada a Meta (ej. Salud y Belleza). Resuelve
+    // el mismo par adapter/proveedor que ya usan los webhooks entrantes.
+    const metaAdapterEmpresa = await obtenerAdapterMetaParaEmpresa(supabaseServicio, req.usuario.company_id);
+    const proveedor = metaAdapterEmpresa ? 'meta' : 'twilio';
+    const enviarProactivo = metaAdapterEmpresa
+      ? (destino, txt) => metaAdapterEmpresa.sendProactive(txt, destino)
+      : async (destino, txt) => {
+          const numeroOrigen = await channelRouter.resolverEndpointDeEmpresa(req.usuario.company_id);
+          return adapter.sendProactive(txt, destino, numeroOrigen);
+        };
+
+    const cliente = await enviarMensajeHumano(
+      req.supabase, enviarProactivo, req.usuario.company_id, req.params.clienteId, req.usuario.id, textoLimpio
     );
-    res.status(201).json({ ok: true });
+
+    // Inbox Inteligente (v0.4) — escritura doble, mismo criterio que
+    // procesarMensajeEntrante: nunca debe tumbar la respuesta si falla.
+    try {
+      const hilo = await resolverOCrearHilo(supabaseServicio, {
+        company_id: req.usuario.company_id, cliente_id: req.params.clienteId, canal: 'whatsapp', proveedor,
+      });
+      await registrarMensaje(supabaseServicio, {
+        hilo_id: hilo.id, company_id: req.usuario.company_id, direccion: 'saliente', remitente_tipo: 'humano', contenido: textoLimpio,
+      });
+    } catch (e) {
+      console.error('Inbox: error en escritura doble (mensaje humano saliente):', e.message);
+    }
+
+    res.status(201).json({ ok: true, cliente });
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
   }
@@ -755,6 +783,16 @@ app.get('/api/inbox/hilos', requireAuth, async (req, res) => {
       usuario: req.usuario, canal, sucursal_id: sucursalId, asesor_id: asesorId, estado, prioridad, etiqueta, cursor,
     });
     res.json(hilos);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/inbox/hilos/:hiloId', requireAuth, async (req, res) => {
+  try {
+    const hilo = await obtenerHilo(req.supabase, req.usuario.company_id, req.params.hiloId);
+    if (!hilo) return res.status(404).json({ error: 'Hilo no encontrado' });
+    res.json(hilo);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

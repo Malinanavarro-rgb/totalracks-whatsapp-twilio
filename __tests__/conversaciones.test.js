@@ -178,28 +178,39 @@ describe('conversaciones', () => {
   });
 
   describe('enviarMensajeHumano()', () => {
-    test('inserta el mensaje y llama sendProactive con el teléfono del cliente', async () => {
+    test('inserta el mensaje y llama a enviarProactivo con el teléfono del cliente', async () => {
       const db = crearMockDb(
         { data: { telefono: '+5218110000000', atendido_por: 'humano' }, error: null },
         { data: null, error: null }, // insert
       );
-      const adapter = { sendProactive: jest.fn().mockResolvedValue(undefined) };
-      const router  = { resolverEndpointDeEmpresa: jest.fn().mockResolvedValue('+5218100000000') };
+      const enviarProactivo = jest.fn().mockResolvedValue(undefined);
 
-      await enviarMensajeHumano(db, adapter, router, COMPANY_A, CLIENTE_ID, ASESOR_1, 'hola, soy Ana');
+      const cliente = await enviarMensajeHumano(db, enviarProactivo, COMPANY_A, CLIENTE_ID, ASESOR_1, 'hola, soy Ana');
 
-      expect(router.resolverEndpointDeEmpresa).toHaveBeenCalledWith(COMPANY_A);
-      expect(adapter.sendProactive).toHaveBeenCalledWith('hola, soy Ana', '+5218110000000', '+5218100000000');
+      expect(enviarProactivo).toHaveBeenCalledWith('+5218110000000', 'hola, soy Ana');
+      expect(cliente).toEqual({ telefono: '+5218110000000', atendido_por: 'humano' });
     });
 
     test('rechaza si la conversación no está tomada (atendido_por=ia)', async () => {
       const db = crearMockDb({ data: { telefono: '+52...', atendido_por: 'ia' }, error: null });
-      const adapter = { sendProactive: jest.fn() };
-      const router  = { resolverEndpointDeEmpresa: jest.fn() };
+      const enviarProactivo = jest.fn();
 
-      await expect(enviarMensajeHumano(db, adapter, router, COMPANY_A, CLIENTE_ID, ASESOR_1, 'hola'))
+      await expect(enviarMensajeHumano(db, enviarProactivo, COMPANY_A, CLIENTE_ID, ASESOR_1, 'hola'))
         .rejects.toMatchObject({ status: 409 });
-      expect(adapter.sendProactive).not.toHaveBeenCalled();
+      expect(enviarProactivo).not.toHaveBeenCalled();
+    });
+
+    test('el caller decide el proveedor — este módulo no sabe si es Twilio o Meta', async () => {
+      const db = crearMockDb(
+        { data: { telefono: '+5218110000000', atendido_por: 'humano' }, error: null },
+        { data: null, error: null },
+      );
+      const enviarProactivo = jest.fn().mockResolvedValue(undefined);
+
+      await enviarMensajeHumano(db, enviarProactivo, COMPANY_A, CLIENTE_ID, ASESOR_1, 'hola');
+
+      expect(enviarProactivo).toHaveBeenCalledTimes(1);
+      expect(enviarProactivo.mock.calls[0]).toHaveLength(2); // (destino, texto) — sin from/numeroOrigen, eso lo resuelve el caller
     });
   });
 

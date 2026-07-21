@@ -1,6 +1,6 @@
 'use strict';
 
-const { resolverOCrearHilo, registrarMensaje, listarHilos, listarMensajesDeHilo, actualizarHilo } = require('../modules/inbox');
+const { resolverOCrearHilo, registrarMensaje, listarHilos, obtenerHilo, listarMensajesDeHilo, actualizarHilo } = require('../modules/inbox');
 
 function crearBuilder(resultado, llamadas) {
   const builder = {
@@ -14,6 +14,7 @@ function crearBuilder(resultado, llamadas) {
     order:  jest.fn().mockReturnThis(),
     limit:  jest.fn().mockResolvedValue(resultado),
     single: jest.fn().mockResolvedValue(resultado),
+    maybeSingle: jest.fn().mockResolvedValue(resultado),
     then:   (resolve) => resolve(resultado),
   };
   return builder;
@@ -143,6 +144,25 @@ describe('inbox', () => {
     test('regresa los mensajes ordenados cronológicamente', async () => {
       const db = crearMockDb({ mensajes: () => ({ data: [{ id: 'm1' }, { id: 'm2' }], error: null }) });
       expect(await listarMensajesDeHilo(db, 'hilo-1')).toEqual([{ id: 'm1' }, { id: 'm2' }]);
+    });
+  });
+
+  describe('obtenerHilo()', () => {
+    test('regresa el hilo con los datos del cliente embebidos', async () => {
+      const db = crearMockDb({ hilos: () => ({ data: { id: 'h1', clientes: { id: 60, nombre: 'Ana' } }, error: null }) });
+      const hilo = await obtenerHilo(db, COMPANY_A, 'h1');
+      expect(hilo).toEqual({ id: 'h1', clientes: { id: 60, nombre: 'Ana' } });
+      expect(db._llamadas.hilos).toContainEqual(['eq', 'company_id', COMPANY_A]);
+    });
+
+    test('regresa null si no existe (aislado por company_id)', async () => {
+      const db = crearMockDb({ hilos: () => ({ data: null, error: null }) });
+      expect(await obtenerHilo(db, COMPANY_A, 'h-ajena')).toBeNull();
+    });
+
+    test('lanza si Supabase falla', async () => {
+      const db = crearMockDb({ hilos: () => ({ data: null, error: { message: 'boom' } }) });
+      await expect(obtenerHilo(db, COMPANY_A, 'h1')).rejects.toThrow('boom');
     });
   });
 

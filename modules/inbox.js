@@ -126,6 +126,27 @@ async function listarHilos(supabase, company_id, filtros = {}) {
 }
 
 /**
+ * Un solo hilo con los datos del cliente — para la vista de conversación
+ * (necesita cliente_id/atendido_por para saber si ya se puede responder).
+ *
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} company_id
+ * @param {string} hilo_id
+ * @returns {Promise<Object|null>}
+ */
+async function obtenerHilo(supabase, company_id, hilo_id) {
+  const { data, error } = await supabase
+    .from('hilos')
+    .select('*, clientes(id, nombre, telefono, atendido_por, asesor_id)')
+    .eq('id', hilo_id)
+    .eq('company_id', company_id)
+    .maybeSingle();
+
+  if (error) throw new Error(`inbox.obtenerHilo: ${error.message}`);
+  return data;
+}
+
+/**
  * Historial completo de un hilo, cronológico — incluye adjuntos (a
  * diferencia de conversaciones.js::obtenerHistorial, que solo trae texto).
  *
@@ -175,6 +196,6 @@ async function actualizarHilo(supabase, company_id, hilo_id, cambios) {
 }
 
 module.exports = {
-  resolverOCrearHilo, registrarMensaje, listarHilos, listarMensajesDeHilo, actualizarHilo,
+  resolverOCrearHilo, registrarMensaje, listarHilos, obtenerHilo, listarMensajesDeHilo, actualizarHilo,
   ROLES_GERENCIALES,
 };

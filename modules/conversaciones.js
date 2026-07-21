@@ -133,11 +133,20 @@ async function regresarATara(supabase, company_id, clienteId) {
 }
 
 /**
- * Envía un mensaje humano al cliente por WhatsApp (reusa
- * ChannelAdapter.sendProactive, ya existente) y lo registra en
+ * Envía un mensaje humano al cliente por WhatsApp y lo registra en
  * mensajes_humanos. Requiere que la conversación ya esté tomada.
+ *
+ * `enviarProactivo(destino, texto)` es una closure que el caller (server.js)
+ * arma ya resuelta al proveedor correcto (Twilio o Meta, cada empresa el
+ * suyo) — este módulo no sabe ni le importa cuál es. Antes recibía el
+ * ChannelAdapter de Twilio directo, lo que dejaba "responder" roto en
+ * silencio para cualquier empresa conectada a Meta (bug real, corregido
+ * junto con esto — ver server.js).
+ *
+ * @returns {Promise<{telefono: string}>} el cliente, para que el caller
+ *   pueda hacer la escritura doble al Inbox (hilos/mensajes) sin otra query.
  */
-async function enviarMensajeHumano(supabase, channelAdapter, channelRouter, company_id, clienteId, asesorId, texto) {
+async function enviarMensajeHumano(supabase, enviarProactivo, company_id, clienteId, asesorId, texto) {
   const { data: cliente, error } = await supabase
     .from('clientes')
     .select('telefono, atendido_por')
@@ -161,8 +170,8 @@ async function enviarMensajeHumano(supabase, channelAdapter, channelRouter, comp
     contenido:  texto,
   }]);
 
-  const numeroOrigen = await channelRouter.resolverEndpointDeEmpresa(company_id);
-  await channelAdapter.sendProactive(texto, cliente.telefono, numeroOrigen);
+  await enviarProactivo(cliente.telefono, texto);
+  return cliente;
 }
 
 /**

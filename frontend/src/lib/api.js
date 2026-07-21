@@ -58,6 +58,7 @@ export const api = {
     const qs = params.toString();
     return pedir(`/api/inbox/hilos${qs ? `?${qs}` : ''}`);
   },
+  hiloInbox: (hiloId) => pedir(`/api/inbox/hilos/${hiloId}`),
   mensajesDeHilo: (hiloId) => pedir(`/api/inbox/hilos/${hiloId}/mensajes`),
   actualizarHilo: (hiloId, cambios) => pedir(`/api/inbox/hilos/${hiloId}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
 
