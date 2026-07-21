@@ -18,9 +18,10 @@ A partir de hoy, TARA-OS se trata como un producto de software profesional: cada
 | v0.4 | Inbox Inteligente | ⏳ Pendiente |
 | v0.5 | CRM Inteligente | ⏳ Pendiente |
 | v0.6 | Agenda Inteligente | ⏳ Pendiente |
-| v0.7 | Modo Operador Completo | ⏳ Pendiente (con base ya construida — ver nota) |
-| v0.8 | Panel Maestro | ⏳ Pendiente (gran parte ya existe — ver nota) |
-| v1.0 | Primer cliente funcionando completamente | — |
+| v0.7 | Modo Operador Completo | 🔧 En desarrollo |
+| v0.8 | Panel Maestro | 🔧 En desarrollo |
+| v0.9 | Business Intelligence | ⏳ Pendiente |
+| v1.0 | Primer cliente operando de extremo a extremo sin intervención manual | — |
 
 ---
 
@@ -113,7 +114,7 @@ A partir de hoy, TARA-OS se trata como un producto de software profesional: cada
 
 ## v0.7 — Modo Operador Completo
 
-**⏳ Pendiente — con base ya construida**
+**🔧 En desarrollo**
 
 **Ya en producción (construido en la misma ventana que v0.2, ver nota ahí):**
 - Nivel 1 (TARA-OS/Panel Maestro) y Nivel 3 (Empresa) del motor de razonamiento libre — `modules/operador-engine.js` + `modules/operador-tools.js`.
@@ -130,14 +131,34 @@ A partir de hoy, TARA-OS se trata como un producto de software profesional: cada
 
 ## v0.8 — Panel Maestro
 
-**⏳ Pendiente — gran parte ya existe**
+**🔧 En desarrollo**
 
 **Ya en producción desde v0.1 y reforzado en v0.2:** Dashboard (MRR/ARR/churn), Organizaciones (alta, suspender/reactivar, impersonación), Planes, Centro de Cobro (rentabilidad por cliente), Auditoría, y ahora Pregúntale a TARA (Modo Operador Nivel 1).
 
-**Esto significa que v0.8, tal como está planteada, no describe trabajo nuevo todavía** — antes de darle contenido real a esta versión, hace falta que Alina defina qué específicamente falta que el Panel Maestro no hace hoy (¿más analítica? ¿gestión de equipo interno de TARA-OS? ¿algo distinto?). Queda como placeholder honesto hasta esa definición.
+**Falta para "completo"** (pendiente de definición más fina con Alina, pero al menos):
+- Analítica más profunda por organización (hoy es global o por-empresa vía Centro de Cobro, falta comparar entre empresas de forma directa — se conecta con v0.9).
+- Gestión de equipo interno de TARA-OS (hoy solo existe `plataforma_admins` sin UI de administración de roles internos).
+- Cualquier capacidad que Alina identifique como faltante — este punto queda abierto hasta esa definición, no se cierra por default.
 
 ---
 
-## v1.0 — Primer cliente funcionando completamente
+## v0.9 — Business Intelligence
 
-Un negocio real, dado de alta por autoservicio (v0.2), con su canal conectado sin ayuda de Alina (v0.3), atendiendo clientes reales, con Alina pudiendo preguntarle a TARA por su estado (v0.7) desde el Panel Maestro (v0.8) — sin haber tocado el Core ni una sola vez fuera de las excepciones ya documentadas.
+**⏳ Pendiente**
+
+**Objetivo:** convertir todos los datos que TARA-OS ya genera (uso, costo de IA, conversión, retención, rentabilidad por cliente) en inteligencia de negocio real — tendencias, comparativos entre empresas/organizaciones, proyecciones — no solo el número del momento que ya muestran el Dashboard y Centro de Cobro hoy.
+
+**Relación con lo ya construido:** se apoya en `modules/plataforma-analitica.js` (v0.1) y en Modo Operador (v0.7) como motor de consulta — la diferencia es que BI mira tendencias/comparativos en el tiempo, mientras Modo Operador responde preguntas puntuales. No se construyen dos motores distintos; BI es una capa de agregación adicional sobre las mismas fuentes de datos.
+
+---
+
+## v1.0 — Primer cliente operando de extremo a extremo sin intervención manual
+
+No es "una empresa usando TARA-OS" — es que **ningún humano de TARA-OS (ni Alina, ni nadie del equipo) tuvo que hacer nada manualmente** en todo el ciclo de vida de ese cliente:
+
+1. Se registró solo (v0.2).
+2. Conectó su propio canal sin que Alina corriera un script ni tocara Meta Business Manager por él (v0.3).
+3. Operó su negocio — agenda, CRM, conversaciones — sin soporte manual.
+4. Alina pudo ver su salud y resolver dudas preguntándole a TARA (v0.7) desde el Panel Maestro (v0.8), con inteligencia de negocio real respaldando esa vista (v0.9) — sin necesitar exportar nada a mano ni revisar tablas directo en Supabase.
+
+Todo esto sin haber tocado el Core fuera de las excepciones ya documentadas (ADR-005).
