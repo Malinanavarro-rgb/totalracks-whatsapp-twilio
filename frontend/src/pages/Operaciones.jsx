@@ -5,10 +5,10 @@ import { api } from '../lib/api';
 import { usePolling } from '../lib/usePolling';
 import LogoTara from '../components/LogoTara';
 
-// Preguntas sugeridas para uniformes_deportivos (Fase Demo · Tienda Soccer).
-// Respuesta calculada en el cliente a partir de metricas ya cargadas — sin
-// backend de IA en vivo (ver decisión de alcance: freeze de funcionalidad
-// nueva, esto reutiliza datos que /api/dashboard ya entrega).
+// Preguntas sugeridas para uniformes_deportivos (Fase Demo · Tienda Soccer) —
+// solo sugerencias de UI; la respuesta ya viene de Modo Operador
+// (modules/operador-engine.js), IA real con acceso de solo lectura a los
+// datos de la empresa, no un match por palabras clave.
 const PREGUNTAS_UNIFORMES_DEPORTIVOS = [
   '¿Qué clientes necesitan seguimiento?',
   '¿Cuántas cotizaciones llevo esta semana?',
@@ -24,66 +24,6 @@ const PREGUNTAS_SALON_BELLEZA = [
   '¿Cuántas clientas nuevas llevo esta semana?',
   '¿Qué clientas no visitan hace tiempo?',
 ];
-
-// Match por palabras clave (no un backend de IA en vivo) — permite escribir
-// libremente en vez de solo elegir de las 4 sugeridas, reusando los mismos
-// datos reales del dashboard. Si no reconoce el tema, lo dice honestamente
-// en vez de inventar una respuesta.
-function responderPregunta(texto, metricas) {
-  const t = (texto || '').toLowerCase();
-  const seguimiento = metricas.recomendaciones.filter(r => r.accion === 'Dar seguimiento ahora');
-  const entregas = metricas.recomendaciones.filter(r => r.accion === 'Ver pedido');
-  const cotizaciones = metricas.kpis.find(k => k.etiqueta === 'Cotizaciones enviadas');
-
-  if (t.includes('seguimiento') || t.includes('48') || t.includes('respond')) {
-    return seguimiento.length === 0
-      ? 'Ningún cliente lleva más de 48 horas sin seguimiento en este momento.'
-      : seguimiento.map(r => r.texto).join(' ');
-  }
-  if (t.includes('cotiza')) {
-    return cotizaciones
-      ? `Llevas ${cotizaciones.valor} cotizaciones enviadas activas en este momento.`
-      : 'No encontré cotizaciones enviadas en este momento.';
-  }
-  if (t.includes('entreg') || t.includes('pedido')) {
-    return entregas.length === 0
-      ? 'No tienes pedidos marcados como listos para entrega en este momento.'
-      : entregas.map(r => r.texto).join(' ');
-  }
-  return 'Por ahora solo puedo responder sobre seguimiento de clientes, cotizaciones y entregas — prueba con una de las preguntas sugeridas abajo.';
-}
-
-// Misma lógica de match por palabras clave, sobre los datos reales de
-// obtenerMetricasSalonBelleza (KPIs y recomendaciones de citas).
-function responderPreguntaSalonBelleza(texto, metricas) {
-  const t = (texto || '').toLowerCase();
-  const confirmar = metricas.recomendaciones.filter(r => r.accion === 'Confirmar cita');
-  const retoque = metricas.recomendaciones.filter(r => r.accion === 'Enviar recordatorio');
-  const citasHoy = metricas.kpis.find(k => k.etiqueta === 'Citas de hoy');
-  const nuevasSemana = metricas.kpis.find(k => k.etiqueta === 'Clientas nuevas (semana)');
-
-  if (t.includes('confirm')) {
-    return confirmar.length === 0
-      ? 'No hay citas pendientes de confirmar en las próximas 48 horas.'
-      : confirmar.map(r => r.texto).join(' ');
-  }
-  if (t.includes('retoque') || t.includes('visita') || t.includes('tiempo')) {
-    return retoque.length === 0
-      ? 'Ninguna clienta lleva más de 45 días sin visitarnos en este momento.'
-      : retoque.map(r => r.texto).join(' ');
-  }
-  if (t.includes('hoy')) {
-    return citasHoy
-      ? `Tienes ${citasHoy.valor} citas agendadas para hoy.`
-      : 'No encontré citas para hoy.';
-  }
-  if (t.includes('nueva') || t.includes('semana')) {
-    return nuevasSemana
-      ? `Llevas ${nuevasSemana.valor} clientas nuevas esta semana.`
-      : 'No encontré clientas nuevas esta semana.';
-  }
-  return 'Por ahora solo puedo responder sobre citas de hoy, confirmaciones pendientes y clientas nuevas — prueba con una de las preguntas sugeridas abajo.';
-}
 
 function saludoPorHora() {
   const hora = new Date().getHours();
@@ -147,23 +87,44 @@ export default function Operaciones() {
   const { datos: metricas, error, cargando } = usePolling(() => api.dashboard(), 4000);
   const [preguntaInput, setPreguntaInput] = useState('');
   const [preguntaActiva, setPreguntaActiva] = useState(null);
+  const [respuestaOperador, setRespuestaOperador] = useState(null);
+  const [cargandoRespuesta, setCargandoRespuesta] = useState(false);
+
+  // Modo Operador (modules/operador-engine.js) — IA real con acceso de solo
+  // lectura a tareas/proyectos/decisiones/CRM de esta empresa, no el match
+  // por palabras clave de antes. Disponible para cualquier empresa, no solo
+  // las 2 industrias demo.
+  async function preguntarleATara(texto) {
+    setPreguntaActiva(texto);
+    setCargandoRespuesta(true);
+    setRespuestaOperador(null);
+    try {
+      const resultado = await api.preguntarOperador(texto);
+      setRespuestaOperador(resultado.respuesta_texto);
+    } catch (e) {
+      setRespuestaOperador(e.status === 403
+        ? 'No tienes acceso a Modo Operador con tu rol actual.'
+        : 'No pude responder en este momento — intenta de nuevo.');
+    } finally {
+      setCargandoRespuesta(false);
+    }
+  }
 
   function enviarPregunta(e) {
     e.preventDefault();
     if (!preguntaInput.trim()) return;
-    setPreguntaActiva(preguntaInput.trim());
+    preguntarleATara(preguntaInput.trim());
   }
 
   function elegirSugerencia(p) {
     setPreguntaInput(p);
-    setPreguntaActiva(p);
+    preguntarleATara(p);
   }
 
   const esUniformesDeportivos = sesion?.empresaActiva?.industria_slug === 'uniformes_deportivos';
   const esSalonBelleza = sesion?.empresaActiva?.industria_slug === 'salon_belleza';
   const tieneRecomendacionesRicas = esUniformesDeportivos || esSalonBelleza;
   const preguntasSugeridas = esSalonBelleza ? PREGUNTAS_SALON_BELLEZA : PREGUNTAS_UNIFORMES_DEPORTIVOS;
-  const responder = esSalonBelleza ? responderPreguntaSalonBelleza : responderPregunta;
   const empresa = sesion?.empresaActiva?.nombre || 'tu empresa';
   // Si el usuario no tiene nombre configurado (solo email), se omite del
   // saludo en vez de mostrar el email como si fuera un nombre.
@@ -187,15 +148,15 @@ export default function Operaciones() {
             </p>
           </section>
 
-          {tieneRecomendacionesRicas && (
-            <div className="pregunta-tara-caja">
-              <form className="pregunta-tara-input" onSubmit={enviarPregunta}>
-                <input
-                  type="text" value={preguntaInput} placeholder="¿Qué quieres saber?"
-                  onChange={(e) => setPreguntaInput(e.target.value)}
-                />
-                <button type="submit" className="pregunta-tara-enviar"><IconoA /></button>
-              </form>
+          <div className="pregunta-tara-caja">
+            <form className="pregunta-tara-input" onSubmit={enviarPregunta}>
+              <input
+                type="text" value={preguntaInput} placeholder="¿Qué quieres saber de tu empresa?"
+                onChange={(e) => setPreguntaInput(e.target.value)}
+              />
+              <button type="submit" className="pregunta-tara-enviar" disabled={cargandoRespuesta}><IconoA /></button>
+            </form>
+            {tieneRecomendacionesRicas && (
               <div className="pregunta-tara-sugerencias">
                 {preguntasSugeridas.map((p) => (
                   <button key={p} className="pregunta-tara-chip" onClick={() => elegirSugerencia(p)}>
@@ -203,13 +164,13 @@ export default function Operaciones() {
                   </button>
                 ))}
               </div>
-              {preguntaActiva && (
-                <p className="pregunta-tara-respuesta">
-                  {responder(preguntaActiva, metricas)}
-                </p>
-              )}
-            </div>
-          )}
+            )}
+            {preguntaActiva && (
+              <p className="pregunta-tara-respuesta">
+                {cargandoRespuesta ? 'TARA está pensando…' : respuestaOperador}
+              </p>
+            )}
+          </div>
 
           <h2 className="alertas-titulo alertas-titulo--secundario">Métricas</h2>
           <div className="kpi-strip">

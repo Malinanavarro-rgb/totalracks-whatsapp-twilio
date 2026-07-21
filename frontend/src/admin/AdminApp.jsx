@@ -4,6 +4,7 @@ import RutaProtegidaAdmin from './RutaProtegidaAdmin';
 import AdminShell from './AdminShell';
 import AdminLogin from './AdminLogin';
 import Dashboard from './pages/Dashboard';
+import TaraOperador from './pages/TaraOperador';
 import Organizaciones from './pages/Organizaciones';
 import OrganizacionDetalle from './pages/OrganizacionDetalle';
 import Planes from './pages/Planes';
@@ -29,6 +30,7 @@ export default function AdminApp() {
           }
         >
           <Route index element={<Dashboard />} />
+          <Route path="tara" element={<TaraOperador />} />
           <Route path="organizaciones" element={<Organizaciones />} />
           <Route path="organizaciones/:id" element={<OrganizacionDetalle />} />
           <Route path="planes" element={<Planes />} />

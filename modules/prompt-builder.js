@@ -75,7 +75,11 @@ function bloque_etapa_cliente(ctx) {
   const partes = [];
   const cliente = ctx.cliente;
 
-  if (cliente?.nombre)              partes.push(`Cliente: ${cliente.nombre}`);
+  // 'Sin nombre' es el placeholder que crm.js usa al crear un cliente nuevo
+  // (nunca null) — tratarlo como nombre real le diría al modelo "ya conozco
+  // el nombre" cuando en realidad no lo tiene, rompiendo "pregúntalo una
+  // sola vez si no lo sabes".
+  if (cliente?.nombre && cliente.nombre !== 'Sin nombre') partes.push(`Cliente: ${cliente.nombre}`);
   if (cliente?.etapa_actual)        partes.push(`Etapa actual: ${cliente.etapa_actual}`);
   if (cliente?.categoria_principal) partes.push(`Producto de interés: ${cliente.categoria_principal}`);
 

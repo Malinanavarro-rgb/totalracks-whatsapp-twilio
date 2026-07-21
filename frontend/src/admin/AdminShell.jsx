@@ -3,6 +3,7 @@ import { useAdminAuth } from './AdminAuthContext';
 
 const NAV = [
   { ruta: '/admin', etiqueta: 'Analítica global', icono: '◆', fin: true },
+  { ruta: '/admin/tara', etiqueta: 'Pregúntale a TARA', icono: '✦' },
   { ruta: '/admin/organizaciones', etiqueta: 'Organizaciones', icono: '▦' },
   { ruta: '/admin/centro-cobro', etiqueta: 'Centro de Cobro', icono: '$' },
   { ruta: '/admin/planes', etiqueta: 'Planes', icono: '◈' },

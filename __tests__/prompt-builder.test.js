@@ -197,6 +197,27 @@ describe('bloque_etapa_cliente()', () => {
     expect(result).not.toBeNull();
     expect(result).toContain('Ana');
   });
+
+  test('trata el placeholder "Sin nombre" (default de crm.js) como nombre desconocido', () => {
+    const ctx = {
+      cliente:      { nombre: 'Sin nombre', etapa_actual: null, categoria_principal: null },
+      conversacion: { etapa_objetivo: null },
+    };
+    // Sin ningún otro campo con valor, el bloque completo debe omitirse —
+    // así el modelo recibe la señal correcta de "no sé el nombre todavía"
+    // en vez de "Cliente: Sin nombre" (que rompería "pregúntalo una sola vez").
+    expect(bloque_etapa_cliente(ctx)).toBeNull();
+  });
+
+  test('"Sin nombre" no aparece en el bloque aunque sí haya otros campos', () => {
+    const ctx = {
+      cliente:      { nombre: 'Sin nombre', etapa_actual: 'Nuevo', categoria_principal: null },
+      conversacion: { etapa_objetivo: null },
+    };
+    const result = bloque_etapa_cliente(ctx);
+    expect(result).not.toContain('Sin nombre');
+    expect(result).toContain('Nuevo');
+  });
 });
 
 describe('bloque_knowledge_base()', () => {

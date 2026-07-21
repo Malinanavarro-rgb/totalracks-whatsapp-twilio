@@ -60,6 +60,9 @@ export const adminApi = {
     pedir(`/api/admin/organizaciones/${organizationId}/metodo-pago`, { method: 'PATCH', body: JSON.stringify(datos) }),
   pagos: (organizationId) => pedir(`/api/admin/organizaciones/${organizationId}/pagos`),
 
+  preguntarOperador: (pregunta) =>
+    pedir('/api/admin/operador/preguntar', { method: 'POST', body: JSON.stringify({ pregunta }) }),
+
   centroCobro: () => pedir('/api/admin/centro-cobro'),
   analitica: () => pedir('/api/admin/analitica'),
   auditLog: (organizationId) => pedir(`/api/admin/audit-log${organizationId ? `?organizationId=${organizationId}` : ''}`),

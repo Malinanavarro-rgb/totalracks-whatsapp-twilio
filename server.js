@@ -12,7 +12,7 @@ const express      = require('express');
 const path         = require('path');
 const cookieParser = require('cookie-parser');
 
-const { supabase, supabaseServicio, crearClienteConSesion, twilioClient, stripe } = require('./modules/clients');
+const { supabase, supabaseServicio, crearClienteConSesion, twilioClient, stripe, openai } = require('./modules/clients');
 const { obtenerConfigEmpresa }          = require('./modules/config');
 const { crearOrchestrator }             = require('./modules/orchestrator');
 const { TwilioWhatsAppAdapter }         = require('./adapters/channels/twilio-whatsapp');
@@ -36,6 +36,8 @@ const {
 const { obtenerAgendaConfig, actualizarAgendaConfig } = require('./modules/agenda-config');
 const { calcularEstadoDelDia }           = require('./modules/agenda-engine');
 const { resolverEvento }                = require('./modules/agenda-engine/recomendaciones');
+const { calcularCambiosNombreEmpresa }  = require('./modules/nombre-cliente');
+const { preguntar: preguntarOperador }  = require('./modules/operador-engine');
 const { interpretarComando, confirmarComando, cancelarComando } = require('./modules/agenda-comandos');
 const {
   listarClientes, obtenerFichaCliente, actualizarCliente, eliminarCliente,
@@ -222,14 +224,8 @@ async function procesarMensajeEntrante(message, enviar) {
   // no toca el Orchestrator/CRM congelados (ADR-005). Nunca pisa un nombre
   // o empresa reales ya guardados.
   const datosExtraidos = resultado.ai_output?.datos_extraidos;
-  if (cliente?.id && datosExtraidos && (datosExtraidos.nombre || datosExtraidos.empresa)) {
-    const cambiosCliente = {};
-    if (datosExtraidos.nombre && (!cliente.nombre || cliente.nombre === 'Sin nombre')) {
-      cambiosCliente.nombre = datosExtraidos.nombre;
-    }
-    if (datosExtraidos.empresa && !cliente.empresa) {
-      cambiosCliente.empresa = datosExtraidos.empresa;
-    }
+  if (cliente?.id && datosExtraidos) {
+    const cambiosCliente = calcularCambiosNombreEmpresa(cliente, datosExtraidos);
     if (Object.keys(cambiosCliente).length > 0) {
       try {
         await actualizarCliente(supabaseServicio, message.company_id, cliente.id, cambiosCliente);
@@ -961,6 +957,29 @@ app.post('/api/crm/clientes/:id/preguntar', requireAuth, async (req, res) => {
   }
 });
 
+// Modo Operador — Nivel 3 (Empresa). El alcance SIEMPRE se calcula aquí, a
+// partir de la sesión ya autenticada — nunca viene del body de la petición.
+// Ver modules/operador-engine.js / modules/operador-tools.js. Gateado a
+// roles gerenciales, mismo criterio que Suscripción y Facturación.
+const ROLES_GERENCIALES_OPERADOR = ['owner', 'administrador', 'supervisor'];
+
+app.post('/api/operador/preguntar', requireAuth, async (req, res) => {
+  try {
+    if (!ROLES_GERENCIALES_OPERADOR.includes(req.usuario.rol)) {
+      return res.status(403).json({ error: 'No tienes acceso a Modo Operador' });
+    }
+
+    const { pregunta } = req.body || {};
+    if (!pregunta || !pregunta.trim()) return res.status(400).json({ error: 'pregunta requerida' });
+
+    const alcance = { nivel: 'empresa', company_id: req.usuario.company_id };
+    const resultado = await preguntarOperador({ supabase: req.supabase, openaiClient: openai, pregunta: pregunta.trim(), alcance });
+    res.json(resultado);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/api/crm/clientes/:id/seguimientos', requireAuth, async (req, res) => {
   try {
     const { texto, fecha_programada, prioridad } = req.body;
@@ -1531,6 +1550,23 @@ app.get('/api/admin/auth/me', requireAdmin, (req, res) => res.json({ admin: req.
 app.post('/api/admin/auth/logout', (req, res) => {
   res.clearCookie('tara_admin_session', ADMIN_COOKIE_OPTS);
   res.json({ ok: true });
+});
+
+// Modo Operador — Nivel 1 (TARA-OS / Panel Maestro). Alcance 'plataforma':
+// ve todo el ecosistema autorizado, sin filtro de company_id/organization_id
+// (mismo motor que Nivel 3 — modules/operador-engine.js — el alcance es lo
+// único que cambia, calculado aquí a partir de requireAdmin, nunca del body).
+app.post('/api/admin/operador/preguntar', requireAdmin, async (req, res) => {
+  try {
+    const { pregunta } = req.body || {};
+    if (!pregunta || !pregunta.trim()) return res.status(400).json({ error: 'pregunta requerida' });
+
+    const alcance = { nivel: 'plataforma' };
+    const resultado = await preguntarOperador({ supabase: supabaseServicio, openaiClient: openai, pregunta: pregunta.trim(), alcance });
+    res.json(resultado);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.get('/api/admin/organizaciones', requireAdmin, async (req, res) => {
