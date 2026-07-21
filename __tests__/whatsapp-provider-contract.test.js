@@ -19,7 +19,7 @@ const crypto = require('crypto');
 const { TwilioWhatsAppAdapter } = require('../adapters/channels/twilio-whatsapp');
 const { MetaCloudWhatsAppAdapter } = require('../adapters/channels/meta-cloud-whatsapp');
 
-const CAMPOS_MESSAGE = ['id', 'company_id', 'channel', 'from', 'incoming_endpoint', 'content', 'timestamp', 'raw_metadata'];
+const CAMPOS_MESSAGE = ['id', 'company_id', 'channel', 'from', 'incoming_endpoint', 'content', 'media', 'timestamp', 'raw_metadata'];
 
 function makeTwilioRequest() {
   return {

@@ -171,6 +171,34 @@ describe('MetaCloudWhatsAppAdapter', () => {
       }
     });
 
+    test('imagen: expone media (mediaId/mimeType) para que la capa de plataforma pueda descargarla', () => {
+      const adapter = new MetaCloudWhatsAppAdapter();
+      const body = makeEntryConMensaje({
+        from: '5218112345678', id: 'wamid.img3', type: 'image', image: { id: 'media-77', mime_type: 'image/jpeg' },
+      });
+      const mensaje = adapter.parseIncoming(makeMetaRequest({ body }));
+
+      expect(mensaje.media).toEqual({ mediaId: 'media-77', mimeType: 'image/jpeg' });
+    });
+
+    test('ubicación: no expone media (sin archivo descargable)', () => {
+      const adapter = new MetaCloudWhatsAppAdapter();
+      const body = makeEntryConMensaje({
+        from: '5218112345678', id: 'wamid.loc2', type: 'location', location: { latitude: 25.6, longitude: -100.3 },
+      });
+      const mensaje = adapter.parseIncoming(makeMetaRequest({ body }));
+
+      expect(mensaje.media).toBeNull();
+    });
+
+    test('texto: no expone media', () => {
+      const adapter = new MetaCloudWhatsAppAdapter();
+      const body = makeEntryConMensaje({ from: '521...', id: 'w1', type: 'text', text: { body: 'hola' } });
+      const mensaje = adapter.parseIncoming(makeMetaRequest({ body }));
+
+      expect(mensaje.media).toBeNull();
+    });
+
     test('evento de solo-status (delivered/read/failed) devuelve null — nada que procesar', () => {
       const adapter = new MetaCloudWhatsAppAdapter();
       const req = makeMetaRequest({ body: makeEntryConStatus() });
@@ -341,6 +369,49 @@ describe('MetaCloudWhatsAppAdapter', () => {
       const body = JSON.parse(global.fetch.mock.calls[0][1].body);
       expect(body.to).toBe('5218112345678');
       expect(body.text.body).toBe('Recordatorio de cita');
+    });
+  });
+
+  describe('descargarMedia()', () => {
+    test('resuelve la URL temporal por media id y descarga el binario, ambos con Bearer', async () => {
+      const adapter = new MetaCloudWhatsAppAdapter({ phoneNumberId: 'PHONE_123', accessToken: 'token-abc' });
+      const bytes = new Uint8Array([1, 2, 3]).buffer;
+      global.fetch
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ url: 'https://graph.facebook.com/media-temp-url', mime_type: 'image/jpeg' }) })
+        .mockResolvedValueOnce({ ok: true, arrayBuffer: async () => bytes });
+
+      const { buffer, mimeType } = await adapter.descargarMedia({ mediaId: 'media-77' });
+
+      expect(global.fetch).toHaveBeenNthCalledWith(1, 'https://graph.facebook.com/v19.0/media-77', {
+        headers: { Authorization: 'Bearer token-abc' },
+      });
+      expect(global.fetch).toHaveBeenNthCalledWith(2, 'https://graph.facebook.com/media-temp-url', {
+        headers: { Authorization: 'Bearer token-abc' },
+      });
+      expect(mimeType).toBe('image/jpeg');
+      expect(Buffer.isBuffer(buffer)).toBe(true);
+      expect(buffer).toEqual(Buffer.from(bytes));
+    });
+
+    test('lanza si falla la resolución de la URL temporal', async () => {
+      const adapter = new MetaCloudWhatsAppAdapter({ phoneNumberId: 'PHONE_123', accessToken: 'token-abc' });
+      global.fetch.mockResolvedValueOnce({ ok: false, status: 404 });
+
+      await expect(adapter.descargarMedia({ mediaId: 'media-x' })).rejects.toThrow('404');
+    });
+
+    test('lanza si falla la descarga del binario', async () => {
+      const adapter = new MetaCloudWhatsAppAdapter({ phoneNumberId: 'PHONE_123', accessToken: 'token-abc' });
+      global.fetch
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ url: 'https://graph.facebook.com/media-temp-url', mime_type: 'image/jpeg' }) })
+        .mockResolvedValueOnce({ ok: false, status: 410 });
+
+      await expect(adapter.descargarMedia({ mediaId: 'media-x' })).rejects.toThrow('410');
+    });
+
+    test('lanza si faltan credenciales de la instancia', async () => {
+      const adapter = new MetaCloudWhatsAppAdapter();
+      await expect(adapter.descargarMedia({ mediaId: 'media-x' })).rejects.toThrow('falta accessToken');
     });
   });
 });

@@ -52,11 +52,15 @@ class TwilioWhatsAppAdapter extends ChannelAdapter {
     // Fix real (v0.4, Inbox Inteligente): un mensaje de solo-adjunto (sin
     // texto) dejaba `content` vacío — ContextBuilder truena con "campo
     // requerido faltante — mensaje_actual" (mismo bug confirmado en Meta).
-    // Placeholder no vacío mientras no exista soporte real de adjuntos.
+    // El Core (IA) sigue sin "ver" el archivo — sigue recibiendo este
+    // placeholder como contenido — pero `media` (abajo) permite que la capa
+    // de plataforma (server.js) descargue el archivo real para el Inbox.
     const numMedia = parseInt(req.body.NumMedia || '0', 10);
+    const mediaUrl = req.body.MediaUrl0 || null;
+    const mediaMimeType = req.body.MediaContentType0 || null;
     let content = (req.body.Body || '').trim();
     if (!content && numMedia > 0) {
-      const tipo = (req.body.MediaContentType0 || '').split('/')[0] || 'archivo';
+      const tipo = (mediaMimeType || '').split('/')[0] || 'archivo';
       content = `[La clienta envió un(a) ${tipo} — todavía no puedo ver archivos, solo texto. Pídele que te lo describa con palabras.]`;
     }
 
@@ -67,6 +71,7 @@ class TwilioWhatsAppAdapter extends ChannelAdapter {
       from,
       incoming_endpoint: req.body.To || null, // número receptor — identifica la empresa
       content,
+      media:             mediaUrl ? { url: mediaUrl, mimeType: mediaMimeType } : null,
       timestamp:         new Date(),
       raw_metadata: {
         MessageSid:  req.body.MessageSid  || null,
@@ -170,6 +175,27 @@ class TwilioWhatsAppAdapter extends ChannelAdapter {
    */
   async enviarMensaje(destinatario, texto, from) {
     return this.sendProactive(texto, destinatario, from);
+  }
+
+  /**
+   * Descarga el binario de un adjunto entrante (Inbox Inteligente v0.4).
+   * Las MediaUrl de Twilio no son públicas — exigen Basic Auth con las
+   * mismas credenciales de cuenta usadas para enviar mensajes — y no se
+   * garantiza que vivan para siempre, por eso el caller (server.js) las
+   * sube de inmediato a Supabase Storage en vez de guardar esta URL.
+   *
+   * @param {{url: string, mimeType?: string}} media - de parseIncoming()
+   * @returns {Promise<{buffer: Buffer, mimeType: string}>}
+   */
+  async descargarMedia(media) {
+    const auth = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64');
+    const respuesta = await fetch(media.url, { headers: { Authorization: `Basic ${auth}` } });
+    if (!respuesta.ok) {
+      throw new Error(`TwilioWhatsAppAdapter.descargarMedia: ${respuesta.status} al descargar ${media.url}`);
+    }
+    const buffer = Buffer.from(await respuesta.arrayBuffer());
+    const mimeType = respuesta.headers.get('content-type') || media.mimeType || 'application/octet-stream';
+    return { buffer, mimeType };
   }
 }
 

@@ -5,6 +5,20 @@ import { api } from '../lib/api';
 
 const INTERVALO_POLLING_MS = 4000; // mismo criterio que Conversaciones — sin infraestructura de websockets todavía
 
+function AdjuntoMensaje({ mensaje }) {
+  const src = api.urlAdjunto(mensaje.id);
+  if (mensaje.tipo_contenido === 'imagen') {
+    return <img src={src} alt="Foto enviada por la clienta" className="mensaje-adjunto-imagen" />;
+  }
+  if (mensaje.tipo_contenido === 'audio') {
+    return <audio controls src={src} className="mensaje-adjunto-audio" />;
+  }
+  if (mensaje.tipo_contenido === 'video') {
+    return <video controls src={src} className="mensaje-adjunto-video" />;
+  }
+  return <a href={src} target="_blank" rel="noreferrer" className="mensaje-texto">📎 Ver documento</a>;
+}
+
 function PanelInteligente({ analisis, analizando, onAnalizarAhora }) {
   return (
     <div className="panel-inteligente">
@@ -185,7 +199,7 @@ export default function InboxHilo() {
             {mensajes?.map((m) => (
               <div key={m.id} className={`mensaje-burbuja mensaje-burbuja--${m.direccion === 'entrante' ? 'cliente' : (m.remitente_tipo === 'ia' ? 'tara' : m.remitente_tipo)}`}>
                 {m.adjunto_url ? (
-                  <a href={m.adjunto_url} target="_blank" rel="noreferrer" className="mensaje-texto">📎 Ver {m.tipo_contenido}</a>
+                  <AdjuntoMensaje mensaje={m} />
                 ) : (
                   <span className="mensaje-texto">{m.tipo_contenido === 'texto' ? m.contenido : `[${m.tipo_contenido}] ${m.contenido || ''}`}</span>
                 )}

@@ -41,6 +41,8 @@ const { calcularCambiosNombreEmpresa }  = require('./modules/nombre-cliente');
 const { preguntar: preguntarOperador }  = require('./modules/operador-engine');
 const { resolverOCrearHilo, registrarMensaje, listarHilos, obtenerHilo, listarMensajesDeHilo, actualizarHilo } = require('./modules/inbox');
 const { analizarHilo, programarAnalisis, obtenerAnalisisHilo } = require('./modules/inbox-analisis');
+const { tipoContenidoDeMime, subirAdjunto, generarUrlFirmada } = require('./modules/inbox-adjuntos');
+const { transcribirAudio, describirImagen } = require('./modules/adjuntos-ia');
 const { esGerencial } = require('./modules/permisos');
 const { interpretarComando, confirmarComando, cancelarComando } = require('./modules/agenda-comandos');
 const {
@@ -193,7 +195,7 @@ function _programarAnalisisSiHayHilo(hilo, cliente_id, company_id) {
   programarAnalisis(hilo.id, () => analizarHilo({ supabase: supabaseServicio, openaiClient: openai, company_id, hilo_id: hilo.id, cliente_id, hilo }));
 }
 
-async function procesarMensajeEntrante(message, enviar, proveedor = 'desconocido') {
+async function procesarMensajeEntrante(message, enviar, proveedor = 'desconocido', descargarMedia = null) {
   // FASE 5 (Fase 3 — intervención humana): si un humano ya tomó esta
   // conversación, TARA no responde. Se resuelve el cliente aquí (capa de
   // plataforma) sin tocar el Orchestrator/WorkflowEngine (ADR-005).
@@ -208,9 +210,46 @@ async function procesarMensajeEntrante(message, enviar, proveedor = 'desconocido
     hilo = await resolverOCrearHilo(supabaseServicio, {
       company_id: message.company_id, cliente_id: cliente.id, canal: message.channel, proveedor,
     });
+
+    // Adjuntos reales (v0.4): si el mensaje trae media, se descarga del
+    // proveedor y se sube de inmediato a Storage — nunca se guarda la URL
+    // de Meta/Twilio (expiran). Si algo falla aquí, el mensaje se guarda
+    // igual como texto (el placeholder que ya generó el adapter) en vez de
+    // perderse — la clienta siempre recibe su respuesta pase lo que pase.
+    let adjunto = null;
+    if (message.media && descargarMedia) {
+      try {
+        const { buffer, mimeType } = await descargarMedia(message.media);
+        const path = await subirAdjunto(supabaseServicio, { company_id: message.company_id, hilo_id: hilo.id, buffer, mimeType });
+        adjunto = { tipo_contenido: tipoContenidoDeMime(mimeType), adjunto_url: path, adjunto_mime: mimeType };
+
+        // Comprensión real de adjuntos: TARA transcribe audio (Whisper) y
+        // describe imágenes (visión) en vez del placeholder genérico — esto
+        // reemplaza message.content ANTES de llamar al Orchestrator más
+        // abajo, así que el Core recibe texto normal, como si la clienta lo
+        // hubiera escrito. Cero cambios al Core (ADR-005). Si la IA falla
+        // aquí, se conserva el placeholder — la clienta sigue recibiendo
+        // alguna respuesta en vez de que el turno se caiga.
+        try {
+          if (adjunto.tipo_contenido === 'audio') {
+            const transcripcion = await transcribirAudio(openai, buffer, mimeType);
+            if (transcripcion) message.content = transcripcion;
+          } else if (adjunto.tipo_contenido === 'imagen') {
+            const descripcion = await describirImagen(openai, buffer, mimeType);
+            if (descripcion) message.content = descripcion;
+          }
+        } catch (e) {
+          console.error('Inbox: error interpretando adjunto con IA (se conserva el placeholder):', e.message);
+        }
+      } catch (e) {
+        console.error('Inbox: error descargando/subiendo adjunto:', e.message);
+      }
+    }
+
     await registrarMensaje(supabaseServicio, {
       hilo_id: hilo.id, company_id: message.company_id, direccion: 'entrante', remitente_tipo: 'cliente',
-      tipo_contenido: 'texto', contenido: message.content,
+      tipo_contenido: adjunto?.tipo_contenido || 'texto', contenido: message.content,
+      adjunto_url: adjunto?.adjunto_url, adjunto_mime: adjunto?.adjunto_mime,
     });
     _programarAnalisisSiHayHilo(hilo, cliente.id, message.company_id);
   } catch (e) {
@@ -386,7 +425,12 @@ app.post('/webhook/twilio', async (req, res) => {
 
     const numeroOrigen = await channelRouter.resolverEndpointDeEmpresa(message.company_id);
 
-    await procesarMensajeEntrante(message, (destinatario, texto) => adapter.enviarMensaje(destinatario, texto, numeroOrigen), 'twilio');
+    await procesarMensajeEntrante(
+      message,
+      (destinatario, texto) => adapter.enviarMensaje(destinatario, texto, numeroOrigen),
+      'twilio',
+      (media) => adapter.descargarMedia(media)
+    );
 
     res.status(200).end();
   } catch (e) {
@@ -445,7 +489,12 @@ app.post('/webhook/meta', async (req, res) => {
       return res.status(200).end();
     }
 
-    await procesarMensajeEntrante(message, (destinatario, texto) => metaAdapterEmpresa.enviarMensaje(destinatario, texto), 'meta');
+    await procesarMensajeEntrante(
+      message,
+      (destinatario, texto) => metaAdapterEmpresa.enviarMensaje(destinatario, texto),
+      'meta',
+      (media) => metaAdapterEmpresa.descargarMedia(media)
+    );
 
     res.status(200).end();
   } catch (e) {
@@ -841,6 +890,30 @@ app.get('/api/inbox/hilos/:hiloId/mensajes', requireAuth, async (req, res) => {
   try {
     const mensajes = await listarMensajesDeHilo(req.supabase, req.params.hiloId);
     res.json(mensajes);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Adjuntos reales (v0.4): nunca se guarda una URL de Storage en la base de
+// datos (ni firmada) — `mensajes.adjunto_url` solo tiene el path dentro del
+// bucket privado. Esta ruta confirma que el mensaje es de la empresa del
+// usuario autenticado y recién ahí genera una URL firmada de 60s y
+// redirige — el navegador la sigue de forma transparente (mismo origen,
+// <img>/<audio>/<video> con la cookie de sesión ya incluida).
+app.get('/api/inbox/mensajes/:mensajeId/adjunto', requireAuth, async (req, res) => {
+  try {
+    const { data: mensaje, error } = await req.supabase
+      .from('mensajes')
+      .select('adjunto_url')
+      .eq('id', req.params.mensajeId)
+      .eq('company_id', req.usuario.company_id)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!mensaje?.adjunto_url) return res.status(404).json({ error: 'Adjunto no encontrado' });
+
+    const url = await generarUrlFirmada(supabaseServicio, mensaje.adjunto_url);
+    res.redirect(url);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -2161,9 +2234,13 @@ app.post('/api/webhooks/stripe', async (req, res) => {
   }
 });
 
-// ── ROOT ──────────────────────────────────────────────────────────────────────
+// ── STATUS ────────────────────────────────────────────────────────────────────
+// Antes vivía en '/' — interceptaba la raíz del dominio antes de que
+// express.static/el catch-all pudieran servir el frontend (tara-os.com
+// mostraba este JSON en vez del login). Se movió a /api/status; la raíz
+// ahora cae al SPA como cualquier otra ruta.
 
-app.get('/', (req, res) => res.json({
+app.get('/api/status', (req, res) => res.json({
   sistema:   'TARA Matrix™',
   version:   '3.0.0',
   modo:      'multi-tenant',

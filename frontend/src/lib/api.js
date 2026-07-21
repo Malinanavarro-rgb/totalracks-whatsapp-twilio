@@ -63,6 +63,9 @@ export const api = {
   actualizarHilo: (hiloId, cambios) => pedir(`/api/inbox/hilos/${hiloId}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
   analisisDeHilo: (hiloId) => pedir(`/api/inbox/hilos/${hiloId}/analisis`),
   analizarHiloAhora: (hiloId) => pedir(`/api/inbox/hilos/${hiloId}/analisis`, { method: 'POST' }),
+  // No es un pedir() — se usa directo como src/href de <img>/<audio>/<video>/<a>.
+  // El navegador sigue el 302 a la URL firmada y manda la cookie de sesión sola (mismo origen).
+  urlAdjunto: (mensajeId) => `/api/inbox/mensajes/${mensajeId}/adjunto`,
 
   asesores:      () => pedir('/api/agenda/asesores'),
   citas:         (desde, hasta) => pedir(`/api/agenda/citas?desde=${desde}&hasta=${hasta}`),

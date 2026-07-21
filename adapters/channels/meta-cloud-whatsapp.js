@@ -77,7 +77,12 @@ class MetaCloudWhatsAppAdapter extends ChannelAdapter {
     const mensajeRaw = value?.messages?.[0];
     if (!mensajeRaw) return null; // solo statuses[] (delivered/read/failed) — nada que procesar
 
+    // Tipos con archivo real descargable vía Graph API (media id) —
+    // 'location' no trae binario, solo coordenadas, así que no aplica aquí.
+    const TIPOS_CON_ARCHIVO = ['image', 'audio', 'video', 'document', 'sticker'];
+
     let content = '';
+    let media = null;
     if (mensajeRaw.type === 'text') {
       content = mensajeRaw.text?.body || '';
     } else if (mensajeRaw.type === 'interactive') {
@@ -88,16 +93,21 @@ class MetaCloudWhatsAppAdapter extends ChannelAdapter {
         || '';
     } else {
       // Fix real (v0.4, Inbox Inteligente): TARA todavía no soporta adjuntos
-      // (imagen/audio/video/documento/ubicación/sticker) — antes esto dejaba
-      // `content` vacío, y ContextBuilder truena con "campo requerido
-      // faltante — mensaje_actual" (confirmado en producción, decision_logs
-      // tipo='error'). Un placeholder no vacío evita el crash y le da al
-      // modelo contexto suficiente para responder con gracia en vez de
-      // quedarse callado. El soporte real de adjuntos llega en la Zona 2
-      // del Inbox — esto es la salvaguarda mientras tanto.
-      const media = mensajeRaw[mensajeRaw.type];
-      const caption = media?.caption ? ` con el texto: "${media.caption}"` : '';
+      // en el motor conversacional (imagen/audio/video/documento/ubicación/
+      // sticker) — antes esto dejaba `content` vacío, y ContextBuilder
+      // truena con "campo requerido faltante — mensaje_actual" (confirmado
+      // en producción, decision_logs tipo='error'). Un placeholder no vacío
+      // evita el crash y le da al modelo contexto suficiente para responder
+      // con gracia en vez de quedarse callado. `media` (abajo) sí permite
+      // que la capa de plataforma (server.js) descargue el archivo real
+      // para mostrarlo en el Inbox — el Core sigue sin "verlo".
+      const archivo = mensajeRaw[mensajeRaw.type];
+      const caption = archivo?.caption ? ` con el texto: "${archivo.caption}"` : '';
       content = `[La clienta envió un(a) ${mensajeRaw.type}${caption} — todavía no puedo ver archivos ni ubicaciones, solo texto. Pídele que te lo describa con palabras.]`;
+
+      if (TIPOS_CON_ARCHIVO.includes(mensajeRaw.type) && archivo?.id) {
+        media = { mediaId: archivo.id, mimeType: archivo.mime_type || null };
+      }
     }
 
     return {
@@ -114,6 +124,7 @@ class MetaCloudWhatsAppAdapter extends ChannelAdapter {
       from:              mensajeRaw.from.startsWith('+') ? mensajeRaw.from : `+${mensajeRaw.from}`,
       incoming_endpoint: value.metadata?.phone_number_id || null, // clave de routing
       content:           content.trim(),
+      media,
       timestamp:         new Date(),
       raw_metadata: {
         // MessageSid: mismo nombre de campo que usa TwilioWhatsAppAdapter —
@@ -228,6 +239,39 @@ class MetaCloudWhatsAppAdapter extends ChannelAdapter {
    */
   async sendProactive(text, identificador) {
     return this.enviarMensaje(identificador, text);
+  }
+
+  /**
+   * Descarga el binario de un adjunto entrante (Inbox Inteligente v0.4).
+   * Meta no da una URL directa en el webhook — solo un media id — y la URL
+   * temporal que devuelve Graph API expira en minutos, por eso el caller
+   * (server.js) sube el binario de inmediato a Supabase Storage en vez de
+   * guardar esta URL.
+   *
+   * @param {{mediaId: string, mimeType?: string}} media - de parseIncoming()
+   * @returns {Promise<{buffer: Buffer, mimeType: string}>}
+   */
+  async descargarMedia(media) {
+    if (!this._accessToken) {
+      throw new Error('MetaCloudWhatsAppAdapter.descargarMedia: falta accessToken — resuelve la instancia vía meta-auth.js');
+    }
+
+    const version = process.env.META_GRAPH_API_VERSION || 'v19.0';
+    const respuestaInfo = await fetch(`https://graph.facebook.com/${version}/${media.mediaId}`, {
+      headers: { Authorization: `Bearer ${this._accessToken}` },
+    });
+    if (!respuestaInfo.ok) {
+      throw new Error(`MetaCloudWhatsAppAdapter.descargarMedia: ${respuestaInfo.status} al resolver media id ${media.mediaId}`);
+    }
+    const { url, mime_type } = await respuestaInfo.json();
+
+    const respuestaArchivo = await fetch(url, { headers: { Authorization: `Bearer ${this._accessToken}` } });
+    if (!respuestaArchivo.ok) {
+      throw new Error(`MetaCloudWhatsAppAdapter.descargarMedia: ${respuestaArchivo.status} al descargar el archivo`);
+    }
+
+    const buffer = Buffer.from(await respuestaArchivo.arrayBuffer());
+    return { buffer, mimeType: mime_type || media.mimeType || 'application/octet-stream' };
   }
 }
 
