@@ -1204,7 +1204,8 @@ app.post('/api/operador/preguntar', requireAuth, async (req, res) => {
     if (!pregunta || !pregunta.trim()) return res.status(400).json({ error: 'pregunta requerida' });
 
     const alcance = { nivel: 'empresa', company_id: req.usuario.company_id };
-    const resultado = await preguntarOperador({ supabase: req.supabase, openaiClient: openai, pregunta: pregunta.trim(), alcance });
+    const usuario = { id: req.usuario.id, rol: req.usuario.rol };
+    const resultado = await preguntarOperador({ supabase: req.supabase, openaiClient: openai, pregunta: pregunta.trim(), alcance, usuario });
     res.json(resultado);
   } catch (e) {
     res.status(500).json({ error: e.message });

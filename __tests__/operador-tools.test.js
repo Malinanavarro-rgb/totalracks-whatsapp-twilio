@@ -1,8 +1,24 @@
 'use strict';
 
+const mockRegistrarAprendizaje = jest.fn();
+const mockConfirmarAprendizaje = jest.fn();
+const mockRechazarAprendizaje = jest.fn();
+const mockMarcarObsoleto = jest.fn();
+const mockListarPropuestasPendientes = jest.fn();
+
+jest.mock('../modules/business-memory-core', () => ({
+  registrarAprendizaje: (...args) => mockRegistrarAprendizaje(...args),
+  confirmarAprendizaje: (...args) => mockConfirmarAprendizaje(...args),
+  rechazarAprendizaje: (...args) => mockRechazarAprendizaje(...args),
+  marcarObsoleto: (...args) => mockMarcarObsoleto(...args),
+  listarPropuestasPendientes: (...args) => mockListarPropuestasPendientes(...args),
+}));
+
 const {
   tareasAbiertas, proyectosEnRiesgo, decisionesRecientes, buscarDocumentos,
-  resumenPipeline, buscarCliente, ejecutarTool, CATALOGO_TOOLS,
+  resumenPipeline, buscarCliente, ejecutarTool, CATALOGO_TOOLS, IMPLEMENTACIONES,
+  registrarAprendizajeNegocio, listarAprendizajesPendientes,
+  confirmarAprendizajeTool, rechazarAprendizajeTool, marcarAprendizajeObsoletoTool,
 } = require('../modules/operador-tools');
 
 // ─── Mock builder: registra cada llamada (.eq/.in/.or) para poder afirmar
@@ -167,12 +183,95 @@ describe('operador-tools', () => {
       }
     });
 
-    test('cada tool del catálogo tiene una implementación registrada', async () => {
-      const db = crearMockDb({});
+    test('cada tool del catálogo tiene una implementación registrada', () => {
+      // Chequeo estático de paridad catálogo↔implementación — invocar cada
+      // tool (en vez de solo verificar el registro) requeriría mocks
+      // distintos por tool (las de BMC escriben y exigen alcance='empresa');
+      // esa cobertura de comportamiento ya vive en sus propios describe()s.
       for (const tool of CATALOGO_TOOLS) {
-        // No debe lanzar "tool desconocida" — confirma que IMPLEMENTACIONES cubre el catálogo completo.
-        await expect(ejecutarTool(tool.function.name, {}, db, { nivel: 'plataforma' })).resolves.toBeDefined();
+        expect(typeof IMPLEMENTACIONES[tool.function.name]).toBe('function');
       }
+    });
+  });
+
+  describe('Business Memory Core (BMC, Fase 2) — tools de escritura', () => {
+    const ALCANCE_EMPRESA = { nivel: 'empresa', company_id: COMPANY_A };
+    const USUARIO = { id: 'user-1', rol: 'owner' };
+
+    beforeEach(() => jest.clearAllMocks());
+
+    describe('alcance no es "empresa": las 5 tools rechazan sin tocar la base de datos', () => {
+      const alcancesInvalidos = [{ nivel: 'organizacion', organization_id: 'org-1' }, { nivel: 'plataforma' }, null];
+
+      test.each(alcancesInvalidos)('registrar_aprendizaje_negocio rechaza con alcance %p', async (alcance) => {
+        await expect(registrarAprendizajeNegocio({}, alcance, {}, USUARIO)).rejects.toThrow('una empresa específica');
+        expect(mockRegistrarAprendizaje).not.toHaveBeenCalled();
+      });
+
+      test.each(alcancesInvalidos)('confirmar_aprendizaje rechaza con alcance %p', async (alcance) => {
+        await expect(confirmarAprendizajeTool({}, alcance, { aprendizaje_id: 'a1' }, USUARIO)).rejects.toThrow('una empresa específica');
+        expect(mockConfirmarAprendizaje).not.toHaveBeenCalled();
+      });
+
+      test.each(alcancesInvalidos)('rechazar_aprendizaje rechaza con alcance %p', async (alcance) => {
+        await expect(rechazarAprendizajeTool({}, alcance, { aprendizaje_id: 'a1', razon: 'x' }, USUARIO)).rejects.toThrow('una empresa específica');
+        expect(mockRechazarAprendizaje).not.toHaveBeenCalled();
+      });
+
+      test.each(alcancesInvalidos)('marcar_aprendizaje_obsoleto rechaza con alcance %p', async (alcance) => {
+        await expect(marcarAprendizajeObsoletoTool({}, alcance, { aprendizaje_id: 'a1' }, USUARIO)).rejects.toThrow('una empresa específica');
+        expect(mockMarcarObsoleto).not.toHaveBeenCalled();
+      });
+
+      test.each(alcancesInvalidos)('listar_aprendizajes_pendientes rechaza con alcance %p', async (alcance) => {
+        await expect(listarAprendizajesPendientes({}, alcance)).rejects.toThrow('una empresa específica');
+        expect(mockListarPropuestasPendientes).not.toHaveBeenCalled();
+      });
+    });
+
+    test('registrar_aprendizaje_negocio: pasa company_id del alcance, origen=modo_operador y propuesto_por=usuario.id', async () => {
+      mockRegistrarAprendizaje.mockResolvedValue({ id: 'a1', estado: 'propuesto' });
+
+      await registrarAprendizajeNegocio({}, ALCANCE_EMPRESA, {
+        categoria: 'patron_compra', titulo: 'Vende más los martes', detalle: '...', evidencia_resumen: '28% más que el resto de la semana', confianza: 85,
+      }, USUARIO);
+
+      expect(mockRegistrarAprendizaje).toHaveBeenCalledWith({}, expect.objectContaining({
+        company_id: COMPANY_A, categoria: 'patron_compra', titulo: 'Vende más los martes',
+        evidencia: { resumen: '28% más que el resto de la semana' }, confianza: 85,
+        origen: 'modo_operador', propuesto_por: 'user-1',
+      }));
+    });
+
+    test('listar_aprendizajes_pendientes: usa el company_id del alcance', async () => {
+      mockListarPropuestasPendientes.mockResolvedValue([{ id: 'a1' }]);
+      const resultado = await listarAprendizajesPendientes({}, ALCANCE_EMPRESA);
+      expect(mockListarPropuestasPendientes).toHaveBeenCalledWith({}, COMPANY_A);
+      expect(resultado).toEqual([{ id: 'a1' }]);
+    });
+
+    test('confirmar_aprendizaje: pasa company_id, aprendizaje_id y usuario.id', async () => {
+      mockConfirmarAprendizaje.mockResolvedValue({ id: 'a1', estado: 'confirmado' });
+      await confirmarAprendizajeTool({}, ALCANCE_EMPRESA, { aprendizaje_id: 'a1' }, USUARIO);
+      expect(mockConfirmarAprendizaje).toHaveBeenCalledWith({}, COMPANY_A, 'a1', 'user-1');
+    });
+
+    test('rechazar_aprendizaje: pasa razón al módulo', async () => {
+      mockRechazarAprendizaje.mockResolvedValue({ id: 'a1', estado: 'rechazado' });
+      await rechazarAprendizajeTool({}, ALCANCE_EMPRESA, { aprendizaje_id: 'a1', razon: 'no aplica a este negocio' }, USUARIO);
+      expect(mockRechazarAprendizaje).toHaveBeenCalledWith({}, COMPANY_A, 'a1', 'user-1', 'no aplica a este negocio');
+    });
+
+    test('marcar_aprendizaje_obsoleto: razón es opcional', async () => {
+      mockMarcarObsoleto.mockResolvedValue({ id: 'a1', estado: 'obsoleto' });
+      await marcarAprendizajeObsoletoTool({}, ALCANCE_EMPRESA, { aprendizaje_id: 'a1' }, USUARIO);
+      expect(mockMarcarObsoleto).toHaveBeenCalledWith({}, COMPANY_A, 'a1', 'user-1', undefined);
+    });
+
+    test('ejecutarTool() propaga usuario a las tools de BMC', async () => {
+      mockConfirmarAprendizaje.mockResolvedValue({ id: 'a1', estado: 'confirmado' });
+      await ejecutarTool('confirmar_aprendizaje', { aprendizaje_id: 'a1' }, {}, ALCANCE_EMPRESA, USUARIO);
+      expect(mockConfirmarAprendizaje).toHaveBeenCalledWith({}, COMPANY_A, 'a1', 'user-1');
     });
   });
 });

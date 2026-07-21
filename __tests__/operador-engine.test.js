@@ -31,6 +31,7 @@ function respuestaConToolCall(nombreTool, args, id = 'call_1') {
 }
 
 const ALCANCE_EMPRESA = { nivel: 'empresa', company_id: 'company-1' };
+const USUARIO_TEST = { id: 'user-1', rol: 'owner' };
 
 describe('operador-engine', () => {
   beforeEach(() => {
@@ -57,9 +58,9 @@ describe('operador-engine', () => {
         .mockResolvedValueOnce(respuestaTextoDirecta('Tienes 3 tareas abiertas.'));
       mockEjecutarTool.mockResolvedValue([{ id: 't1' }, { id: 't2' }, { id: 't3' }]);
 
-      const resultado = await preguntar({ supabase: { marcador: true }, openaiClient, pregunta: '¿Qué tareas hay?', alcance: ALCANCE_EMPRESA });
+      const resultado = await preguntar({ supabase: { marcador: true }, openaiClient, pregunta: '¿Qué tareas hay?', alcance: ALCANCE_EMPRESA, usuario: USUARIO_TEST });
 
-      expect(mockEjecutarTool).toHaveBeenCalledWith('tareas_abiertas', { limite: 5 }, { marcador: true }, ALCANCE_EMPRESA);
+      expect(mockEjecutarTool).toHaveBeenCalledWith('tareas_abiertas', { limite: 5 }, { marcador: true }, ALCANCE_EMPRESA, USUARIO_TEST);
       expect(resultado.respuesta_texto).toBe('Tienes 3 tareas abiertas.');
       expect(resultado.tools_usadas).toEqual(['tareas_abiertas']);
       expect(resultado.iteraciones).toBe(2);
@@ -132,7 +133,7 @@ describe('operador-engine', () => {
       const alcancePlataforma = { nivel: 'plataforma' };
       await preguntar({ supabase: {}, openaiClient, pregunta: 'x', alcance: alcancePlataforma });
 
-      expect(mockEjecutarTool).toHaveBeenCalledWith('tareas_abiertas', {}, {}, alcancePlataforma);
+      expect(mockEjecutarTool).toHaveBeenCalledWith('tareas_abiertas', {}, {}, alcancePlataforma, undefined);
     });
 
     describe('Business Memory Core (BMC)', () => {

@@ -53,11 +53,12 @@ const SYSTEM_PROMPT = [
  * @param {{chat: {completions: {create: Function}}}} opciones.openaiClient - cliente OpenAI ya instanciado (inyectado, no importado directo — testeable sin mocks de módulo)
  * @param {string} opciones.pregunta
  * @param {{nivel: string, organization_id?: string, company_id?: string}} opciones.alcance - calculado por el caller a partir de la sesión, nunca por el modelo
+ * @param {{id: string, rol: string}} [opciones.usuario] - calculado por el caller a partir de la sesión, nunca por el modelo; requerido por las tools de escritura del Business Memory Core (trazabilidad de quién propuso/confirmó/rechazó)
  * @param {{role: string, content: string}[]} [opciones.historialCorto]
  * @param {string} [opciones.modelo]
  * @returns {Promise<{respuesta_texto: string, tokens_total: number, iteraciones: number, tools_usadas: string[]}>}
  */
-async function preguntar({ supabase, openaiClient, pregunta, alcance, historialCorto = [], modelo = MODELO_DEFAULT }) {
+async function preguntar({ supabase, openaiClient, pregunta, alcance, usuario, historialCorto = [], modelo = MODELO_DEFAULT }) {
   if (!alcance || !alcance.nivel) {
     throw new Error('operador-engine.preguntar: alcance requerido (lo calcula el caller, nunca el usuario final)');
   }
@@ -118,7 +119,7 @@ async function preguntar({ supabase, openaiClient, pregunta, alcance, historialC
 
         let resultado;
         try {
-          resultado = await ejecutarTool(toolCall.function.name, argumentos, supabase, alcance);
+          resultado = await ejecutarTool(toolCall.function.name, argumentos, supabase, alcance, usuario);
           toolsUsadas.push(toolCall.function.name);
         } catch (e) {
           resultado = { error: e.message };
