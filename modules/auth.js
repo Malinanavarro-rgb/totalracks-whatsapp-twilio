@@ -134,4 +134,46 @@ async function resolverSesion(supabase, token, companyId) {
   };
 }
 
-module.exports = { iniciarSesion, obtenerEmpresasDeUsuario, resolverSesion, ErrorAuth };
+/**
+ * Recuperación de contraseña, paso 1: pide a Supabase Auth que mande el
+ * correo de recuperación (usa el envío de correo ya configurado de
+ * Supabase — sin infraestructura de correo propia). Nunca revela si el
+ * email existe o no (mismo mensaje siempre) — evita enumeración de cuentas.
+ *
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase - cliente anon, nunca service_role
+ * @param {string} email
+ * @param {string} redirectTo - URL del frontend a la que Supabase redirige con el token (?type=recovery)
+ */
+async function solicitarRecuperacion(supabase, email, redirectTo) {
+  await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+  // Deliberadamente no se revisa el resultado — la respuesta al cliente es
+  // siempre la misma exista o no la cuenta (evita enumeración de emails).
+}
+
+/**
+ * Recuperación de contraseña, paso 2: valida el access_token que Supabase
+ * puso en la URL de recuperación y actualiza la contraseña. El frontend
+ * nunca habla con Supabase directamente (ver docstring del módulo) — solo
+ * lee el token de la URL (string) y se lo manda a este backend.
+ *
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase - cliente anon, para validar el token
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabaseServicio - service_role, para actualizar el password
+ * @param {string} accessToken
+ * @param {string} nuevaPassword
+ */
+async function restablecerPassword(supabase, supabaseServicio, accessToken, nuevaPassword) {
+  const { data: userData, error } = await supabase.auth.getUser(accessToken);
+  if (error || !userData?.user) {
+    throw new ErrorAuth('El link de recuperación no es válido o ya expiró', 400);
+  }
+
+  const { error: errorUpdate } = await supabaseServicio.auth.admin.updateUserById(userData.user.id, { password: nuevaPassword });
+  if (errorUpdate) {
+    throw new ErrorAuth(errorUpdate.message, 400);
+  }
+}
+
+module.exports = {
+  iniciarSesion, obtenerEmpresasDeUsuario, resolverSesion,
+  solicitarRecuperacion, restablecerPassword, ErrorAuth,
+};

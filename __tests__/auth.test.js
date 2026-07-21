@@ -8,7 +8,10 @@ jest.mock('../modules/clients', () => ({
   crearClienteConSesion: (...args) => mockCrearClienteConSesion(...args),
 }));
 
-const { iniciarSesion, obtenerEmpresasDeUsuario, resolverSesion, ErrorAuth } = require('../modules/auth');
+const {
+  iniciarSesion, obtenerEmpresasDeUsuario, resolverSesion,
+  solicitarRecuperacion, restablecerPassword, ErrorAuth,
+} = require('../modules/auth');
 
 // ─── Mock Supabase (thenable, mismo patrón que scheduling-engine.test.js) ─────
 
@@ -229,6 +232,53 @@ describe('auth', () => {
 
       expect(usuario).toEqual({
         id: USUARIO_ID, nombre: 'Alina', email: 'a@b.com', company_id: COMPANY_A, rol: 'administrador',
+      });
+    });
+  });
+
+  describe('solicitarRecuperacion()', () => {
+    test('llama a resetPasswordForEmail con el redirectTo dado', async () => {
+      const supabase = { auth: { resetPasswordForEmail: jest.fn().mockResolvedValue({ data: {}, error: null }) } };
+
+      await solicitarRecuperacion(supabase, 'a@b.com', 'https://tara-os.com/restablecer-password');
+
+      expect(supabase.auth.resetPasswordForEmail).toHaveBeenCalledWith(
+        'a@b.com', { redirectTo: 'https://tara-os.com/restablecer-password' }
+      );
+    });
+
+    test('no lanza aunque Supabase regrese error (nunca revela si el email existe)', async () => {
+      const supabase = { auth: { resetPasswordForEmail: jest.fn().mockResolvedValue({ data: null, error: { message: 'user not found' } }) } };
+      await expect(solicitarRecuperacion(supabase, 'no-existe@b.com', 'https://x.com')).resolves.toBeUndefined();
+    });
+  });
+
+  describe('restablecerPassword()', () => {
+    test('token inválido/expirado → ErrorAuth 400', async () => {
+      const supabase = { auth: { getUser: jest.fn().mockResolvedValue({ data: null, error: { message: 'invalid' } }) } };
+      const supabaseServicio = { auth: { admin: { updateUserById: jest.fn() } } };
+
+      await expect(restablecerPassword(supabase, supabaseServicio, 'tok-malo', 'NuevaClave123')).rejects.toMatchObject({
+        message: 'El link de recuperación no es válido o ya expiró', status: 400,
+      });
+      expect(supabaseServicio.auth.admin.updateUserById).not.toHaveBeenCalled();
+    });
+
+    test('token válido: actualiza la contraseña del usuario correcto', async () => {
+      const supabase = { auth: { getUser: jest.fn().mockResolvedValue({ data: { user: { id: USUARIO_ID } }, error: null }) } };
+      const supabaseServicio = { auth: { admin: { updateUserById: jest.fn().mockResolvedValue({ data: {}, error: null }) } } };
+
+      await restablecerPassword(supabase, supabaseServicio, 'tok-bueno', 'NuevaClave123');
+
+      expect(supabaseServicio.auth.admin.updateUserById).toHaveBeenCalledWith(USUARIO_ID, { password: 'NuevaClave123' });
+    });
+
+    test('si updateUserById falla, lanza ErrorAuth 400 con el mensaje de Supabase', async () => {
+      const supabase = { auth: { getUser: jest.fn().mockResolvedValue({ data: { user: { id: USUARIO_ID } }, error: null }) } };
+      const supabaseServicio = { auth: { admin: { updateUserById: jest.fn().mockResolvedValue({ data: null, error: { message: 'Password too short' } }) } } };
+
+      await expect(restablecerPassword(supabase, supabaseServicio, 'tok', '123')).rejects.toMatchObject({
+        message: 'Password too short', status: 400,
       });
     });
   });

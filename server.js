@@ -20,7 +20,8 @@ const { MetaCloudWhatsAppAdapter }      = require('./adapters/channels/meta-clou
 const { obtenerAdapterMetaParaEmpresa } = require('./modules/meta-auth');
 const { ChannelRouter }                 = require('./modules/channel-router');
 const { generarUrlAutorizacion, manejarCallback } = require('./modules/google-auth');
-const { iniciarSesion, obtenerEmpresasDeUsuario, ErrorAuth } = require('./modules/auth');
+const { iniciarSesion, obtenerEmpresasDeUsuario, solicitarRecuperacion, restablecerPassword, ErrorAuth } = require('./modules/auth');
+const { registrarEmpresa, ErrorRegistro } = require('./modules/registro');
 const { crearRequireAuth }              = require('./modules/auth-middleware');
 const { obtenerMetricas }               = require('./modules/dashboard');
 const {
@@ -1445,6 +1446,57 @@ app.post('/api/auth/login', async (req, res) => {
     res.cookie('tara_session', token, COOKIE_OPTS);
     res.cookie('tara_company', empresaActiva.company_id, COOKIE_OPTS);
     res.json({ usuario, empresaActiva, empresas });
+  } catch (e) {
+    const status = e instanceof ErrorAuth ? e.status : 500;
+    res.status(status).json({ error: e.message });
+  }
+});
+
+// Registro público (Portal de Cliente) — único punto de entrada de
+// autoservicio: antes solo Alina (script) o un Super Admin (Panel Maestro)
+// podían dar de alta una empresa. El rol de quien se registra es SIEMPRE
+// 'owner', decidido en modules/registro.js — nunca leído de req.body.
+app.post('/api/auth/registro', async (req, res) => {
+  try {
+    const { nombreNegocio, descripcionNegocio, nombreUsuario, email, password } = req.body || {};
+    const { email: emailCreado } = await registrarEmpresa(supabaseServicio, {
+      nombreNegocio, descripcionNegocio, nombreUsuario, email, password,
+    });
+
+    // Cuenta y empresa creadas — inicia sesión automáticamente, mismo
+    // patrón que /api/invitaciones/:token/aceptar.
+    const { token, usuario, empresaActiva, empresas } = await iniciarSesion(supabase, emailCreado, password);
+    res.cookie('tara_session', token, COOKIE_OPTS);
+    res.cookie('tara_company', empresaActiva.company_id, COOKIE_OPTS);
+    res.status(201).json({ usuario, empresaActiva, empresas });
+  } catch (e) {
+    const status = e instanceof ErrorRegistro || e instanceof ErrorAuth ? e.status : 500;
+    res.status(status).json({ error: e.message });
+  }
+});
+
+// Recuperación de contraseña — usa el envío de correo ya integrado de
+// Supabase Auth, sin infraestructura de correo propia. Respuesta siempre
+// idéntica exista o no la cuenta (evita enumeración de emails).
+app.post('/api/auth/recuperar-password', async (req, res) => {
+  const { email } = req.body || {};
+  if (email && email.trim()) {
+    const redirectTo = `${req.protocol}://${req.get('host')}/restablecer-password`;
+    try { await solicitarRecuperacion(supabase, email.trim(), redirectTo); } catch { /* nunca se revela al cliente */ }
+  }
+  res.json({ ok: true, mensaje: 'Si el correo existe, te enviamos un link para restablecer tu contraseña.' });
+});
+
+// El frontend nunca habla con Supabase directo (ver modules/auth.js) — solo
+// lee access_token del fragmento de la URL de recuperación y lo manda aquí.
+app.post('/api/auth/restablecer-password', async (req, res) => {
+  try {
+    const { accessToken, password } = req.body || {};
+    if (!accessToken || !password) return res.status(400).json({ error: 'accessToken y password son requeridos' });
+    if (password.length < 8) return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
+
+    await restablecerPassword(supabase, supabaseServicio, accessToken, password);
+    res.json({ ok: true });
   } catch (e) {
     const status = e instanceof ErrorAuth ? e.status : 500;
     res.status(status).json({ error: e.message });

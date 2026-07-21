@@ -31,6 +31,12 @@ export const api = {
 
   cambiarEmpresa: (company_id) => pedir('/api/auth/cambiar-empresa', { method: 'POST', body: JSON.stringify({ company_id }) }),
 
+  registro: (datos) => pedir('/api/auth/registro', { method: 'POST', body: JSON.stringify(datos) }),
+
+  recuperarPassword: (email) => pedir('/api/auth/recuperar-password', { method: 'POST', body: JSON.stringify({ email }) }),
+  restablecerPassword: (accessToken, password) =>
+    pedir('/api/auth/restablecer-password', { method: 'POST', body: JSON.stringify({ accessToken, password }) }),
+
   // Panel Maestro — "entrar como administrador": el botón para SALIR vive
   // en el panel de tenant (Shell.jsx muestra el banner mientras dura),
   // aunque la ruta sea de administración — la cookie es la que autoriza,

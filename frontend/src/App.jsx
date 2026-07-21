@@ -14,6 +14,9 @@ import CrmPipeline from './pages/CrmPipeline';
 import Configuracion from './pages/Configuracion';
 import Catalogo from './pages/Catalogo';
 import AceptarInvitacion from './pages/AceptarInvitacion';
+import Registro from './pages/Registro';
+import RecuperarPassword from './pages/RecuperarPassword';
+import RestablecerPassword from './pages/RestablecerPassword';
 import './App.css';
 
 // Panel Maestro (Plataforma Comercial): árbol completamente aparte, cargado
@@ -27,7 +30,10 @@ export default function App() {
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/registro" element={<Registro />} />
           <Route path="/aceptar-invitacion/:token" element={<AceptarInvitacion />} />
+          <Route path="/recuperar-password" element={<RecuperarPassword />} />
+          <Route path="/restablecer-password" element={<RestablecerPassword />} />
           <Route
             path="/admin/*"
             element={
