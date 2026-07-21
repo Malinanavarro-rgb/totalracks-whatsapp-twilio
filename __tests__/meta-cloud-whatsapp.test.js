@@ -127,6 +127,50 @@ describe('MetaCloudWhatsAppAdapter', () => {
       expect(mensaje.content).toBe('Manicure clásico');
     });
 
+    test('imagen: content nunca queda vacío (evita el crash de ContextBuilder en producción)', () => {
+      const adapter = new MetaCloudWhatsAppAdapter();
+      const body = makeEntryConMensaje({
+        from: '5218112345678', id: 'wamid.img', type: 'image', image: { id: 'media-1', mime_type: 'image/jpeg' },
+      });
+      const req = makeMetaRequest({ body });
+
+      const mensaje = adapter.parseIncoming(req);
+      expect(mensaje.content).not.toBe('');
+      expect(mensaje.content).toContain('image');
+    });
+
+    test('imagen con caption: incluye el texto de la caption en el content', () => {
+      const adapter = new MetaCloudWhatsAppAdapter();
+      const body = makeEntryConMensaje({
+        from: '5218112345678', id: 'wamid.img2', type: 'image', image: { id: 'media-2', caption: '¿Cuánto cuesta esto?' },
+      });
+      const req = makeMetaRequest({ body });
+
+      const mensaje = adapter.parseIncoming(req);
+      expect(mensaje.content).toContain('¿Cuánto cuesta esto?');
+    });
+
+    test('ubicación: content nunca queda vacío', () => {
+      const adapter = new MetaCloudWhatsAppAdapter();
+      const body = makeEntryConMensaje({
+        from: '5218112345678', id: 'wamid.loc', type: 'location', location: { latitude: 25.6, longitude: -100.3 },
+      });
+      const req = makeMetaRequest({ body });
+
+      const mensaje = adapter.parseIncoming(req);
+      expect(mensaje.content).not.toBe('');
+      expect(mensaje.content).toContain('location');
+    });
+
+    test('audio/sticker/video/documento: content nunca queda vacío para ningún tipo', () => {
+      const adapter = new MetaCloudWhatsAppAdapter();
+      for (const tipo of ['audio', 'video', 'document', 'sticker']) {
+        const body = makeEntryConMensaje({ from: '5218112345678', id: `wamid.${tipo}`, type: tipo, [tipo]: { id: 'media-x' } });
+        const mensaje = adapter.parseIncoming(makeMetaRequest({ body }));
+        expect(mensaje.content).not.toBe('');
+      }
+    });
+
     test('evento de solo-status (delivered/read/failed) devuelve null — nada que procesar', () => {
       const adapter = new MetaCloudWhatsAppAdapter();
       const req = makeMetaRequest({ body: makeEntryConStatus() });

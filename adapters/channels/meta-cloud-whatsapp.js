@@ -86,6 +86,18 @@ class MetaCloudWhatsAppAdapter extends ChannelAdapter {
       content = mensajeRaw.interactive?.button_reply?.title
         || mensajeRaw.interactive?.list_reply?.title
         || '';
+    } else {
+      // Fix real (v0.4, Inbox Inteligente): TARA todavía no soporta adjuntos
+      // (imagen/audio/video/documento/ubicación/sticker) — antes esto dejaba
+      // `content` vacío, y ContextBuilder truena con "campo requerido
+      // faltante — mensaje_actual" (confirmado en producción, decision_logs
+      // tipo='error'). Un placeholder no vacío evita el crash y le da al
+      // modelo contexto suficiente para responder con gracia en vez de
+      // quedarse callado. El soporte real de adjuntos llega en la Zona 2
+      // del Inbox — esto es la salvaguarda mientras tanto.
+      const media = mensajeRaw[mensajeRaw.type];
+      const caption = media?.caption ? ` con el texto: "${media.caption}"` : '';
+      content = `[La clienta envió un(a) ${mensajeRaw.type}${caption} — todavía no puedo ver archivos ni ubicaciones, solo texto. Pídele que te lo describa con palabras.]`;
     }
 
     return {

@@ -49,13 +49,24 @@ class TwilioWhatsAppAdapter extends ChannelAdapter {
     const rawFrom = req.body.From || '';
     const from = rawFrom.replace('whatsapp:', '').trim();
 
+    // Fix real (v0.4, Inbox Inteligente): un mensaje de solo-adjunto (sin
+    // texto) dejaba `content` vacío — ContextBuilder truena con "campo
+    // requerido faltante — mensaje_actual" (mismo bug confirmado en Meta).
+    // Placeholder no vacío mientras no exista soporte real de adjuntos.
+    const numMedia = parseInt(req.body.NumMedia || '0', 10);
+    let content = (req.body.Body || '').trim();
+    if (!content && numMedia > 0) {
+      const tipo = (req.body.MediaContentType0 || '').split('/')[0] || 'archivo';
+      content = `[La clienta envió un(a) ${tipo} — todavía no puedo ver archivos, solo texto. Pídele que te lo describa con palabras.]`;
+    }
+
     return {
       id:                randomUUID(),
       company_id:        null,              // el Channel Router lo asigna en server.js
       channel:           this.canal,
       from,
       incoming_endpoint: req.body.To || null, // número receptor — identifica la empresa
-      content:           (req.body.Body || '').trim(),
+      content,
       timestamp:         new Date(),
       raw_metadata: {
         MessageSid:  req.body.MessageSid  || null,
