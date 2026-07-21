@@ -1,4 +1,6 @@
-# Roadmap — TARA Matrix™
+# Roadmap — TARA Matrix™ (histórico)
+
+> **Este documento quedó congelado como referencia histórica.** La fuente de verdad actual sobre versiones es [`TARA-OS-ROADMAP.md`](./TARA-OS-ROADMAP.md) (esquema v0.1–v1.0). El detalle de "Fases"/"Sub-fases" de aquí sigue siendo válido como registro de lo que se construyó y por qué, solo que ya no es donde se planea lo que sigue.
 
 ---
 
