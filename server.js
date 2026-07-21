@@ -1082,6 +1082,18 @@ app.delete('/api/config/knowledge-base/:id', requireAuth, soloGerencial, async (
   }
 });
 
+// Portal de Cliente — wizard corto de onboarding: marca la empresa activa
+// como lista, para que no se le vuelva a mostrar el wizard en el próximo login.
+app.post('/api/config/onboarding-completado', requireAuth, async (req, res) => {
+  try {
+    const { error } = await req.supabase.from('companies').update({ onboarding_completado: true }).eq('id', req.usuario.company_id);
+    if (error) throw new Error(error.message);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/config/horarios', requireAuth, async (req, res) => {
   try {
     res.json(await listarHorarios(req.supabase, req.usuario.company_id));
@@ -1527,6 +1539,7 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
           color_acento: company?.color_acento || null,
           industria_slug: company?.industria_slug || null,
           nav_labels: company?.nav_labels || null,
+          onboarding_completado: true, // nunca mostrar el wizard durante impersonación
           es_impersonacion: true,
         },
         empresas: [],

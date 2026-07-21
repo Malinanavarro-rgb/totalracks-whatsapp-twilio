@@ -108,6 +108,8 @@ export const api = {
   actualizarKnowledgeBase: (id, datos) => pedir(`/api/config/knowledge-base/${id}`, { method: 'PATCH', body: JSON.stringify(datos) }),
   eliminarKnowledgeBase:   (id) => pedir(`/api/config/knowledge-base/${id}`, { method: 'DELETE' }),
 
+  marcarOnboardingCompletado: () => pedir('/api/config/onboarding-completado', { method: 'POST' }),
+
   horariosConfig:          () => pedir('/api/config/horarios'),
   crearHorarioConfig:      (datos) => pedir('/api/config/horarios', { method: 'POST', body: JSON.stringify(datos) }),
   actualizarHorarioConfig: (id, datos) => pedir(`/api/config/horarios/${id}`, { method: 'PATCH', body: JSON.stringify(datos) }),

@@ -32,7 +32,7 @@ class ErrorAuth extends Error {
 async function obtenerEmpresasDeUsuario(supabase, usuarioId) {
   const { data, error } = await supabase
     .from('usuarios_empresas')
-    .select('company_id, rol, created_at, companies(nombre, logo_url, color_acento, industria_slug, nav_labels)')
+    .select('company_id, rol, created_at, companies(nombre, logo_url, color_acento, industria_slug, nav_labels, onboarding_completado)')
     .eq('usuario_id', usuarioId)
     .eq('activo', true)
     .order('created_at', { ascending: true });
@@ -47,6 +47,7 @@ async function obtenerEmpresasDeUsuario(supabase, usuarioId) {
     color_acento: fila.companies?.color_acento || null,
     industria_slug: fila.companies?.industria_slug || null,
     nav_labels: fila.companies?.nav_labels || null,
+    onboarding_completado: fila.companies?.onboarding_completado ?? true,
   }));
 }
 

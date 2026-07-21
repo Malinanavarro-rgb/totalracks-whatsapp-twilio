@@ -34,7 +34,7 @@ export default function Registro() {
     try {
       await api.registro(form);
       await rehidratar();
-      navigate('/operaciones');
+      navigate('/onboarding');
     } catch (e2) {
       setError(e2.message || 'No se pudo crear tu cuenta');
     } finally {
