@@ -317,6 +317,27 @@ async function listarPropuestasPendientes(supabase, company_id) {
 }
 
 /**
+ * Lista los aprendizajes ya CONFIRMADOS de una empresa — para navegarlos en
+ * el Panel de Acción Inteligente (qué sabe TARA de este negocio ahora mismo).
+ *
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} company_id
+ * @returns {Promise<Object[]>}
+ */
+async function listarAprendizajesConfirmados(supabase, company_id) {
+  const { data, error } = await supabase
+    .from('memoria_empresarial')
+    .select('*')
+    .eq('company_id', company_id)
+    .eq('estado', 'confirmado')
+    .eq('activo', true)
+    .order('confianza', { ascending: false });
+
+  if (error) throw new Error(`business-memory-core.listarAprendizajesConfirmados: ${error.message}`);
+  return data || [];
+}
+
+/**
  * Lectura pura (sin IA) de los aprendizajes CONFIRMADOS relevantes para un
  * cliente — los suyos propios + los de la empresa que no son de un cliente
  * en particular. Formateado como texto, listo para inyectar en cualquier
@@ -425,5 +446,6 @@ module.exports = {
   CATEGORIAS, ORIGENES, CONFIANZA_MINIMA, ESTADOS_REFORZABLES,
   nivelConfianza,
   registrarAprendizaje, confirmarAprendizaje, rechazarAprendizaje, marcarObsoleto,
-  listarPropuestasPendientes, resumenParaCliente, generarResumenEjecutivo, obtenerResumenEjecutivo,
+  listarPropuestasPendientes, listarAprendizajesConfirmados,
+  resumenParaCliente, generarResumenEjecutivo, obtenerResumenEjecutivo,
 };

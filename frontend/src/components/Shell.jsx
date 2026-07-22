@@ -17,7 +17,14 @@ const ICONOS = {
   clientes:      <><circle cx="9" cy="8" r="3"/><path d="M2 20c0-4 3-6 7-6s7 2 7 6M16 8a3 3 0 100-6M17 14c3 0 5 2 5 6"/></>,
   catalogo:      <path d="M3 8l9-5 9 5-9 5-9-5zm0 0v8l9 5 9-5V8"/>,
   configuracion: <><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.2-1.6l2-1.5-2-3.4-2.3.9a7 7 0 00-2.7-1.6L13.4 2h-2.8l-.4 2.8a7 7 0 00-2.7 1.6l-2.3-.9-2 3.4 2 1.5A7 7 0 005 12c0 .5 0 1.1.2 1.6l-2 1.5 2 3.4 2.3-.9c.8.7 1.7 1.3 2.7 1.6l.4 2.8h2.8l.4-2.8c1-.3 1.9-.9 2.7-1.6l2.3.9 2-3.4-2-1.5c.1-.5.2-1 .2-1.6z"/></>,
+  panelAccion:   <><path d="M9 18h6M10 21h4M12 3a6 6 0 00-3.5 10.9c.5.4.8 1 .8 1.6v.5h5.4v-.5c0-.6.3-1.2.8-1.6A6 6 0 0012 3z"/></>,
 };
+
+// Panel de Acción Inteligente (Business Memory Core + KCE) — información y
+// acciones a nivel empresa, no personal. Mismo criterio de acceso que Modo
+// Operador en el backend (esGerencial: owner/administrador/supervisor) —
+// se replica aquí para no mostrar un link que el backend rechazaría con 403.
+const ROLES_GERENCIALES = ['owner', 'administrador', 'supervisor'];
 
 function Icono({ nombre }) {
   return (
@@ -36,6 +43,7 @@ const MODULOS = [
   { ruta: '/inbox',          etiqueta: 'Inbox',                 icono: 'inbox',          habilitado: true },
   { ruta: '/agenda',         etiqueta: 'Agenda TARA',           icono: 'agenda',         habilitado: true },
   { ruta: '/crm',            etiqueta: 'Ventas',                icono: 'ventas',         habilitado: true },
+  { ruta: '/panel-accion',   etiqueta: 'Panel de Acción',       icono: 'panelAccion',    habilitado: true, soloGerencial: true },
   { ruta: '/configuracion',  etiqueta: 'Configuración',         icono: 'configuracion',  habilitado: true },
   { ruta: '/reportes',       etiqueta: 'Reportes',              icono: 'catalogo',       habilitado: false },
 ];
@@ -52,6 +60,7 @@ const MODULOS_UNIFORMES_DEPORTIVOS = [
   { ruta: '/crm/pipeline',   etiqueta: 'Ventas',         icono: 'ventas',         habilitado: true },
   { ruta: '/crm',            etiqueta: 'Clientes',       icono: 'clientes',       habilitado: true },
   { ruta: '/catalogo',       etiqueta: 'Catálogo',       icono: 'catalogo',       habilitado: true },
+  { ruta: '/panel-accion',   etiqueta: 'Panel de Acción', icono: 'panelAccion',   habilitado: true, soloGerencial: true },
   { ruta: '/configuracion',  etiqueta: 'Configuración',  icono: 'configuracion',  habilitado: true },
 ];
 
@@ -65,6 +74,7 @@ const MODULOS_SALON_BELLEZA = [
   { ruta: '/agenda',         etiqueta: 'Agenda',         icono: 'agenda',         habilitado: true },
   { ruta: '/crm',            etiqueta: 'Clientas',       icono: 'clientes',       habilitado: true },
   { ruta: '/catalogo',       etiqueta: 'Catálogo',       icono: 'catalogo',       habilitado: true },
+  { ruta: '/panel-accion',   etiqueta: 'Panel de Acción', icono: 'panelAccion',   habilitado: true, soloGerencial: true },
   { ruta: '/configuracion',  etiqueta: 'Configuración',  icono: 'configuracion',  habilitado: true },
 ];
 
@@ -76,7 +86,8 @@ function modulosParaEmpresa(empresaActiva) {
 
 export default function Shell() {
   const { sesion, cerrarSesion } = useAuth();
-  const modulos = modulosParaEmpresa(sesion?.empresaActiva);
+  const esGerencial = ROLES_GERENCIALES.includes(sesion?.empresaActiva?.rol);
+  const modulos = modulosParaEmpresa(sesion?.empresaActiva).filter(m => !m.soloGerencial || esGerencial);
 
   async function salirDelModoSoporte() {
     await api.salirImpersonacion().catch(() => {});

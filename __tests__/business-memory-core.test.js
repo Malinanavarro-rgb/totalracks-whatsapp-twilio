@@ -3,7 +3,8 @@
 const {
   CONFIANZA_MINIMA, nivelConfianza,
   registrarAprendizaje, confirmarAprendizaje, rechazarAprendizaje, marcarObsoleto,
-  listarPropuestasPendientes, resumenParaCliente, generarResumenEjecutivo, obtenerResumenEjecutivo,
+  listarPropuestasPendientes, listarAprendizajesConfirmados,
+  resumenParaCliente, generarResumenEjecutivo, obtenerResumenEjecutivo,
 } = require('../modules/business-memory-core');
 
 function crearBuilder(resultado, llamadas) {
@@ -306,6 +307,19 @@ describe('business-memory-core', () => {
     test('arreglo vacío si no hay ninguna', async () => {
       const db = crearMockDb({ memoria_empresarial: () => ({ data: [], error: null }) });
       expect(await listarPropuestasPendientes(db, COMPANY_A)).toEqual([]);
+    });
+  });
+
+  describe('listarAprendizajesConfirmados()', () => {
+    test('devuelve solo los confirmados activos, ordenados por confianza descendente', async () => {
+      const db = crearMockDb({ memoria_empresarial: () => ({ data: [{ id: 'm1', estado: 'confirmado', confianza: 95 }], error: null }) });
+      const resultado = await listarAprendizajesConfirmados(db, COMPANY_A);
+      expect(resultado).toEqual([{ id: 'm1', estado: 'confirmado', confianza: 95 }]);
+    });
+
+    test('arreglo vacío si no hay ninguno confirmado todavía', async () => {
+      const db = crearMockDb({ memoria_empresarial: () => ({ data: [], error: null }) });
+      expect(await listarAprendizajesConfirmados(db, COMPANY_A)).toEqual([]);
     });
   });
 

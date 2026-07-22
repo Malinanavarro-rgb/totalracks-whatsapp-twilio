@@ -44,6 +44,13 @@ const { analizarHilo, programarAnalisis, obtenerAnalisisHilo } = require('./modu
 const { tipoContenidoDeMime, subirAdjunto, generarUrlFirmada } = require('./modules/inbox-adjuntos');
 const { transcribirAudio, describirImagen } = require('./modules/adjuntos-ia');
 const { esGerencial } = require('./modules/permisos');
+const {
+  confirmarAprendizaje, rechazarAprendizaje, marcarObsoleto,
+  listarPropuestasPendientes, listarAprendizajesConfirmados, obtenerResumenEjecutivo,
+} = require('./modules/business-memory-core');
+const {
+  ejecutarKCE, listarAlertasPendientes, aplicarRefuerzo, fusionarAprendizajes, resolverAlerta, calcularKnowledgeScore,
+} = require('./modules/kce');
 const { interpretarComando, confirmarComando, cancelarComando } = require('./modules/agenda-comandos');
 const {
   listarClientes, obtenerFichaCliente, actualizarCliente, eliminarCliente,
@@ -1209,6 +1216,127 @@ app.post('/api/operador/preguntar', requireAuth, async (req, res) => {
     res.json(resultado);
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// ── PANEL DE ACCIÓN INTELIGENTE (Business Memory Core + KCE) ─────────────────
+// Superficie visual de lo que ya existe en modules/business-memory-core.js y
+// modules/kce.js (ambos ya probados) — estas rutas no agregan lógica de
+// negocio nueva, solo la exponen a una pantalla. Mismo gate que Modo Operador
+// (esGerencial): esto es información/acciones a nivel empresa, no personal.
+
+app.get('/api/bmc/resumen', requireAuth, async (req, res) => {
+  try {
+    if (!esGerencial(req.usuario.rol)) return res.status(403).json({ error: 'No tienes acceso al Panel de Acción Inteligente' });
+
+    const [resumenEjecutivo, knowledgeScore] = await Promise.all([
+      obtenerResumenEjecutivo(req.supabase, req.usuario.company_id),
+      calcularKnowledgeScore(req.supabase, req.usuario.company_id),
+    ]);
+    res.json({ resumenEjecutivo, knowledgeScore });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/bmc/aprendizajes', requireAuth, async (req, res) => {
+  try {
+    if (!esGerencial(req.usuario.rol)) return res.status(403).json({ error: 'No tienes acceso al Panel de Acción Inteligente' });
+
+    const { estado } = req.query;
+    const datos = estado === 'confirmado'
+      ? await listarAprendizajesConfirmados(req.supabase, req.usuario.company_id)
+      : await listarPropuestasPendientes(req.supabase, req.usuario.company_id);
+    res.json(datos);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/bmc/aprendizajes/:id/confirmar', requireAuth, async (req, res) => {
+  try {
+    if (!esGerencial(req.usuario.rol)) return res.status(403).json({ error: 'No tienes acceso al Panel de Acción Inteligente' });
+    const aprendizaje = await confirmarAprendizaje(req.supabase, req.usuario.company_id, req.params.id, req.usuario.id);
+    res.json(aprendizaje);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.post('/api/bmc/aprendizajes/:id/rechazar', requireAuth, async (req, res) => {
+  try {
+    if (!esGerencial(req.usuario.rol)) return res.status(403).json({ error: 'No tienes acceso al Panel de Acción Inteligente' });
+    const { razon } = req.body || {};
+    const aprendizaje = await rechazarAprendizaje(req.supabase, req.usuario.company_id, req.params.id, req.usuario.id, razon);
+    res.json(aprendizaje);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.post('/api/bmc/aprendizajes/:id/marcar-obsoleto', requireAuth, async (req, res) => {
+  try {
+    if (!esGerencial(req.usuario.rol)) return res.status(403).json({ error: 'No tienes acceso al Panel de Acción Inteligente' });
+    const { razon } = req.body || {};
+    const aprendizaje = await marcarObsoleto(req.supabase, req.usuario.company_id, req.params.id, req.usuario.id, razon);
+    res.json(aprendizaje);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Knowledge Consolidation Engine — solo bajo demanda, nunca programado (Fase 3A).
+app.get('/api/kce/alertas', requireAuth, async (req, res) => {
+  try {
+    if (!esGerencial(req.usuario.rol)) return res.status(403).json({ error: 'No tienes acceso al Panel de Acción Inteligente' });
+    const alertas = await listarAlertasPendientes(req.supabase, req.usuario.company_id);
+    res.json(alertas);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/kce/ejecutar', requireAuth, async (req, res) => {
+  try {
+    if (!esGerencial(req.usuario.rol)) return res.status(403).json({ error: 'No tienes acceso al Panel de Acción Inteligente' });
+    const resultado = await ejecutarKCE({
+      supabase: req.supabase, openaiClient: openai, company_id: req.usuario.company_id, usuario_id: req.usuario.id,
+    });
+    res.json(resultado);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/kce/alertas/:id/aplicar-refuerzo', requireAuth, async (req, res) => {
+  try {
+    if (!esGerencial(req.usuario.rol)) return res.status(403).json({ error: 'No tienes acceso al Panel de Acción Inteligente' });
+    const aprendizaje = await aplicarRefuerzo(req.supabase, req.usuario.company_id, req.params.id, req.usuario.id);
+    res.json(aprendizaje);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.post('/api/kce/alertas/:id/fusionar', requireAuth, async (req, res) => {
+  try {
+    if (!esGerencial(req.usuario.rol)) return res.status(403).json({ error: 'No tienes acceso al Panel de Acción Inteligente' });
+    const { id_conservar, id_descartar, razon } = req.body || {};
+    const descartado = await fusionarAprendizajes(req.supabase, req.usuario.company_id, id_conservar, id_descartar, req.usuario.id, razon, req.params.id);
+    res.json(descartado);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.post('/api/kce/alertas/:id/resolver', requireAuth, async (req, res) => {
+  try {
+    if (!esGerencial(req.usuario.rol)) return res.status(403).json({ error: 'No tienes acceso al Panel de Acción Inteligente' });
+    const { accion_tomada, razon } = req.body || {};
+    const alerta = await resolverAlerta(req.supabase, req.usuario.company_id, req.params.id, req.usuario.id, accion_tomada, razon);
+    res.json(alerta);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
   }
 });
 

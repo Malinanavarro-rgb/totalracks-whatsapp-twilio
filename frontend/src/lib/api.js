@@ -103,6 +103,21 @@ export const api = {
     pedir(`/api/crm/clientes/${clienteId}/preguntar`, { method: 'POST', body: JSON.stringify({ pregunta }) }),
   preguntarOperador: (pregunta) =>
     pedir('/api/operador/preguntar', { method: 'POST', body: JSON.stringify({ pregunta }) }),
+
+  // Panel de Acción Inteligente (Business Memory Core + KCE)
+  resumenBmc:            () => pedir('/api/bmc/resumen'),
+  aprendizajesPendientes: () => pedir('/api/bmc/aprendizajes?estado=propuesto'),
+  aprendizajesConfirmados: () => pedir('/api/bmc/aprendizajes?estado=confirmado'),
+  confirmarAprendizajeBmc: (id) => pedir(`/api/bmc/aprendizajes/${id}/confirmar`, { method: 'POST' }),
+  rechazarAprendizajeBmc:  (id, razon) => pedir(`/api/bmc/aprendizajes/${id}/rechazar`, { method: 'POST', body: JSON.stringify({ razon }) }),
+  marcarObsoletoBmc:       (id, razon) => pedir(`/api/bmc/aprendizajes/${id}/marcar-obsoleto`, { method: 'POST', body: JSON.stringify({ razon }) }),
+
+  alertasKce:      () => pedir('/api/kce/alertas'),
+  ejecutarKce:     () => pedir('/api/kce/ejecutar', { method: 'POST' }),
+  aplicarRefuerzoKce: (alertaId) => pedir(`/api/kce/alertas/${alertaId}/aplicar-refuerzo`, { method: 'POST' }),
+  fusionarAprendizajesKce: (alertaId, datos) => pedir(`/api/kce/alertas/${alertaId}/fusionar`, { method: 'POST', body: JSON.stringify(datos) }),
+  resolverAlertaKce: (alertaId, accion_tomada, razon) =>
+    pedir(`/api/kce/alertas/${alertaId}/resolver`, { method: 'POST', body: JSON.stringify({ accion_tomada, razon }) }),
   crearSeguimiento:   (clienteId, datos) =>
     pedir(`/api/crm/clientes/${clienteId}/seguimientos`, { method: 'POST', body: JSON.stringify(datos) }),
   actualizarSeguimiento: (seguimientoId, cambios) =>

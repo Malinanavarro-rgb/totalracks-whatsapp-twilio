@@ -380,6 +380,10 @@ body {
 .inbox-badge--sentimiento-negativo { background: #fde2e2; color: #b52020; }
 .inbox-badge--sentimiento-neutral  { background: #eef0f7; color: #555; }
 
+.inbox-badge--confianza-alta   { background: #e3f3e6; color: #226a34; }
+.inbox-badge--confianza-solida { background: #e6effe; color: #1d5fbf; }
+.inbox-badge--confianza-baja   { background: #fff3d6; color: #96700a; }
+
 .panel-inteligente {
   background: #fff; border-radius: 12px; padding: 1.1rem 1.25rem;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06); align-self: flex-start;
@@ -407,6 +411,46 @@ body {
 .panel-inteligente-seccion li { margin-bottom: 0.2rem; }
 
 .panel-inteligente-fecha { margin-top: 1rem; font-size: 0.72rem; color: #aaa; }
+
+/* ── Panel de Acción Inteligente (Business Memory Core + KCE) ─────────── */
+
+.pa-encabezado { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+.pa-encabezado button {
+  padding: 0.55rem 1rem; border: none; border-radius: 8px;
+  background: var(--acento); color: #fff; cursor: pointer; font-size: 0.85rem;
+}
+.pa-encabezado button:disabled { opacity: 0.6; cursor: default; }
+
+.pa-score-card {
+  background: #fff; border-radius: 12px; padding: 1.1rem 1.4rem;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06); display: flex; align-items: center; gap: 1.5rem; margin-bottom: 1.5rem;
+}
+.pa-score-numero { font-size: 2.4rem; font-weight: 700; color: var(--acento); line-height: 1; }
+.pa-score-numero small { font-size: 1rem; font-weight: 400; color: #999; }
+.pa-score-desglose { display: flex; gap: 1rem; flex-wrap: wrap; font-size: 0.75rem; color: #777; }
+.pa-score-desglose span strong { display: block; color: #333; font-size: 0.9rem; }
+
+.pa-seccion { margin-bottom: 2rem; }
+.pa-seccion h2 { font-size: 1rem; margin-bottom: 0.75rem; }
+
+.pa-tarjeta {
+  background: #fff; border-radius: 10px; padding: 0.9rem 1.1rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05); margin-bottom: 0.7rem;
+}
+.pa-tarjeta-titulo { font-weight: 600; margin: 0 0 0.3rem; }
+.pa-tarjeta-detalle { font-size: 0.85rem; color: #444; margin: 0 0 0.3rem; }
+.pa-tarjeta-evidencia { font-size: 0.78rem; color: #888; font-style: italic; margin: 0 0 0.5rem; }
+.pa-tarjeta-acciones { display: flex; gap: 0.5rem; margin-top: 0.6rem; flex-wrap: wrap; }
+.pa-tarjeta-acciones button {
+  padding: 0.4rem 0.8rem; border-radius: 6px; border: 1px solid #ddd; background: #fff; cursor: pointer; font-size: 0.8rem;
+}
+.pa-tarjeta-acciones button:hover { background: #f5f5f5; }
+.pa-tarjeta-acciones button.pa-boton-confirmar { background: #226a34; color: #fff; border: none; }
+.pa-tarjeta-acciones button.pa-boton-rechazar { color: #b52020; border-color: #f0c0c0; }
+.pa-tarjeta-razon { margin-top: 0.5rem; display: flex; gap: 0.4rem; }
+.pa-tarjeta-razon input { flex: 1; padding: 0.4rem 0.6rem; border: 1px solid #ddd; border-radius: 6px; font-size: 0.8rem; }
+
+.pa-vacio { color: #999; font-size: 0.85rem; }
 
 .conversacion-acciones { margin: 1rem 0; }
 .conversacion-acciones button {
