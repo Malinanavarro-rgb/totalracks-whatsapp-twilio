@@ -2,7 +2,9 @@ import { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import RutaProtegida from './components/RutaProtegida';
+import RutaPublica from './components/RutaPublica';
 import Shell from './components/Shell';
+import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Operaciones from './pages/Operaciones';
 import Conversaciones from './pages/Conversaciones';
@@ -77,7 +79,7 @@ export default function App() {
             <Route path="/catalogo" element={<Catalogo />} />
           </Route>
 
-          <Route path="/" element={<Navigate to="/operaciones" replace />} />
+          <Route path="/" element={<RutaPublica><Landing /></RutaPublica>} />
           <Route path="*" element={<Navigate to="/operaciones" replace />} />
         </Routes>
       </AuthProvider>
