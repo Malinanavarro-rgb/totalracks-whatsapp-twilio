@@ -3,10 +3,13 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * Plataforma SaaS, Fase 2: Centro de Operaciones. El tablero por default es
  * agnóstico de giro (conversaciones, clientes, citas — universal). Empresas
- * con `companies.industria_slug` reconocido (ver migrations/046) reciben un
- * tablero de KPIs/recomendaciones propio de su industria en su lugar —
- * `obtenerMetricasUniformesDeportivos()` es el primer caso. Todo sigue
- * filtrado por company_id — nunca datos mezclados entre empresas.
+ * con `companies.industria_slug` reconocido reciben en su lugar un tablero de
+ * KPIs/recomendaciones propio de su industria, calculado por el Motor
+ * Universal (modules/dashboard-engine.js) a partir de
+ * `plantillas_industria.dashboard_kpis_seed` — sin ningún `if` de negocio
+ * aquí. Agregar una industria nueva es agregar su fila en `plantillas_industria`,
+ * no una función nueva en este archivo. Todo sigue filtrado por company_id —
+ * nunca datos mezclados entre empresas.
  *
  * "Conversaciones activas" se calcula desde conversaciones.created_at (ya
  * existente) — no requirió ningún cambio a crm.js/Orchestrator. "Atendido
@@ -19,6 +22,9 @@
 
 'use strict';
 
+const { obtenerPlantillaDeEmpresa } = require('./plantillas-industria');
+const { obtenerMetricasGenerico } = require('./dashboard-engine');
+
 const VENTANA_ACTIVA_MS = 30 * 60 * 1000; // 30 minutos
 
 /**
@@ -27,22 +33,13 @@ const VENTANA_ACTIVA_MS = 30 * 60 * 1000; // 30 minutos
  * @returns {Promise<Object>} las 8 métricas del Centro de Operaciones
  */
 async function obtenerMetricas(supabase, company_id) {
-  // Pivote a producto — Fase Demo Tienda Soccer: el Centro de Operaciones
-  // deja de ser 100% agnóstico de giro. Empresas con `industria_slug` en
-  // companies (ver migrations/046) reciben un tablero de KPIs y
-  // recomendaciones propio de su industria — el resto conserva el tablero
-  // genérico universal de siempre, sin ningún cambio de comportamiento.
-  const { data: company } = await supabase
-    .from('companies')
-    .select('industria_slug')
-    .eq('id', company_id)
-    .maybeSingle();
-
-  if (company?.industria_slug === 'uniformes_deportivos') {
-    return obtenerMetricasUniformesDeportivos(supabase, company_id);
-  }
-  if (company?.industria_slug === 'salon_belleza') {
-    return obtenerMetricasSalonBelleza(supabase, company_id);
+  // Motor Universal: empresas con una plantilla de industria que define
+  // dashboard_kpis_seed reciben un tablero calculado por dashboard-engine.js
+  // — el resto conserva el tablero genérico universal de siempre, sin
+  // ningún cambio de comportamiento.
+  const plantilla = await obtenerPlantillaDeEmpresa(supabase, company_id);
+  if (plantilla?.dashboard_kpis_seed?.kpis?.length) {
+    return obtenerMetricasGenerico(supabase, company_id, plantilla.dashboard_kpis_seed);
   }
 
   const ahora     = new Date();
@@ -114,326 +111,6 @@ async function obtenerMetricas(supabase, company_id) {
 function _formatearMs(ms) {
   if (ms == null) return '—';
   return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`;
-}
-
-/**
- * Fase Demo Tienda Soccer: tablero de KPIs y recomendaciones propio de un
- * negocio de venta/manufactura por cotización (uniformes deportivos
- * personalizados) — sin agenda, con `oportunidades` como objeto central en
- * vez de `citas`. Las recomendaciones se calculan de datos reales
- * (oportunidades por etapa/antigüedad), no son texto fijo — cambian solas
- * conforme cambian los datos de la empresa.
- */
-async function obtenerMetricasUniformesDeportivos(supabase, company_id) {
-  const ahora      = new Date();
-  const hace48h    = new Date(ahora.getTime() - 48 * 3600 * 1000).toISOString();
-  const inicioMes  = new Date(Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth(), 1)).toISOString();
-
-  const [solicitudes, cotizaciones, produccion, entregas, ventasDelMes, recomendaciones, panelVentas] = await Promise.all([
-    _contarOportunidadesPorEstado(supabase, company_id, 'Solicitud nueva'),
-    _contarOportunidadesPorEstado(supabase, company_id, 'Cotización enviada'),
-    _contarOportunidadesPorEstado(supabase, company_id, 'En producción'),
-    _contarOportunidadesPorEstado(supabase, company_id, 'Listo para entrega'),
-    _sumarVentasDelMes(supabase, company_id, inicioMes),
-    _obtenerRecomendacionesUniformesDeportivos(supabase, company_id, hace48h),
-    _panelVentasUniformesDeportivos(supabase, company_id),
-  ]);
-
-  return {
-    kpis: [
-      { valor: solicitudes,   etiqueta: 'Solicitudes nuevas' },
-      { valor: cotizaciones,  etiqueta: 'Cotizaciones enviadas' },
-      { valor: produccion,    etiqueta: 'Pedidos en producción' },
-      { valor: entregas,      etiqueta: 'Entregas' },
-      { valor: `$${ventasDelMes.toLocaleString('es-MX')}`, etiqueta: 'Ventas este mes' },
-    ],
-    alertas: [],
-    actividadReciente: [],
-    recomendaciones,
-    panelVentas,
-  };
-}
-
-/**
- * Fase Premium V1.1: "Estado de ventas" — snapshot de las 3 oportunidades
- * con actividad más reciente (cualquier etapa), con el monto real de cada
- * una. Complementa a las recomendaciones (que son solo lo urgente) con una
- * vista general de qué se está moviendo en el negocio.
- */
-async function _panelVentasUniformesDeportivos(supabase, company_id) {
-  const { data, error } = await supabase
-    .from('oportunidades')
-    .select('estado, presupuesto_confirmado, presupuesto_estimado, updated_at, clientes(nombre)')
-    .eq('company_id', company_id)
-    .order('updated_at', { ascending: false })
-    .limit(3);
-
-  if (error || !data) return [];
-
-  return data.map(op => ({
-    cliente: op.clientes?.nombre || 'Cliente',
-    estado: op.estado,
-    monto: op.presupuesto_confirmado ?? op.presupuesto_estimado ?? null,
-  }));
-}
-
-async function _contarOportunidadesPorEstado(supabase, company_id, estado) {
-  const { count, error } = await supabase
-    .from('oportunidades')
-    .select('*', { count: 'exact', head: true })
-    .eq('company_id', company_id)
-    .eq('estado', estado);
-
-  return error ? 0 : (count || 0);
-}
-
-async function _sumarVentasDelMes(supabase, company_id, desde) {
-  const { data, error } = await supabase
-    .from('oportunidades')
-    .select('presupuesto_confirmado')
-    .eq('company_id', company_id)
-    .eq('estado', 'Entregado')
-    .gte('updated_at', desde);
-
-  if (error || !data) return 0;
-  return data.reduce((acc, fila) => acc + (Number(fila.presupuesto_confirmado) || 0), 0);
-}
-
-/**
- * Reglas de recomendación por etapa — cada una lee oportunidades reales,
- * no texto fijo. "Cotización enviada" + estancada 48h+ → seguimiento;
- * "Cotización en preparación" → recordatorio de confirmar tallas antes de
- * producción; "Listo para entrega" → aviso de entrega pendiente.
- */
-async function _obtenerRecomendacionesUniformesDeportivos(supabase, company_id, hace48h) {
-  const [estancadas, enPreparacion, listas, urgentesPorFecha] = await Promise.all([
-    supabase
-      .from('oportunidades')
-      .select('id, cliente_id, updated_at, clientes(nombre)')
-      .eq('company_id', company_id)
-      .eq('estado', 'Cotización enviada')
-      .lte('updated_at', hace48h)
-      .order('updated_at', { ascending: true }),
-    supabase
-      .from('oportunidades')
-      .select('id, cliente_id, clientes(nombre)')
-      .eq('company_id', company_id)
-      .eq('estado', 'Cotización en preparación'),
-    supabase
-      .from('oportunidades')
-      .select('id, cliente_id, clientes(nombre)')
-      .eq('company_id', company_id)
-      .eq('estado', 'Listo para entrega'),
-    _recomendacionesUrgentesPorFecha(supabase, company_id),
-  ]);
-
-  const recos = [...urgentesPorFecha];
-
-  for (const op of estancadas.data || []) {
-    recos.push({
-      texto:     `${op.clientes?.nombre || 'Un cliente'} lleva más de 48 horas sin seguimiento.`,
-      detalle:   'Cotización enviada sin respuesta.',
-      accion:    'Dar seguimiento ahora',
-      recurso:   `/crm/clientes/${op.cliente_id}`,
-      severidad: 'critica',
-    });
-  }
-
-  for (const op of enPreparacion.data || []) {
-    recos.push({
-      texto:     `Confirma tallas de ${op.clientes?.nombre || 'este pedido'} antes de enviarlo a producción.`,
-      detalle:   'Cotización en preparación.',
-      accion:    'Ver detalle',
-      recurso:   `/crm/clientes/${op.cliente_id}`,
-      severidad: 'media',
-    });
-  }
-
-  for (const op of listas.data || []) {
-    recos.push({
-      texto:     `El pedido de ${op.clientes?.nombre || 'un cliente'} está listo para entrega.`,
-      detalle:   'Listo para entrega.',
-      accion:    'Ver pedido',
-      recurso:   `/crm/clientes/${op.cliente_id}`,
-      severidad: 'info',
-    });
-  }
-
-  return recos;
-}
-
-// Palabras que indican una fecha de entrega próxima/urgente en lo que el
-// cliente escribió — es un match de texto, no un parser de fechas reales
-// (no hay forma honesta de convertir "para el viernes" en una fecha exacta
-// sin más contexto). Si el texto no matchea ninguna, no se genera alerta.
-const PALABRAS_FECHA_URGENTE = /\b(hoy|mañana|urgent\w*|lo antes posible|esta semana|lunes|martes|mi[ée]rcoles|jueves|viernes|s[áa]bado|domingo)\b/i;
-
-/**
- * Fase Demo Comercial: durante la conversación de intake (deporte→cantidad→
- * …→fecha_entrega→presupuesto), el campo `fecha_entrega` queda en
- * `workflow_sessions.captured_fields` en cuanto el cliente lo menciona —
- * antes de que termine el flujo completo y se cree la oportunidad. Leerlo
- * de ahí (no de `oportunidades`) permite avisar "pedido urgente" en cuanto
- * el cliente dice la fecha, no hasta el final de la conversación.
- */
-async function _recomendacionesUrgentesPorFecha(supabase, company_id) {
-  const { data, error } = await supabase
-    .from('workflow_sessions')
-    .select('cliente_id, captured_fields, updated_at, clientes(nombre)')
-    .eq('company_id', company_id)
-    .order('updated_at', { ascending: false })
-    .limit(20);
-
-  if (error || !data) return [];
-
-  const vistos = new Set();
-  const recos = [];
-
-  for (const sesion of data) {
-    const fechaTexto = sesion.captured_fields?.fecha_entrega;
-    if (!fechaTexto || !PALABRAS_FECHA_URGENTE.test(fechaTexto)) continue;
-    if (vistos.has(sesion.cliente_id)) continue;
-    vistos.add(sesion.cliente_id);
-
-    recos.push({
-      texto:     `${sesion.clientes?.nombre || 'Un cliente'} pidió entrega "${fechaTexto}" — confirma que alcanzas la fecha.`,
-      detalle:   'Fecha de entrega mencionada en la conversación.',
-      accion:    'Ver conversación',
-      recurso:   `/crm/clientes/${sesion.cliente_id}`,
-      severidad: 'critica',
-    });
-  }
-
-  return recos;
-}
-
-/**
- * Fase Premium — Salón de Belleza: tablero de KPIs y recomendaciones
- * propio de un negocio de citas (manicure/pedicure/uñas) — `citas` como
- * objeto central en vez de `oportunidades` (aquí casi no se generan
- * oportunidades: agendar una cita no dispara las palabras clave de
- * modules/crm.js::requiereCrearOportunidad). Recomendaciones calculadas de
- * datos reales, igual criterio que uniformes_deportivos.
- */
-async function obtenerMetricasSalonBelleza(supabase, company_id) {
-  const ahora      = new Date();
-  const inicioHoy  = new Date(Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth(), ahora.getUTCDate())).toISOString();
-  const finHoy     = new Date(Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth(), ahora.getUTCDate(), 23, 59, 59)).toISOString();
-  const hace7dias  = new Date(ahora.getTime() - 7 * 24 * 3600 * 1000).toISOString();
-  const en48h      = new Date(ahora.getTime() + 48 * 3600 * 1000).toISOString();
-  const inicioMes  = new Date(Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth(), 1)).toISOString();
-  const ahoraIso   = ahora.toISOString();
-
-  const [citasHoy, confirmacionesPendientes, clientasNuevas, completadasMes, canceladasMes, recomendaciones] = await Promise.all([
-    _contarCitasEnRango(supabase, company_id, inicioHoy, finHoy, ['agendada', 'confirmada']),
-    _contarCitasSinConfirmar(supabase, company_id, ahoraIso, en48h),
-    _contarDesde(supabase, 'clientes', company_id, 'created_at', hace7dias),
-    _contarCitasDesde(supabase, company_id, 'completada', inicioMes),
-    _contarCitasDesde(supabase, company_id, 'cancelada', inicioMes),
-    _obtenerRecomendacionesSalonBelleza(supabase, company_id, ahoraIso, en48h),
-  ]);
-
-  return {
-    kpis: [
-      { valor: citasHoy,                 etiqueta: 'Citas de hoy' },
-      { valor: confirmacionesPendientes, etiqueta: 'Confirmaciones pendientes' },
-      { valor: clientasNuevas,           etiqueta: 'Clientas nuevas (semana)' },
-      { valor: completadasMes,           etiqueta: 'Citas completadas este mes' },
-      { valor: canceladasMes,            etiqueta: 'Citas canceladas este mes' },
-    ],
-    alertas: [],
-    actividadReciente: [],
-    recomendaciones,
-  };
-}
-
-async function _contarCitasEnRango(supabase, company_id, desde, hasta, estados) {
-  const { count, error } = await supabase
-    .from('citas')
-    .select('*', { count: 'exact', head: true })
-    .eq('company_id', company_id)
-    .in('estado', estados)
-    .gte('inicio', desde)
-    .lte('inicio', hasta);
-
-  return error ? 0 : (count || 0);
-}
-
-async function _contarCitasDesde(supabase, company_id, estado, desde) {
-  const { count, error } = await supabase
-    .from('citas')
-    .select('*', { count: 'exact', head: true })
-    .eq('company_id', company_id)
-    .eq('estado', estado)
-    .gte('inicio', desde);
-
-  return error ? 0 : (count || 0);
-}
-
-const DIAS_SIN_VISITAR_RECORDATORIO = 45;
-
-/**
- * Dos reglas, ambas sobre datos reales: citas agendadas (sin confirmar)
- * en las próximas 48h → recordar confirmar; clientas cuya última cita
- * completada fue hace 45+ días y no tienen ninguna cita futura → sugerir
- * recordatorio de retoque.
- */
-async function _obtenerRecomendacionesSalonBelleza(supabase, company_id, ahoraIso, en48h) {
-  const [sinConfirmar, historial, futuras] = await Promise.all([
-    supabase
-      .from('citas')
-      .select('id, cliente_id, inicio, clientes(nombre)')
-      .eq('company_id', company_id)
-      .eq('estado', 'agendada')
-      .gte('inicio', ahoraIso)
-      .lte('inicio', en48h)
-      .order('inicio', { ascending: true }),
-    supabase
-      .from('citas')
-      .select('cliente_id, inicio, clientes(nombre)')
-      .eq('company_id', company_id)
-      .eq('estado', 'completada')
-      .order('inicio', { ascending: false }),
-    supabase
-      .from('citas')
-      .select('cliente_id')
-      .eq('company_id', company_id)
-      .in('estado', ['agendada', 'confirmada'])
-      .gte('inicio', ahoraIso),
-  ]);
-
-  const recos = [];
-
-  for (const cita of sinConfirmar.data || []) {
-    recos.push({
-      texto:     `Confirma la cita de ${cita.clientes?.nombre || 'una clienta'}.`,
-      detalle:   `Agendada para ${new Date(cita.inicio).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' })}.`,
-      accion:    'Confirmar cita',
-      recurso:   `/crm/clientes/${cita.cliente_id}`,
-      severidad: 'critica',
-    });
-  }
-
-  const idsConCitaFutura = new Set((futuras.data || []).map(c => c.cliente_id));
-  const vistos = new Set();
-  const limiteAntiguedad = Date.now() - DIAS_SIN_VISITAR_RECORDATORIO * 24 * 3600 * 1000;
-
-  for (const cita of historial.data || []) {
-    if (vistos.has(cita.cliente_id)) continue;
-    vistos.add(cita.cliente_id);
-    if (idsConCitaFutura.has(cita.cliente_id)) continue;
-    if (new Date(cita.inicio).getTime() > limiteAntiguedad) continue;
-
-    recos.push({
-      texto:     `${cita.clientes?.nombre || 'Una clienta'} no visita el salón hace más de ${DIAS_SIN_VISITAR_RECORDATORIO} días.`,
-      detalle:   '¿Le enviamos un recordatorio de retoque?',
-      accion:    'Enviar recordatorio',
-      recurso:   `/crm/clientes/${cita.cliente_id}`,
-      severidad: 'media',
-    });
-  }
-
-  return recos;
 }
 
 /**
@@ -607,4 +284,4 @@ async function _contarCitasSinConfirmar(supabase, company_id, ahoraIso, hasta) {
   return error ? 0 : (count || 0);
 }
 
-module.exports = { obtenerMetricas, obtenerActividadReciente, obtenerMetricasUniformesDeportivos, obtenerMetricasSalonBelleza };
+module.exports = { obtenerMetricas, obtenerActividadReciente };

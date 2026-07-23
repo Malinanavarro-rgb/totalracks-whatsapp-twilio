@@ -168,4 +168,25 @@ async function crearEmpresaConIndustria(supabase, { nombre, descripcionNegocio, 
   };
 }
 
-module.exports = { detectarIndustria, aplicarPlantilla, crearEmpresaConIndustria };
+/**
+ * Resuelve la plantilla de industria de una empresa YA existente — usado por
+ * el Motor Universal (dashboard-engine.js, cotizador.js) para leer su config
+ * (`dashboard_kpis_seed`, `cotizacion_config`, `ui_config`) sin ningún `if`
+ * de industria en el código que la consume.
+ *
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} company_id
+ * @returns {Promise<Object|null>} la fila de `plantillas_industria`, o null si la empresa no tiene industria asignada o no hay plantilla para ese slug
+ */
+async function obtenerPlantillaDeEmpresa(supabase, company_id) {
+  const { data: company, error: errCompany } = await supabase
+    .from('companies').select('industria_slug').eq('id', company_id).maybeSingle();
+  if (errCompany || !company?.industria_slug) return null;
+
+  const { data: plantilla, error: errPlantilla } = await supabase
+    .from('plantillas_industria').select('*').eq('slug', company.industria_slug).maybeSingle();
+  if (errPlantilla) return null;
+  return plantilla;
+}
+
+module.exports = { detectarIndustria, aplicarPlantilla, crearEmpresaConIndustria, obtenerPlantillaDeEmpresa };

@@ -60,4 +60,17 @@ describe('cotizador.calcularCotizacion()', () => {
     const resultado = await calcularCotizacion(supabase, COMPANY_A, { cantidad: '20' });
     expect(resultado).toEqual({ cantidad: 20, precioMin: 350, precioMax: 350, total: 7000, envioGratis: true });
   });
+
+  describe('campoCantidad configurable (Motor Universal)', () => {
+    test('lee el campo indicado en vez de asumir siempre "cantidad"', async () => {
+      const supabase = crearMockSupabase({ data: [{ precio: 100 }, { precio: 200 }], error: null });
+      const resultado = await calcularCotizacion(supabase, COMPANY_A, { numero_piezas: '15' }, 'numero_piezas');
+      expect(resultado.cantidad).toBe(15);
+    });
+
+    test('sin ese campo (aunque exista "cantidad"), devuelve null', async () => {
+      const supabase = crearMockSupabase({ data: [{ precio: 100 }], error: null });
+      expect(await calcularCotizacion(supabase, COMPANY_A, { cantidad: '10' }, 'numero_piezas')).toBeNull();
+    });
+  });
 });

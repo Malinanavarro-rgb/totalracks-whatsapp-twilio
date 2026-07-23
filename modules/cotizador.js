@@ -1,10 +1,15 @@
 /**
  * TARA — cotizador.js
  * ─────────────────────────────────────────────────────────────────────────────
- * Fase Demo Comercial: cotización automática al terminar el intake de
- * uniformes_deportivos — usa los precios reales de Catálogo (tabla
- * `servicios`, Fase Premium V1.1) para calcular un estimado real, en vez
- * de que TARA prometa "te la envío pronto" sin ningún número detrás.
+ * Motor Universal: cotización automática al terminar el intake de una
+ * industria por-cantidad-y-catálogo (hoy: uniformes deportivos) — usa los
+ * precios reales de Catálogo (tabla `servicios`) para calcular un estimado
+ * real, en vez de que TARA prometa "te la envío pronto" sin ningún número
+ * detrás. Solo corre si la industria de la empresa define
+ * `plantillas_industria.cotizacion_config` (ver server.js) — antes de esto
+ * corría para CUALQUIER empresa sin verificar industria en absoluto, un bug
+ * real (mandaba "uniformes" a quien fuera). `campo_cantidad` viene de esa
+ * config en vez de asumir siempre 'cantidad'.
  *
  * El catálogo real de Tienda Soccer es por nivel de personalización
  * (genérico con logo vs. diseño totalmente personalizado), no por deporte
@@ -26,7 +31,8 @@ const MINIMO_ENVIO_GRATIS = 10;
 /**
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} company_id
- * @param {Object} capturedFields - workflow_sessions.captured_fields (cantidad, ...)
+ * @param {Object} capturedFields - workflow_sessions.captured_fields
+ * @param {string} [campoCantidad] - nombre del campo en capturedFields que trae la cantidad (default 'cantidad')
  * @returns {Promise<{cantidad: number, precioMin: number, precioMax: number, total: number, envioGratis: boolean}|null>}
  *   null si falta información suficiente para cotizar (cantidad no
  *   reconocida, o la empresa no tiene productos activos en su catálogo).
@@ -34,8 +40,9 @@ const MINIMO_ENVIO_GRATIS = 10;
  *   que guardar en la oportunidad (KPIs, "ya se cotizó"); el mensaje al
  *   cliente siempre muestra el rango real, no ese número solo.
  */
-async function calcularCotizacion(supabase, company_id, capturedFields) {
-  if (!capturedFields?.cantidad) return null;
+async function calcularCotizacion(supabase, company_id, capturedFields, campoCantidad = 'cantidad') {
+  const valorCantidad = capturedFields?.[campoCantidad];
+  if (!valorCantidad) return null;
 
   const { data: servicios, error } = await supabase
     .from('servicios')
@@ -48,7 +55,7 @@ async function calcularCotizacion(supabase, company_id, capturedFields) {
   const precios = servicios.map(s => Number(s.precio)).filter(p => !Number.isNaN(p) && p > 0);
   if (precios.length === 0) return null;
 
-  const match = String(capturedFields.cantidad).match(/\d+/);
+  const match = String(valorCantidad).match(/\d+/);
   if (!match) return null;
   const cantidad = parseInt(match[0], 10);
   if (!cantidad) return null;

@@ -2,29 +2,18 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../lib/api';
 
-// Fase Demo · Tienda Soccer → Fase Premium V1.1: "Catálogo" reutiliza el
-// mismo backend de Servicios (modules/configuracion.js, tabla `servicios`)
-// ya construido en el Pivote a producto — sin inventar datos que no
-// existen. El ícono y el código de producto se calculan a partir del
-// nombre real (presentación, no un campo nuevo en la base de datos); las
-// tallas mostradas son el estándar de la industria (S/M/L/XL), no
-// inventario por talla — eso sí requeriría un campo nuevo si se pide después.
-const ICONO_POR_PALABRA_UNIFORMES = [
-  [/f[uú]tbol/i, '⚽'], [/b[aá]squet/i, '🏀'], [/ciclis/i, '🚴'],
-  [/b[eé]isbol/i, '⚾'], [/voleibol/i, '🏐'], [/handball/i, '🤾'],
-];
+// Motor Universal: "Catálogo" reutiliza el mismo backend de Servicios
+// (modules/configuracion.js, tabla `servicios`) para cualquier industria —
+// el ícono/variante mostrada (tallas vs. duración) viene de la plantilla de
+// industria (plantillas_industria.ui_config.catalogo), nunca de un
+// `if industria_slug` en este componente. El código de producto sí se
+// calcula igual para todas (presentación, no un campo nuevo en la base).
+const TALLAS_ESTANDAR_DEFECTO = ['S', 'M', 'L', 'XL'];
 
-// Fase Premium · Salón de Belleza: mismos "productos", giro distinto — un
-// servicio no tiene talla, tiene duración (ver duracionServicio abajo).
-const ICONO_POR_PALABRA_SALON = [
-  [/pedicure/i, '🦶'], [/manicure/i, '💅'], [/ac[rí]lic/i, '💅'],
-  [/gel/i, '💅'], [/spa|masaje/i, '💆'], [/ceja|pesta/i, '👁️'],
-];
-
-function iconoProducto(nombre, esSalonBelleza) {
-  const tabla = esSalonBelleza ? ICONO_POR_PALABRA_SALON : ICONO_POR_PALABRA_UNIFORMES;
-  const match = tabla.find(([re]) => re.test(nombre || ''));
-  return match ? match[1] : (esSalonBelleza ? '✨' : '👕');
+function iconoProducto(nombre, config) {
+  const tabla = config?.iconos || [];
+  const match = tabla.find(([patron]) => new RegExp(patron, 'i').test(nombre || ''));
+  return match ? match[1] : (config?.iconoDefault || '📦');
 }
 
 function duracionServicio(minutos) {
@@ -38,11 +27,11 @@ function codigoProducto(nombre, id) {
   return `${prefijo}-${String(id).slice(0, 4).padStart(4, '0')}`;
 }
 
-const TALLAS_ESTANDAR = ['S', 'M', 'L', 'XL'];
-
 export default function Catalogo() {
   const { sesion } = useAuth();
-  const esSalonBelleza = sesion?.empresaActiva?.industria_slug === 'salon_belleza';
+  const catalogoConfig = sesion?.empresaActiva?.ui_config?.catalogo;
+  const usaDuracion = catalogoConfig?.campoVariante === 'duracion';
+  const tallas = catalogoConfig?.tallas || TALLAS_ESTANDAR_DEFECTO;
   const [productos, setProductos] = useState(null);
   const [form, setForm] = useState({ nombre: '', precio: '', duracion_minutos: '' });
   const [error, setError] = useState(null);
@@ -101,7 +90,7 @@ export default function Catalogo() {
       await api.actualizarServicioConfig(id, {
         nombre: formEdicion.nombre.trim(),
         precio: formEdicion.precio !== '' ? Number(formEdicion.precio) : null,
-        ...(esSalonBelleza ? { duracion_minutos: formEdicion.duracion_minutos !== '' ? Number(formEdicion.duracion_minutos) : null } : {}),
+        ...(usaDuracion ? { duracion_minutos: formEdicion.duracion_minutos !== '' ? Number(formEdicion.duracion_minutos) : null } : {}),
       });
       setEditandoId(null);
       cargar();
@@ -112,13 +101,13 @@ export default function Catalogo() {
 
   return (
     <div>
-      <h2 className="titulo-seccion">¿Qué vendo?</h2>
+      <h2 className="titulo-seccion">{catalogoConfig?.tituloSeccion || '¿Qué vendo?'}</h2>
 
       <form className="config-form-inline" onSubmit={agregar}>
         <input placeholder="Nombre del producto" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} />
         <input type="number" min="0" placeholder="Precio (opcional)" value={form.precio}
           onChange={(e) => setForm({ ...form, precio: e.target.value })} />
-        {esSalonBelleza && (
+        {usaDuracion && (
           <input type="number" min="0" placeholder="Duración en minutos" value={form.duracion_minutos}
             onChange={(e) => setForm({ ...form, duracion_minutos: e.target.value })} />
         )}
@@ -132,7 +121,7 @@ export default function Catalogo() {
       <div className="catalogo-grid">
         {productos?.map((p) => (
           <div key={p.id} className="producto-tarjeta">
-            <div className="producto-tarjeta-imagen">{iconoProducto(p.nombre, esSalonBelleza)}</div>
+            <div className="producto-tarjeta-imagen">{iconoProducto(p.nombre, catalogoConfig)}</div>
             <div className="producto-tarjeta-cuerpo">
               {editandoId === p.id ? (
                 <form className="producto-tarjeta-form-edicion" onSubmit={(e) => guardarEdicion(e, p.id)}>
@@ -146,7 +135,7 @@ export default function Catalogo() {
                     value={formEdicion.precio}
                     onChange={(e) => setFormEdicion({ ...formEdicion, precio: e.target.value })}
                   />
-                  {esSalonBelleza && (
+                  {usaDuracion && (
                     <input
                       type="number" min="0" placeholder="Duración en minutos"
                       value={formEdicion.duracion_minutos}
@@ -163,11 +152,11 @@ export default function Catalogo() {
                   <p className="producto-tarjeta-nombre">{p.nombre}</p>
                   <p className="producto-tarjeta-sku">SKU {codigoProducto(p.nombre, p.id)}</p>
                   <div className="producto-tarjeta-variantes">
-                    {esSalonBelleza
+                    {usaDuracion
                       ? (duracionServicio(p.duracion_minutos) && (
                           <span className="producto-tarjeta-variante">{duracionServicio(p.duracion_minutos)}</span>
                         ))
-                      : TALLAS_ESTANDAR.map((t) => <span key={t} className="producto-tarjeta-variante">{t}</span>)
+                      : tallas.map((t) => <span key={t} className="producto-tarjeta-variante">{t}</span>)
                     }
                   </div>
                   <div className="producto-tarjeta-pie">

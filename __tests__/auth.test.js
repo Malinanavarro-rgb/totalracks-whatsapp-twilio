@@ -19,6 +19,7 @@ function crearBuilder(resultado = { data: null, error: null }) {
   const builder = {
     select:      jest.fn().mockReturnThis(),
     eq:          jest.fn().mockReturnThis(),
+    in:          jest.fn().mockReturnThis(),
     order:       jest.fn().mockReturnThis(),
     maybeSingle: jest.fn().mockResolvedValue(resultado),
     then: (resolve) => resolve(resultado),
@@ -100,7 +101,7 @@ describe('auth', () => {
       expect(resultado.usuario).toEqual({ id: USUARIO_ID, nombre: 'Alina', email: 'a@b.com' });
       expect(resultado.empresaActiva).toEqual({
         company_id: COMPANY_A, nombre: 'Total Racks', rol: 'owner',
-        logo_url: null, color_acento: null, industria_slug: null, nav_labels: null, onboarding_completado: true,
+        logo_url: null, color_acento: null, industria_slug: null, nav_labels: null, ui_config: {}, onboarding_completado: true,
       });
       expect(resultado.empresas).toHaveLength(1);
     });
@@ -144,7 +145,7 @@ describe('auth', () => {
 
       expect(empresas).toEqual([{
         company_id: COMPANY_A, nombre: 'Total Racks', rol: 'supervisor',
-        logo_url: null, color_acento: null, industria_slug: null, nav_labels: null, onboarding_completado: true,
+        logo_url: null, color_acento: null, industria_slug: null, nav_labels: null, ui_config: {}, onboarding_completado: true,
       }]);
     });
 
@@ -163,16 +164,19 @@ describe('auth', () => {
 
     test('incluye color_acento, industria_slug y nav_labels (Fase Demo Tienda Soccer)', async () => {
       const supabase = crearMockSupabase({
-        fromResults: [{
-          data: [{
-            company_id: COMPANY_A, rol: 'owner', created_at: '2026-01-01',
-            companies: {
-              nombre: 'Tienda Soccer', color_acento: '#0F9D76', industria_slug: 'uniformes_deportivos',
-              nav_labels: { crm: 'Ventas', catalogo: 'Catálogo' },
-            },
-          }],
-          error: null,
-        }],
+        fromResults: [
+          {
+            data: [{
+              company_id: COMPANY_A, rol: 'owner', created_at: '2026-01-01',
+              companies: {
+                nombre: 'Tienda Soccer', color_acento: '#0F9D76', industria_slug: 'uniformes_deportivos',
+                nav_labels: { crm: 'Ventas', catalogo: 'Catálogo' },
+              },
+            }],
+            error: null,
+          },
+          { data: [{ slug: 'uniformes_deportivos', ui_config: { panel_ventas: true } }], error: null }, // plantillas_industria
+        ],
       });
 
       const empresas = await obtenerEmpresasDeUsuario(supabase, USUARIO_ID);
@@ -180,6 +184,42 @@ describe('auth', () => {
       expect(empresas[0].color_acento).toBe('#0F9D76');
       expect(empresas[0].industria_slug).toBe('uniformes_deportivos');
       expect(empresas[0].nav_labels).toEqual({ crm: 'Ventas', catalogo: 'Catálogo' });
+    });
+
+    test('Motor Universal: ui_config combina la plantilla de industria con nav_labels de la empresa (la empresa gana)', async () => {
+      const supabase = crearMockSupabase({
+        fromResults: [
+          {
+            data: [{
+              company_id: COMPANY_A, rol: 'owner', created_at: '2026-01-01',
+              companies: {
+                nombre: 'Tienda Soccer', industria_slug: 'uniformes_deportivos',
+                nav_labels: { crm: 'Ventas propias' },
+              },
+            }],
+            error: null,
+          },
+          { data: [{ slug: 'uniformes_deportivos', ui_config: { crm: 'Ventas', catalogo: 'Catálogo' } }], error: null },
+        ],
+      });
+
+      const empresas = await obtenerEmpresasDeUsuario(supabase, USUARIO_ID);
+
+      expect(empresas[0].ui_config).toEqual({ crm: 'Ventas propias', catalogo: 'Catálogo' });
+    });
+
+    test('Motor Universal: sin industria_slug, nunca consulta plantillas_industria', async () => {
+      const supabase = crearMockSupabase({
+        fromResults: [{
+          data: [{ company_id: COMPANY_A, rol: 'owner', created_at: '2026-01-01', companies: { nombre: 'X', industria_slug: null } }],
+          error: null,
+        }],
+      });
+
+      const empresas = await obtenerEmpresasDeUsuario(supabase, USUARIO_ID);
+
+      expect(empresas[0].ui_config).toEqual({});
+      expect(supabase.from).toHaveBeenCalledTimes(1); // solo usuarios_empresas, nunca plantillas_industria
     });
 
     test('devuelve arreglo vacío si la consulta falla', async () => {

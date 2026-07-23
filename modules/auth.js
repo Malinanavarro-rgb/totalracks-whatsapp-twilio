@@ -39,6 +39,17 @@ async function obtenerEmpresasDeUsuario(supabase, usuarioId) {
 
   if (error || !data) return [];
 
+  // Motor Universal: ui_config por defecto viene de la plantilla de la
+  // industria (plantillas_industria.ui_config) — nav_labels de la empresa
+  // (si existe) sobreescribe campos puntuales encima, sin tener que
+  // duplicar toda la plantilla solo para personalizar una etiqueta.
+  const slugs = [...new Set(data.map(f => f.companies?.industria_slug).filter(Boolean))];
+  let uiConfigPorSlug = {};
+  if (slugs.length > 0) {
+    const { data: plantillas } = await supabase.from('plantillas_industria').select('slug, ui_config').in('slug', slugs);
+    uiConfigPorSlug = Object.fromEntries((plantillas || []).map(p => [p.slug, p.ui_config || {}]));
+  }
+
   return data.map(fila => ({
     company_id: fila.company_id,
     nombre: fila.companies?.nombre || null,
@@ -47,6 +58,7 @@ async function obtenerEmpresasDeUsuario(supabase, usuarioId) {
     color_acento: fila.companies?.color_acento || null,
     industria_slug: fila.companies?.industria_slug || null,
     nav_labels: fila.companies?.nav_labels || null,
+    ui_config: { ...(uiConfigPorSlug[fila.companies?.industria_slug] || {}), ...(fila.companies?.nav_labels || {}) },
     onboarding_completado: fila.companies?.onboarding_completado ?? true,
   }));
 }

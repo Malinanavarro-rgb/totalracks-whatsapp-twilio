@@ -48,40 +48,13 @@ const MODULOS = [
   { ruta: '/reportes',       etiqueta: 'Reportes',              icono: 'catalogo',       habilitado: false },
 ];
 
-// Fase Demo · Tienda Soccer: esta industria vende por cotización (no agenda
-// citas) y su proceso comercial se navega en dos vistas separadas —
-// "Ventas" (kanban del proceso) y "Clientes" (ficha por cliente) — en vez
-// de una sola entrada "CRM". "Catálogo" reusa el CRUD de Servicios ya
-// existente en Configuración, solo con otra etiqueta/ruta en el menú.
-const MODULOS_UNIFORMES_DEPORTIVOS = [
-  { ruta: '/operaciones',    etiqueta: 'Inicio',         icono: 'inicio',         habilitado: true },
-  { ruta: '/conversaciones', etiqueta: 'Conversaciones', icono: 'conversaciones', habilitado: true },
-  { ruta: '/inbox',          etiqueta: 'Inbox',          icono: 'inbox',          habilitado: true },
-  { ruta: '/crm/pipeline',   etiqueta: 'Ventas',         icono: 'ventas',         habilitado: true },
-  { ruta: '/crm',            etiqueta: 'Clientes',       icono: 'clientes',       habilitado: true },
-  { ruta: '/catalogo',       etiqueta: 'Catálogo',       icono: 'catalogo',       habilitado: true },
-  { ruta: '/panel-accion',   etiqueta: 'Panel de Acción', icono: 'panelAccion',   habilitado: true, soloGerencial: true },
-  { ruta: '/configuracion',  etiqueta: 'Configuración',  icono: 'configuracion',  habilitado: true },
-];
-
-// Fase Premium · Salón de Belleza: negocio de citas, no de proceso
-// comercial por días — Agenda vuelve a ser central (a diferencia de
-// uniformes_deportivos, que no la usa) y "Ventas"/kanban no aplica.
-const MODULOS_SALON_BELLEZA = [
-  { ruta: '/operaciones',    etiqueta: 'Inicio',         icono: 'inicio',         habilitado: true },
-  { ruta: '/conversaciones', etiqueta: 'Conversaciones', icono: 'conversaciones', habilitado: true },
-  { ruta: '/inbox',          etiqueta: 'Inbox',          icono: 'inbox',          habilitado: true },
-  { ruta: '/agenda',         etiqueta: 'Agenda',         icono: 'agenda',         habilitado: true },
-  { ruta: '/crm',            etiqueta: 'Clientas',       icono: 'clientes',       habilitado: true },
-  { ruta: '/catalogo',       etiqueta: 'Catálogo',       icono: 'catalogo',       habilitado: true },
-  { ruta: '/panel-accion',   etiqueta: 'Panel de Acción', icono: 'panelAccion',   habilitado: true, soloGerencial: true },
-  { ruta: '/configuracion',  etiqueta: 'Configuración',  icono: 'configuracion',  habilitado: true },
-];
-
+// Motor Universal para Empresas de Servicios: el menú por industria ya no
+// vive en código — cada plantilla de industria (plantillas_industria.ui_config
+// → empresaActiva.ui_config, resuelto en modules/auth.js) trae su propio
+// arreglo `modulos` completo. Sin esto (empresa sin industria configurada,
+// ej. TARA-OS o una empresa nueva) se usa el menú genérico de arriba.
 function modulosParaEmpresa(empresaActiva) {
-  if (empresaActiva?.industria_slug === 'uniformes_deportivos') return MODULOS_UNIFORMES_DEPORTIVOS;
-  if (empresaActiva?.industria_slug === 'salon_belleza') return MODULOS_SALON_BELLEZA;
-  return MODULOS;
+  return empresaActiva?.ui_config?.modulos || MODULOS;
 }
 
 export default function Shell() {

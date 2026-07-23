@@ -22,7 +22,7 @@ jest.mock('../modules/organizaciones', () => ({
   crearOrganizacionConCompany: (...args) => mockCrearOrganizacionConCompany(...args),
 }));
 
-const { detectarIndustria, aplicarPlantilla, crearEmpresaConIndustria } = require('../modules/plantillas-industria');
+const { detectarIndustria, aplicarPlantilla, crearEmpresaConIndustria, obtenerPlantillaDeEmpresa } = require('../modules/plantillas-industria');
 
 // ─── Mock Builder (para las queries directas: companies, personalities, plantillas_industria) ──
 
@@ -32,6 +32,7 @@ function crearBuilder(resultado = { data: null, error: null }) {
     insert: jest.fn().mockReturnThis(),
     eq:     jest.fn().mockReturnThis(),
     single: jest.fn().mockResolvedValue(resultado),
+    maybeSingle: jest.fn().mockResolvedValue(resultado),
     then: (resolve) => resolve(resultado),
   };
   return builder;
@@ -198,6 +199,29 @@ describe('plantillas-industria', () => {
       mockCrearOrganizacionConCompany.mockRejectedValue(new Error('slug duplicado'));
       await expect(crearEmpresaConIndustria(db, { nombre: 'X', descripcionNegocio: 'Y', slug: 'x' }))
         .rejects.toThrow('slug duplicado');
+    });
+  });
+
+  describe('obtenerPlantillaDeEmpresa()', () => {
+    test('devuelve la plantilla de la industria de la empresa', async () => {
+      const db = crearMockDb({ data: { industria_slug: 'salon_belleza' }, error: null }, { data: PLANTILLA_SALON, error: null });
+      const resultado = await obtenerPlantillaDeEmpresa(db, COMPANY_A);
+      expect(resultado).toEqual(PLANTILLA_SALON);
+    });
+
+    test('null si la empresa no tiene industria_slug asignado', async () => {
+      const db = crearMockDb({ data: { industria_slug: null }, error: null });
+      expect(await obtenerPlantillaDeEmpresa(db, COMPANY_A)).toBeNull();
+    });
+
+    test('null si falla la consulta de la empresa', async () => {
+      const db = crearMockDb({ data: null, error: { message: 'boom' } });
+      expect(await obtenerPlantillaDeEmpresa(db, COMPANY_A)).toBeNull();
+    });
+
+    test('null si falla la consulta de la plantilla', async () => {
+      const db = crearMockDb({ data: { industria_slug: 'salon_belleza' }, error: null }, { data: null, error: { message: 'boom' } });
+      expect(await obtenerPlantillaDeEmpresa(db, COMPANY_A)).toBeNull();
     });
   });
 });

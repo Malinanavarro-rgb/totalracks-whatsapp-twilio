@@ -5,26 +5,6 @@ import { api } from '../lib/api';
 import { usePolling } from '../lib/usePolling';
 import LogoTara from '../components/LogoTara';
 
-// Preguntas sugeridas para uniformes_deportivos (Fase Demo · Tienda Soccer) —
-// solo sugerencias de UI; la respuesta ya viene de Modo Operador
-// (modules/operador-engine.js), IA real con acceso de solo lectura a los
-// datos de la empresa, no un match por palabras clave.
-const PREGUNTAS_UNIFORMES_DEPORTIVOS = [
-  '¿Qué clientes necesitan seguimiento?',
-  '¿Cuántas cotizaciones llevo esta semana?',
-  '¿Qué pedidos debo entregar hoy?',
-  '¿Qué clientes llevan más de 48 horas sin responder?',
-];
-
-// Preguntas sugeridas para salon_belleza (Fase Premium) — mismo patrón,
-// mismos datos reales de modules/dashboard.js::obtenerMetricasSalonBelleza.
-const PREGUNTAS_SALON_BELLEZA = [
-  '¿Qué citas debo confirmar?',
-  '¿Cuántas citas tengo hoy?',
-  '¿Cuántas clientas nuevas llevo esta semana?',
-  '¿Qué clientas no visitan hace tiempo?',
-];
-
 function saludoPorHora() {
   const hora = new Date().getHours();
   if (hora < 12) return 'Buenos días';
@@ -121,10 +101,14 @@ export default function Operaciones() {
     preguntarleATara(p);
   }
 
-  const esUniformesDeportivos = sesion?.empresaActiva?.industria_slug === 'uniformes_deportivos';
-  const esSalonBelleza = sesion?.empresaActiva?.industria_slug === 'salon_belleza';
-  const tieneRecomendacionesRicas = esUniformesDeportivos || esSalonBelleza;
-  const preguntasSugeridas = esSalonBelleza ? PREGUNTAS_SALON_BELLEZA : PREGUNTAS_UNIFORMES_DEPORTIVOS;
+  // Motor Universal: el layout "recomendaciones ricas" (vs. alertas/actividad
+  // genérico) y sus preguntas sugeridas vienen de la plantilla de industria
+  // (plantillas_industria.ui_config.dashboard) — sin esa config, la empresa
+  // ve el dashboard genérico universal (metricas.alertas/actividadReciente).
+  const dashboardConfig = sesion?.empresaActiva?.ui_config?.dashboard;
+  const tieneRecomendacionesRicas = !!dashboardConfig;
+  const layoutVentas = dashboardConfig?.layout === 'ventas';
+  const preguntasSugeridas = dashboardConfig?.preguntasSugeridas || [];
   const empresa = sesion?.empresaActiva?.nombre || 'tu empresa';
   // Si el usuario no tiene nombre configurado (solo email), se omite del
   // saludo en vez de mostrar el email como si fuera un nombre.
@@ -182,7 +166,7 @@ export default function Operaciones() {
             ))}
           </div>
 
-          {esUniformesDeportivos && (
+          {tieneRecomendacionesRicas && layoutVentas && (
             <div className="dos-columnas">
               <div>
                 <ListaRecomendaciones recomendaciones={metricas.recomendaciones} />
@@ -209,7 +193,7 @@ export default function Operaciones() {
             </div>
           )}
 
-          {esSalonBelleza && (
+          {tieneRecomendacionesRicas && !layoutVentas && (
             <ListaRecomendaciones recomendaciones={metricas.recomendaciones} />
           )}
 

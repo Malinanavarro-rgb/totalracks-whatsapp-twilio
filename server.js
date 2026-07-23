@@ -76,6 +76,7 @@ const {
 }                                        = require('./modules/workflow-admin');
 const { responderSobreCliente }         = require('./modules/asistente-consultas');
 const { calcularCotizacion }             = require('./modules/cotizador');
+const { obtenerPlantillaDeEmpresa }      = require('./modules/plantillas-industria');
 
 // Plataforma Comercial (Panel Maestro, Billing, Onboarding).
 const { crearOrganizacionConCompany, listarOrganizaciones, obtenerOrganizacion } = require('./modules/organizaciones');
@@ -323,53 +324,60 @@ async function procesarMensajeEntrante(message, enviar, proveedor = 'desconocido
     }
   }
 
-  // Fase Demo Comercial: cotización automática — si el intake de la
-  // industria acaba de completarse (workflow_sessions.status='completado')
-  // y la oportunidad todavía no tiene un monto real, se calcula con los
-  // precios del Catálogo (modules/cotizador.js) y se agrega a esta misma
-  // respuesta. presupuesto_confirmado ya asignado es la señal de "ya se
-  // cotizó" — evita recalcular/reenviar en turnos siguientes. También
-  // avanza la etapa a "Cotización enviada" cuando existe esa etapa
-  // configurada, en vez de quedarse en la etapa inicial genérica.
+  // Motor Universal: cotización automática — solo corre si la industria de
+  // la empresa define `cotizacion_config` (antes corría para CUALQUIER
+  // empresa sin verificar industria, un bug real — ver ADR del Motor
+  // Universal). Si el intake acaba de completarse
+  // (workflow_sessions.status='completado') y la oportunidad todavía no
+  // tiene un monto real, se calcula con los precios del Catálogo
+  // (modules/cotizador.js) y se agrega a esta misma respuesta.
+  // presupuesto_confirmado ya asignado es la señal de "ya se cotizó" — evita
+  // recalcular/reenviar en turnos siguientes. También avanza la etapa a
+  // "Cotización enviada" cuando existe esa etapa configurada.
   let textoCotizacion = '';
   try {
-    const { data: sesion } = await supabaseServicio
-      .from('workflow_sessions')
-      .select('status, captured_fields')
-      .eq('cliente_id', cliente.id)
-      .eq('company_id', message.company_id)
-      .order('updated_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const plantilla = await obtenerPlantillaDeEmpresa(supabaseServicio, message.company_id);
+    if (plantilla?.cotizacion_config) {
+      const { unidad, campo_cantidad } = plantilla.cotizacion_config;
 
-    if (sesion?.status === 'completado') {
-      const { data: oportunidad } = await supabaseServicio
-        .from('oportunidades')
-        .select('id, presupuesto_confirmado')
+      const { data: sesion } = await supabaseServicio
+        .from('workflow_sessions')
+        .select('status, captured_fields')
         .eq('cliente_id', cliente.id)
         .eq('company_id', message.company_id)
-        .neq('estado', 'Perdido')
         .order('updated_at', { ascending: false })
         .limit(1)
         .maybeSingle();
 
-      if (oportunidad && oportunidad.presupuesto_confirmado == null) {
-        const cotizacion = await calcularCotizacion(supabaseServicio, message.company_id, sesion.captured_fields);
-        if (cotizacion) {
-          const cambios = { presupuesto_confirmado: cotizacion.total };
-          const { data: etapaCotizada } = await supabaseServicio
-            .from('pipeline_etapas')
-            .select('nombre')
-            .eq('company_id', message.company_id)
-            .ilike('nombre', '%cotización enviada%')
-            .maybeSingle();
-          if (etapaCotizada?.nombre) cambios.estado = etapaCotizada.nombre;
+      if (sesion?.status === 'completado') {
+        const { data: oportunidad } = await supabaseServicio
+          .from('oportunidades')
+          .select('id, presupuesto_confirmado')
+          .eq('cliente_id', cliente.id)
+          .eq('company_id', message.company_id)
+          .neq('estado', 'Perdido')
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
 
-          await supabaseServicio.from('oportunidades').update(cambios).eq('id', oportunidad.id);
+        if (oportunidad && oportunidad.presupuesto_confirmado == null) {
+          const cotizacion = await calcularCotizacion(supabaseServicio, message.company_id, sesion.captured_fields, campo_cantidad);
+          if (cotizacion) {
+            const cambios = { presupuesto_confirmado: cotizacion.total };
+            const { data: etapaCotizada } = await supabaseServicio
+              .from('pipeline_etapas')
+              .select('nombre')
+              .eq('company_id', message.company_id)
+              .ilike('nombre', '%cotización enviada%')
+              .maybeSingle();
+            if (etapaCotizada?.nombre) cambios.estado = etapaCotizada.nombre;
 
-          const rangoTotal = `$${(cotizacion.precioMin * cotizacion.cantidad).toLocaleString('es-MX')}–$${(cotizacion.precioMax * cotizacion.cantidad).toLocaleString('es-MX')}`;
-          const envio = cotizacion.envioGratis ? ' 🚚 Envío gratis a todo México incluido.' : '';
-          textoCotizacion = `\n\n📋 Cotización estimada: ${cotizacion.cantidad} uniformes × $${cotizacion.precioMin.toLocaleString('es-MX')}–$${cotizacion.precioMax.toLocaleString('es-MX')} c/u = ${rangoTotal} MXN, según diseño genérico o totalmente personalizado.${envio} Un asesor te confirma el total exacto.`;
+            await supabaseServicio.from('oportunidades').update(cambios).eq('id', oportunidad.id);
+
+            const rangoTotal = `$${(cotizacion.precioMin * cotizacion.cantidad).toLocaleString('es-MX')}–$${(cotizacion.precioMax * cotizacion.cantidad).toLocaleString('es-MX')}`;
+            const envio = cotizacion.envioGratis ? ' 🚚 Envío gratis a todo México incluido.' : '';
+            textoCotizacion = `\n\n📋 Cotización estimada: ${cotizacion.cantidad} ${unidad} × $${cotizacion.precioMin.toLocaleString('es-MX')}–$${cotizacion.precioMax.toLocaleString('es-MX')} c/u = ${rangoTotal} MXN, según diseño genérico o totalmente personalizado.${envio} Un asesor te confirma el total exacto.`;
+          }
         }
       }
     }
@@ -1909,6 +1917,10 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
         .eq('id', req.usuario.company_id)
         .maybeSingle();
 
+      // Motor Universal: mismo criterio que obtenerEmpresasDeUsuario() —
+      // ui_config = plantilla de industria + nav_labels de la empresa encima.
+      const plantilla = await obtenerPlantillaDeEmpresa(req.supabase, req.usuario.company_id);
+
       return res.json({
         usuario: { id: req.usuario.id, nombre: req.usuario.nombre, email: req.usuario.email },
         empresaActiva: {
@@ -1919,6 +1931,7 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
           color_acento: company?.color_acento || null,
           industria_slug: company?.industria_slug || null,
           nav_labels: company?.nav_labels || null,
+          ui_config: { ...(plantilla?.ui_config || {}), ...(company?.nav_labels || {}) },
           onboarding_completado: true, // nunca mostrar el wizard durante impersonación
           es_impersonacion: true,
         },

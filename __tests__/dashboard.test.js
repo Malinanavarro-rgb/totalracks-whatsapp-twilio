@@ -1,6 +1,6 @@
 'use strict';
 
-const { obtenerMetricas, obtenerActividadReciente, obtenerMetricasUniformesDeportivos, obtenerMetricasSalonBelleza } = require('../modules/dashboard');
+const { obtenerMetricas, obtenerActividadReciente } = require('../modules/dashboard');
 
 // ─── Mock Builder ─────────────────────────────────────────────────────────────
 // Mismo patrón thenable que scheduling-engine.test.js/auth.test.js, extendido
@@ -170,274 +170,52 @@ describe('dashboard.obtenerMetricas()', () => {
   });
 });
 
-// Fase Demo Tienda Soccer: tablero de industria "uniformes_deportivos".
-// Orden de llamadas dentro de obtenerMetricasUniformesDeportivos():
-// 1-4. oportunidades (count por estado: Solicitud nueva, Cotización enviada, En producción, Listo para entrega)
-// 5. oportunidades (select presupuesto_confirmado, ventas del mes)
-// 6-8. oportunidades (recomendaciones: estancadas, en preparación, listas)
-describe('dashboard.obtenerMetricasUniformesDeportivos()', () => {
-  test('calcula los 5 KPIs de la industria a partir de oportunidades reales', async () => {
+// Motor Universal: obtenerMetricas() ya no tiene ningún "if" de industria —
+// resuelve la plantilla (companies → plantillas_industria) y, si trae
+// dashboard_kpis_seed, delega en dashboard-engine.js (probado a fondo en
+// __tests__/dashboard-engine.test.js; aquí solo se prueba el enrutamiento).
+describe('dashboard.obtenerMetricas() — enruta por plantilla de industria', () => {
+  test('empresa con plantilla que define dashboard_kpis_seed usa el motor genérico', async () => {
     const db = crearMockDb(
-      { count: 1, error: null },  // Solicitud nueva
-      { count: 2, error: null },  // Cotización enviada
-      { count: 1, error: null },  // En producción
-      { count: 1, error: null },  // Listo para entrega
-      { data: [{ presupuesto_confirmado: 48000 }, { presupuesto_confirmado: 31000 }], error: null }, // ventas del mes
-      { data: [], error: null },  // estancadas
-      { data: [], error: null },  // en preparación
-      { data: [], error: null },  // listas
-    );
-
-    const metricas = await obtenerMetricasUniformesDeportivos(db, COMPANY_A);
-
-    expect(metricas.kpis).toEqual([
-      { valor: 1, etiqueta: 'Solicitudes nuevas' },
-      { valor: 2, etiqueta: 'Cotizaciones enviadas' },
-      { valor: 1, etiqueta: 'Pedidos en producción' },
-      { valor: 1, etiqueta: 'Entregas' },
-      { valor: '$79,000', etiqueta: 'Ventas este mes' },
-    ]);
-  });
-
-  test('genera una recomendación por cada oportunidad estancada 48h+ en Cotización enviada', async () => {
-    const db = crearMockDb(
-      { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null },
-      { data: [], error: null },
-      { data: [{ id: 1, cliente_id: 10, updated_at: '2026-07-10T00:00:00Z', clientes: { nombre: 'Rayados FC' } }], error: null },
-      { data: [], error: null },
-      { data: [], error: null },
-    );
-
-    const metricas = await obtenerMetricasUniformesDeportivos(db, COMPANY_A);
-
-    expect(metricas.recomendaciones).toEqual([{
-      texto: 'Rayados FC lleva más de 48 horas sin seguimiento.',
-      detalle: 'Cotización enviada sin respuesta.',
-      accion: 'Dar seguimiento ahora',
-      recurso: '/crm/clientes/10',
-      severidad: 'critica',
-    }]);
-  });
-
-  test('genera una recomendación media por cada oportunidad en Cotización en preparación', async () => {
-    const db = crearMockDb(
-      { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null },
-      { data: [], error: null },
-      { data: [], error: null },
-      { data: [{ id: 3, cliente_id: 12, clientes: { nombre: 'Prepa Tec' } }], error: null },
-      { data: [], error: null },
-    );
-
-    const metricas = await obtenerMetricasUniformesDeportivos(db, COMPANY_A);
-
-    expect(metricas.recomendaciones).toEqual([{
-      texto: 'Confirma tallas de Prepa Tec antes de enviarlo a producción.',
-      detalle: 'Cotización en preparación.',
-      accion: 'Ver detalle',
-      recurso: '/crm/clientes/12',
-      severidad: 'media',
-    }]);
-  });
-
-  test('genera una recomendación por cada oportunidad lista para entrega', async () => {
-    const db = crearMockDb(
-      { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null },
-      { data: [], error: null },
-      { data: [], error: null },
-      { data: [], error: null },
-      { data: [{ id: 2, cliente_id: 11, clientes: { nombre: 'Liga Municipal Monterrey' } }], error: null },
-    );
-
-    const metricas = await obtenerMetricasUniformesDeportivos(db, COMPANY_A);
-
-    expect(metricas.recomendaciones).toEqual([{
-      texto: 'El pedido de Liga Municipal Monterrey está listo para entrega.',
-      detalle: 'Listo para entrega.',
-      accion: 'Ver pedido',
-      recurso: '/crm/clientes/11',
-      severidad: 'info',
-    }]);
-  });
-
-  test('sin datos, devuelve KPIs en cero y sin recomendaciones', async () => {
-    const db = crearMockDb(
-      { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null },
-      { data: [], error: null },
-      { data: [], error: null },
-      { data: [], error: null },
-      { data: [], error: null },
-    );
-
-    const metricas = await obtenerMetricasUniformesDeportivos(db, COMPANY_A);
-
-    expect(metricas.kpis.every(k => k.valor === 0 || k.valor === '$0')).toBe(true);
-    expect(metricas.recomendaciones).toEqual([]);
-  });
-
-  test('Fase Premium V1.1: panelVentas trae las 3 oportunidades con actividad más reciente', async () => {
-    const db = crearMockDb(
-      { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null },
-      { data: [], error: null },
-      { data: [], error: null },
-      { data: [], error: null },
-      { data: [], error: null },
-      { data: [], error: null }, // workflow_sessions (urgentes por fecha)
-      {
-        data: [
-          { estado: 'En producción', presupuesto_confirmado: null, presupuesto_estimado: 45000, updated_at: '2026-07-09T00:00:00Z', clientes: { nombre: 'Club Cumbres' } },
-          { estado: 'Entregado', presupuesto_confirmado: 45000, presupuesto_estimado: 45000, updated_at: '2026-07-04T00:00:00Z', clientes: { nombre: 'Deportivo Anáhuac' } },
-        ],
+      { data: { industria_slug: 'salon_belleza' }, error: null }, // companies
+      { // plantillas_industria
+        data: {
+          slug: 'salon_belleza',
+          dashboard_kpis_seed: {
+            kpis: [{ tipo: 'conteo_citas_rango', etiqueta: 'Citas de hoy', params: { rango: 'hoy', estados: ['agendada', 'confirmada'] } }],
+            recomendaciones: [],
+          },
+        },
         error: null,
       },
-    );
-
-    const metricas = await obtenerMetricasUniformesDeportivos(db, COMPANY_A);
-
-    expect(metricas.panelVentas).toEqual([
-      { cliente: 'Club Cumbres', estado: 'En producción', monto: 45000 },
-      { cliente: 'Deportivo Anáhuac', estado: 'Entregado', monto: 45000 },
-    ]);
-  });
-
-  test('Fase Demo Comercial: recomienda "urgente" cuando fecha_entrega menciona un día próximo', async () => {
-    const db = crearMockDb(
-      { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null },
-      { data: [], error: null },
-      { data: [], error: null }, // estancadas
-      { data: [], error: null }, // en preparación
-      { data: [], error: null }, // listas
-      {
-        data: [
-          { cliente_id: 20, captured_fields: { fecha_entrega: 'para el viernes' }, updated_at: '2026-07-13T00:00:00Z', clientes: { nombre: 'Academia Tigres' } },
-          { cliente_id: 21, captured_fields: { fecha_entrega: 'en un mes' }, updated_at: '2026-07-13T00:00:00Z', clientes: { nombre: 'Club Cumbres' } },
-        ],
-        error: null,
-      },
-      { data: [], error: null }, // panelVentas
-    );
-
-    const metricas = await obtenerMetricasUniformesDeportivos(db, COMPANY_A);
-
-    expect(metricas.recomendaciones).toEqual([{
-      texto: 'Academia Tigres pidió entrega "para el viernes" — confirma que alcanzas la fecha.',
-      detalle: 'Fecha de entrega mencionada en la conversación.',
-      accion: 'Ver conversación',
-      recurso: '/crm/clientes/20',
-      severidad: 'critica',
-    }]);
-  });
-});
-
-describe('dashboard.obtenerMetricas() — enruta a la industria correcta', () => {
-  test('empresa con industria_slug="uniformes_deportivos" usa el tablero de esa industria', async () => {
-    const db = crearMockDb(
-      { data: { industria_slug: 'uniformes_deportivos' }, error: null }, // chequeo de industria
-      { count: 3, error: null }, { count: 2, error: null }, { count: 1, error: null }, { count: 0, error: null },
-      { data: [], error: null },
-      { data: [], error: null },
-      { data: [], error: null },
-      { data: [], error: null },
+      { count: 4, error: null }, // conteo_citas_rango
     );
 
     const metricas = await obtenerMetricas(db, COMPANY_A);
 
-    expect(metricas.kpis[0]).toEqual({ valor: 3, etiqueta: 'Solicitudes nuevas' });
+    expect(metricas.kpis).toEqual([{ valor: 4, etiqueta: 'Citas de hoy' }]);
+    expect(db.from.mock.calls.map(c => c[0])).toEqual(['companies', 'plantillas_industria', 'citas']);
   });
 
-  test('empresa con industria_slug="salon_belleza" usa el tablero de esa industria', async () => {
+  test('empresa con industria_slug pero SIN dashboard_kpis_seed (plantilla vieja) cae al tablero universal', async () => {
     const db = crearMockDb(
-      { data: { industria_slug: 'salon_belleza' }, error: null }, // chequeo de industria
-      { count: 4, error: null }, { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null },
-      { data: [], error: null },
-      { data: [], error: null },
-      { data: [], error: null },
+      { data: { industria_slug: 'otra_industria' }, error: null },
+      { data: { slug: 'otra_industria', dashboard_kpis_seed: { kpis: [], recomendaciones: [] } }, error: null },
+      { data: [], error: null }, { data: null, error: null, count: 0 }, { data: null, error: null, count: 0 },
+      { data: null, error: null, count: 0 }, { data: null, error: null, count: 0 }, { data: [], error: null },
+      { data: null, error: null, count: 0 }, { data: null, error: null, count: 0 }, { data: null, error: null, count: 0 },
+      { data: [], error: null }, { data: [], error: null }, { data: [], error: null },
     );
 
     const metricas = await obtenerMetricas(db, COMPANY_A);
-
-    expect(metricas.kpis[0]).toEqual({ valor: 4, etiqueta: 'Citas de hoy' });
-  });
-});
-
-// Orden de llamadas .from() dentro de obtenerMetricasSalonBelleza():
-// 1. citas (citas de hoy)  2. citas (confirmaciones pendientes)
-// 3. clientes (nuevas)     4. citas (completadas mes)  5. citas (canceladas mes)
-// 6-8. citas (recomendaciones: sin confirmar, historial, futuras)
-describe('dashboard.obtenerMetricasSalonBelleza()', () => {
-  test('calcula los 5 KPIs a partir de citas y clientes reales', async () => {
-    const db = crearMockDb(
-      { count: 4, error: null },  // citas de hoy
-      { count: 2, error: null },  // confirmaciones pendientes
-      { count: 3, error: null },  // clientas nuevas
-      { count: 12, error: null }, // completadas este mes
-      { count: 1, error: null },  // canceladas este mes
-      { data: [], error: null },  // sin confirmar
-      { data: [], error: null },  // historial
-      { data: [], error: null },  // futuras
-    );
-
-    const metricas = await obtenerMetricasSalonBelleza(db, COMPANY_A);
-
-    expect(metricas.kpis).toEqual([
-      { valor: 4,  etiqueta: 'Citas de hoy' },
-      { valor: 2,  etiqueta: 'Confirmaciones pendientes' },
-      { valor: 3,  etiqueta: 'Clientas nuevas (semana)' },
-      { valor: 12, etiqueta: 'Citas completadas este mes' },
-      { valor: 1,  etiqueta: 'Citas canceladas este mes' },
-    ]);
+    expect(metricas.conversacionesActivas).toBe(0); // forma del tablero universal, no del motor genérico
   });
 
-  test('recomienda confirmar cada cita agendada sin confirmar en las próximas 48h', async () => {
-    const db = crearMockDb(
-      { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null },
-      { data: [{ id: 1, cliente_id: 10, inicio: '2026-07-15T15:00:00Z', clientes: { nombre: 'Sofía Ramírez' } }], error: null },
-      { data: [], error: null },
-      { data: [], error: null },
-    );
-
-    const metricas = await obtenerMetricasSalonBelleza(db, COMPANY_A);
-
-    expect(metricas.recomendaciones).toEqual([{
-      texto: 'Confirma la cita de Sofía Ramírez.',
-      detalle: expect.stringContaining('Agendada para'),
-      accion: 'Confirmar cita',
-      recurso: '/crm/clientes/10',
-      severidad: 'critica',
-    }]);
-  });
-
-  test('recomienda recordatorio de retoque para clienta sin visitar 45+ días y sin cita futura', async () => {
-    const hace60dias = new Date(Date.now() - 60 * 24 * 3600 * 1000).toISOString();
-    const db = crearMockDb(
-      { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null },
-      { data: [], error: null }, // sin confirmar
-      { data: [{ cliente_id: 20, inicio: hace60dias, clientes: { nombre: 'Karla Torres' } }], error: null }, // historial
-      { data: [], error: null }, // futuras (ninguna)
-    );
-
-    const metricas = await obtenerMetricasSalonBelleza(db, COMPANY_A);
-
-    expect(metricas.recomendaciones).toEqual([{
-      texto: 'Karla Torres no visita el salón hace más de 45 días.',
-      detalle: '¿Le enviamos un recordatorio de retoque?',
-      accion: 'Enviar recordatorio',
-      recurso: '/crm/clientes/20',
-      severidad: 'media',
-    }]);
-  });
-
-  test('no recomienda retoque si la clienta ya tiene una cita futura agendada', async () => {
-    const hace60dias = new Date(Date.now() - 60 * 24 * 3600 * 1000).toISOString();
-    const db = crearMockDb(
-      { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null }, { count: 0, error: null },
-      { data: [], error: null },
-      { data: [{ cliente_id: 20, inicio: hace60dias, clientes: { nombre: 'Karla Torres' } }], error: null },
-      { data: [{ cliente_id: 20 }], error: null }, // ya tiene cita futura
-    );
-
-    const metricas = await obtenerMetricasSalonBelleza(db, COMPANY_A);
-
-    expect(metricas.recomendaciones).toEqual([]);
+  test('empresa sin industria_slug (null) usa el tablero universal directo, sin consultar plantillas_industria', async () => {
+    const db = crearMockDb(SIN_INDUSTRIA, ...Array(12).fill({ data: [], error: null, count: 0 }));
+    await obtenerMetricas(db, COMPANY_A);
+    expect(db.from.mock.calls[0][0]).toBe('companies');
+    expect(db.from.mock.calls[1][0]).not.toBe('plantillas_industria');
   });
 });
 

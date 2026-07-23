@@ -25,8 +25,9 @@ function formatearMonto(monto) {
   return `$${Number(monto).toLocaleString('es-MX')}`;
 }
 
-// Fase Premium · Salón de Belleza: negocio de citas, no de cotización — la
-// fila cuenta la historia con fecha/hora de la próxima cita, no un monto.
+// Motor Universal: industrias de citas (ej. salon_belleza) cuentan la
+// historia de la fila con fecha/hora de la próxima cita en vez de un monto
+// (ver ui_config.crm.layout === 'citas' abajo).
 function formatearFechaCita(iso) {
   if (!iso) return null;
   const fecha = new Date(iso);
@@ -54,9 +55,14 @@ function AvatarCliente({ nombre, logo_url }) {
 // modules/crm-ui.js::listarClientes (ultima_oportunidad), no inventados.
 export default function Crm() {
   const { sesion } = useAuth();
-  const esSalonBelleza = sesion?.empresaActiva?.industria_slug === 'salon_belleza';
-  const esUniformesDeportivos = sesion?.empresaActiva?.industria_slug === 'uniformes_deportivos';
-  const tituloSeccion = esSalonBelleza ? 'Clientas' : esUniformesDeportivos ? 'Clientes' : 'Ventas';
+  // Motor Universal: título, columnas y layout (citas vs. cotización) vienen
+  // de la plantilla de industria (plantillas_industria.ui_config.crm) — sin
+  // esa config (empresa sin industria) se usa el criterio genérico universal.
+  const crmConfig = sesion?.empresaActiva?.ui_config?.crm;
+  const tituloSeccion = crmConfig?.titulo || 'Ventas';
+  const layoutCitas = crmConfig?.layout === 'citas';
+  const columnas = crmConfig?.columnas || ['Cliente', 'Última actividad', 'Monto', 'Próxima acción', 'Estado'];
+  const mostrarLinkPipeline = crmConfig?.mostrarLinkPipeline ?? true;
   const [clientes, setClientes] = useState(null);
   const [error, setError] = useState(null);
   const [filtros, setFiltros] = useState({ nombre: '', estado: '', score_min: '' });
@@ -98,7 +104,7 @@ export default function Crm() {
         <h1>{tituloSeccion}</h1>
         <div>
           <button onClick={() => setMostrarNuevo(!mostrarNuevo)}>{mostrarNuevo ? 'Cancelar' : 'Nuevo cliente'}</button>
-          {!esSalonBelleza && (
+          {mostrarLinkPipeline && (
             <>
               {' '}
               <NavLink to="/crm/pipeline">Ver proceso comercial</NavLink>
@@ -147,15 +153,7 @@ export default function Crm() {
       {clientes && clientes.length > 0 && (
         <>
         <div className="clientes-header">
-          {esSalonBelleza ? (
-            <>
-              <span>Cliente</span><span>Próxima cita</span><span>Última visita</span><span>Acción</span><span>Estado</span>
-            </>
-          ) : (
-            <>
-              <span>Cliente</span><span>Última actividad</span><span>Monto</span><span>Próxima acción</span><span>Estado</span>
-            </>
-          )}
+          {columnas.map((c) => <span key={c}>{c}</span>)}
         </div>
         <div className="clientes-lista">
           {clientes.map((c) => {
@@ -168,7 +166,7 @@ export default function Crm() {
                   <strong>{c.nombre || c.telefono}</strong>
                   <span className="cliente-fila-detalle">{c.empresa ? `${c.empresa} · ` : ''}{c.telefono}</span>
                 </div>
-                {esSalonBelleza ? (
+                {layoutCitas ? (
                   <>
                     <span className="cliente-fila-actividad">{formatearFechaCita(c.proxima_cita?.inicio) || '—'}</span>
                     <span className="cliente-fila-monto">{tiempoRelativo(c.ultima_cita) || '—'}</span>
