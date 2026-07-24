@@ -18,6 +18,8 @@
 
 'use strict';
 
+const { CLASIFICACION_POR_DEFECTO } = require('../../modules/clasificacion-contexto');
+
 /**
  * @typedef {Object} MessagePair
  * @property {string} mensaje_cliente
@@ -43,6 +45,7 @@
 /**
  * @typedef {Object} AIOutput
  * @property {string}          respuesta_texto      - Lo que TARA responde al cliente
+ * @property {string}          clasificacion_contexto - Contexto real del mensaje (prospecto, cliente_existente, proveedor, conversacion_personal, numero_equivocado, spam, informacion_administrativa, contexto_insuficiente) — interno, nunca se muestra al cliente
  * @property {string}          categoria_principal  - Categoría universal detectada
  * @property {Object}          datos_extraidos      - Datos estructurados del mensaje
  * @property {string[]}        intenciones          - Intenciones detectadas
@@ -64,6 +67,7 @@
  */
 const FALLBACK_OUTPUT = {
   respuesta_texto:     'Tuve un momento técnico. ¿Puedes repetir tu mensaje?',
+  clasificacion_contexto: CLASIFICACION_POR_DEFECTO,
   categoria_principal: 'Sin clasificar',
   datos_extraidos:     {},
   intenciones:         ['consulta'],

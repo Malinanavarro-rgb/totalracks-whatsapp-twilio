@@ -22,6 +22,7 @@
 'use strict';
 
 const { AIProvider } = require('./ai-provider');
+const { CLASIFICACION_POR_DEFECTO } = require('../../modules/clasificacion-contexto');
 
 // Patrones de detección de intención (sin lógica de negocio)
 const PATRON_INTERES     = /precio|costo|cuánto|cuanto|cotiz|propuesta|presupuesto/i;
@@ -83,7 +84,8 @@ class MockProvider extends AIProvider {
         : [];
 
     return {
-      respuesta_texto:     `[MOCK] Entendido. Me ocupo de tu solicitud sobre: "${mensaje.substring(0, 60)}"`,
+      respuesta_texto:        `[MOCK] Entendido. Me ocupo de tu solicitud sobre: "${mensaje.substring(0, 60)}"`,
+      clasificacion_contexto: CLASIFICACION_POR_DEFECTO,
       categoria_principal: 'Sin clasificar',
       datos_extraidos:     {},
       intenciones,

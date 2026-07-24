@@ -11,7 +11,7 @@
 'use strict';
 
 const { AIProvider, FALLBACK_OUTPUT } = require('../adapters/ai/ai-provider');
-const { OpenAIProvider }              = require('../adapters/ai/openai-provider');
+const { OpenAIProvider, CLASIFICACIONES_VALIDAS } = require('../adapters/ai/openai-provider');
 const { MockProvider }                = require('../adapters/ai/mock-provider');
 const { AIEngine }                    = require('../modules/ai-engine');
 
@@ -45,6 +45,7 @@ function makeOpenAIResponse(content, overrides = {}) {
 
 const VALID_JSON_RESPONSE = JSON.stringify({
   respuesta_tara:      'Con gusto te ayudo con una cotización.',
+  clasificacion_contexto: 'prospecto',
   categoria_principal: 'Rack Selectivo',
   datos_extraidos:     { tipo: 'selectivo' },
   intenciones:         ['solicitud_cotizacion', 'interes_compra'],
@@ -54,7 +55,7 @@ const VALID_JSON_RESPONSE = JSON.stringify({
 });
 
 const AI_OUTPUT_FIELDS = [
-  'respuesta_texto', 'categoria_principal', 'datos_extraidos',
+  'respuesta_texto', 'clasificacion_contexto', 'categoria_principal', 'datos_extraidos',
   'intenciones', 'sentimiento', 'etapa_sugerida', 'acciones_propuestas',
   'confianza', 'tokens_entrada', 'tokens_salida',
   'modelo_utilizado', 'proveedor_utilizado', 'latencia_ms',
@@ -150,6 +151,36 @@ describe('OpenAIProvider', () => {
       expect(output.categoria_principal).toBe('Rack Selectivo');
     });
 
+    test('extrae clasificacion_contexto del JSON del modelo cuando es válida', async () => {
+      mockCreate.mockResolvedValue(makeOpenAIResponse(VALID_JSON_RESPONSE));
+      const output = await provider.procesar(makeAIInput());
+      expect(output.clasificacion_contexto).toBe('prospecto');
+    });
+
+    test('clasificacion_contexto ausente se normaliza a "contexto_insuficiente", nunca a "prospecto" por defecto', async () => {
+      const sinClasificacion = JSON.stringify({ respuesta_texto: 'Ok', categoria_principal: 'General' });
+      mockCreate.mockResolvedValue(makeOpenAIResponse(sinClasificacion));
+      const output = await provider.procesar(makeAIInput());
+      expect(output.clasificacion_contexto).toBe('contexto_insuficiente');
+    });
+
+    test('clasificacion_contexto fuera de catálogo se normaliza a "contexto_insuficiente"', async () => {
+      const invalida = JSON.stringify({ respuesta_texto: 'Ok', clasificacion_contexto: 'valor_inventado' });
+      mockCreate.mockResolvedValue(makeOpenAIResponse(invalida));
+      const output = await provider.procesar(makeAIInput());
+      expect(output.clasificacion_contexto).toBe('contexto_insuficiente');
+    });
+
+    test('acepta cada una de las 8 categorías válidas del catálogo', async () => {
+      for (const categoria of CLASIFICACIONES_VALIDAS) {
+        mockCreate.mockResolvedValue(makeOpenAIResponse(JSON.stringify({
+          respuesta_texto: 'Ok', clasificacion_contexto: categoria,
+        })));
+        const output = await provider.procesar(makeAIInput());
+        expect(output.clasificacion_contexto).toBe(categoria);
+      }
+    });
+
     test('tokens_entrada y tokens_salida vienen de usage', async () => {
       mockCreate.mockResolvedValue(makeOpenAIResponse(VALID_JSON_RESPONSE));
       const output = await provider.procesar(makeAIInput());
@@ -235,6 +266,7 @@ describe('OpenAIProvider', () => {
       const output = await provider.procesar(makeAIInput());
 
       expect(output.categoria_principal).toBe('Sin clasificar');
+      expect(output.clasificacion_contexto).toBe('contexto_insuficiente');
       expect(output.datos_extraidos).toEqual({});
       expect(output.intenciones).toEqual(['consulta_general']);
       expect(output.sentimiento).toBe('Neutral');

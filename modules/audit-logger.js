@@ -137,6 +137,7 @@ class AuditLogger {
         modelo:              aiOutput.modelo_utilizado,
         proveedor:           aiOutput.proveedor_utilizado,
         confianza:           aiOutput.confianza,
+        clasificacion_contexto: aiOutput.clasificacion_contexto,
         intenciones:         aiOutput.intenciones,
         sentimiento:         aiOutput.sentimiento,
         categoria_principal: aiOutput.categoria_principal,

@@ -70,6 +70,7 @@ function makeAIInput() {
 function makeAIOutput(overrides = {}) {
   return {
     respuesta_texto:     'El rack selectivo tiene precio base de $45,000 MXN.',
+    clasificacion_contexto: 'prospecto',
     categoria_principal: 'Rack Selectivo',
     intenciones:         ['cotizacion', 'precio'],
     sentimiento:         'Muy interesado',
@@ -300,6 +301,13 @@ describe('logAICall()', () => {
     expect(payload.proveedor).toBe('openai');
     expect(payload.confianza).toBe(0.95);
     expect(payload.sentimiento).toBe('Muy interesado');
+  });
+
+  test('payload contiene clasificacion_contexto (auditoría de "no vender sin evidencia")', async () => {
+    logger.logAICall(makeCtx(), makeAIInput(), makeAIOutput({ clasificacion_contexto: 'numero_equivocado' }));
+    await logger.flush();
+    const { payload } = db._insert.mock.calls[0][0][0];
+    expect(payload.clasificacion_contexto).toBe('numero_equivocado');
   });
 
   test('tokens_total = tokens_entrada + tokens_salida', async () => {

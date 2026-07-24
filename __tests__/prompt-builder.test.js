@@ -18,6 +18,7 @@ const {
   ORDEN_DEFAULT,
   MAPA_BLOQUES,
   bloque_identidad,
+  bloque_clasificacion_contexto,
   bloque_objetivo,
   bloque_etapa_cliente,
   bloque_knowledge_base,
@@ -131,6 +132,38 @@ describe('bloque_identidad()', () => {
     expect(bloque_identidad({ empresa: { personalidad: null } })).toBeNull();
     expect(bloque_identidad({ empresa: {} })).toBeNull();
     expect(bloque_identidad({})).toBeNull();
+  });
+});
+
+describe('bloque_clasificacion_contexto()', () => {
+  test('comienza con ## CLASIFICACIÓN DE CONTEXTO', () => {
+    expect(bloque_clasificacion_contexto()).toMatch(/^## CLASIFICACIÓN DE CONTEXTO/);
+  });
+
+  test('nunca devuelve null — es universal, no depende de ctx', () => {
+    expect(bloque_clasificacion_contexto()).not.toBeNull();
+    expect(bloque_clasificacion_contexto(undefined)).not.toBeNull();
+    expect(bloque_clasificacion_contexto({})).not.toBeNull();
+    expect(bloque_clasificacion_contexto(makeCtx())).not.toBeNull();
+  });
+
+  test('lista las 8 categorías del catálogo', () => {
+    const result = bloque_clasificacion_contexto();
+    for (const categoria of [
+      'prospecto', 'cliente_existente', 'proveedor', 'conversacion_personal',
+      'numero_equivocado', 'spam', 'informacion_administrativa', 'contexto_insuficiente',
+    ]) {
+      expect(result).toContain(categoria);
+    }
+  });
+
+  test('instruye a no vender en conversación personal o número equivocado', () => {
+    const result = bloque_clasificacion_contexto();
+    expect(result).toContain('no vendas nada');
+  });
+
+  test('produce el mismo contenido sin importar el contexto (agnóstico)', () => {
+    expect(bloque_clasificacion_contexto(makeCtx())).toBe(bloque_clasificacion_contexto({}));
   });
 });
 
@@ -375,12 +408,31 @@ describe('bloque_schema_json()', () => {
   test('incluye todos los campos canónicos de AIOutput', () => {
     const result = bloque_schema_json(makeCtx());
     expect(result).toContain('"respuesta_texto"');
+    expect(result).toContain('"clasificacion_contexto"');
     expect(result).toContain('"categoria_principal"');
     expect(result).toContain('"datos_extraidos"');
     expect(result).toContain('"intenciones"');
     expect(result).toContain('"sentimiento"');
     expect(result).toContain('"etapa_sugerida"');
     expect(result).toContain('"acciones_propuestas"');
+  });
+
+  test('clasificacion_contexto aparece antes que respuesta_texto dentro del JSON de ejemplo — clasificar primero, generar texto al final', () => {
+    // lastIndexOf (no indexOf): ambos términos también aparecen en la prosa
+    // instructiva antes del bloque JSON — indexOf encontraría esa mención y
+    // no detectaría si el orden real dentro del JSON se invierte.
+    const result = bloque_schema_json(makeCtx());
+    expect(result.lastIndexOf('"clasificacion_contexto"')).toBeLessThan(result.lastIndexOf('"respuesta_texto"'));
+  });
+
+  test('lista las 8 categorías de clasificacion_contexto', () => {
+    const result = bloque_schema_json(makeCtx());
+    for (const categoria of [
+      'prospecto', 'cliente_existente', 'proveedor', 'conversacion_personal',
+      'numero_equivocado', 'spam', 'informacion_administrativa', 'contexto_insuficiente',
+    ]) {
+      expect(result).toContain(categoria);
+    }
   });
 
   test('usa "respuesta_texto" (nombre canónico FASE 2, no "respuesta_tara")', () => {
@@ -627,6 +679,10 @@ describe('ORDEN_DEFAULT y MAPA_BLOQUES', () => {
 
   test('identidad es el primero en ORDEN_DEFAULT', () => {
     expect(ORDEN_DEFAULT[0]).toBe('identidad');
+  });
+
+  test('clasificacion_contexto va justo después de identidad — antes que el objetivo comercial', () => {
+    expect(ORDEN_DEFAULT[1]).toBe('clasificacion_contexto');
   });
 
   test('todos los nombres en ORDEN_DEFAULT tienen función en MAPA_BLOQUES', () => {

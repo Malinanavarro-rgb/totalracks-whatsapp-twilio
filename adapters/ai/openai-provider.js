@@ -17,6 +17,7 @@
 'use strict';
 
 const { AIProvider, FALLBACK_OUTPUT } = require('./ai-provider');
+const { VALORES_CLASIFICACION_CONTEXTO, CLASIFICACION_POR_DEFECTO } = require('../../modules/clasificacion-contexto');
 
 // Catálogo controlado de intenciones — FASE 4A
 // Cualquier valor fuera de este set se normaliza a 'consulta_general' con warning.
@@ -28,6 +29,13 @@ const INTENCIONES_VALIDAS = new Set([
   'cancelar_flujo',
   'consulta_general',
 ]);
+
+// Catálogo controlado de clasificación de contexto (ADR-010) — única fuente
+// de verdad en modules/clasificacion-contexto.js, compartida con
+// prompt-builder.js (evita que ambos se desincronicen si se agrega una
+// categoría). Cualquier valor fuera de catálogo se normaliza al valor por
+// defecto (nunca se asume "prospecto" — sería reintroducir el problema original).
+const CLASIFICACIONES_VALIDAS = VALORES_CLASIFICACION_CONTEXTO;
 
 // Precios por 1M tokens (USD) — actualizar cuando OpenAI cambie pricing
 const PRICING_PER_M = {
@@ -97,6 +105,18 @@ function normalizarIntenciones(raw) {
 }
 
 /**
+ * Valida clasificacion_contexto contra el catálogo controlado.
+ * Ausente o fuera de catálogo → 'contexto_insuficiente' (nunca 'prospecto'
+ * por defecto — asumir venta sin evidencia es exactamente lo que este
+ * campo existe para evitar).
+ */
+function normalizarClasificacion(raw) {
+  if (CLASIFICACIONES_VALIDAS.has(raw)) return raw;
+  if (raw) console.warn(`⚠️  [clasificacion_contexto] Valor fuera de catálogo: "${raw}" → normalizado a "${CLASIFICACION_POR_DEFECTO}"`);
+  return CLASIFICACION_POR_DEFECTO;
+}
+
+/**
  * Normaliza el objeto JSON del modelo al tipo AIOutput del Core.
  * Permite que el modelo use nombres alternativos sin romper el sistema.
  */
@@ -106,7 +126,8 @@ function normalizarOutput(data, confianza, meta) {
     || FALLBACK_OUTPUT.respuesta_texto;
 
   return {
-    respuesta_texto:     respuesta,
+    respuesta_texto:        respuesta,
+    clasificacion_contexto: normalizarClasificacion(data.clasificacion_contexto),
     categoria_principal: data.categoria_principal || 'Sin clasificar',
     datos_extraidos:     data.datos_extraidos      || {},
     intenciones:         normalizarIntenciones(data.intenciones),
@@ -203,4 +224,4 @@ class OpenAIProvider extends AIProvider {
   }
 }
 
-module.exports = { OpenAIProvider, INTENCIONES_VALIDAS };
+module.exports = { OpenAIProvider, INTENCIONES_VALIDAS, CLASIFICACIONES_VALIDAS };

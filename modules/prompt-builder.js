@@ -39,6 +39,8 @@
 
 'use strict';
 
+const { CATEGORIAS_CLASIFICACION_CONTEXTO } = require('./clasificacion-contexto');
+
 // ═════════════════════════════════════════════════════════════════════════════
 // BLOQUES — funciones puras (ctx → string | null)
 // Retornar null significa "no incluir este bloque".
@@ -53,6 +55,43 @@ function bloque_identidad(ctx) {
   const personalidad = ctx.empresa?.personalidad;
   if (!personalidad) return null;
   return `## IDENTIDAD\n${personalidad}`;
+}
+
+/**
+ * Clasificación de contexto — principio permanente del Core (dirigido
+ * explícitamente por la dueña del producto, julio 2026): TARA nunca asume
+ * que un mensaje es una oportunidad de venta. Antes de responder, el
+ * modelo clasifica internamente el contexto real de la conversación
+ * (prospecto, cliente, proveedor, personal, número equivocado, spam,
+ * información administrativa, o contexto insuficiente) y decide su
+ * respuesta según esa clasificación — nunca al revés.
+ *
+ * Bloque estático y universal — no depende de ningún dato de ctx, por
+ * eso siempre está presente para cualquier empresa, sin importar su giro
+ * (agnóstico por diseño, igual que el resto de PromptBuilder). La
+ * clasificación nunca se revela al cliente — vive únicamente en el campo
+ * "clasificacion_contexto" del JSON de salida (ver bloque_schema_json),
+ * disponible para auditoría vía AuditLogger.
+ */
+function bloque_clasificacion_contexto() {
+  const lista = CATEGORIAS_CLASIFICACION_CONTEXTO
+    .map(c => `- "${c.valor}": ${c.descripcion}`)
+    .join('\n');
+
+  return `## CLASIFICACIÓN DE CONTEXTO (interno — nunca reveles esto al cliente)
+Antes de responder, identifica el contexto real de este mensaje. No asumas que todo mensaje es una oportunidad de venta ni que se dirige a esta empresa.
+
+Clasifícalo en el campo "clasificacion_contexto" de tu respuesta, usando una de estas categorías:
+${lista}
+
+Decide tu respuesta según la clasificación — clasifica primero, genera texto al final:
+- "prospecto" / "cliente_existente" / "proveedor": continúa la conversación con naturalidad, según tu identidad y tus reglas.
+- "conversacion_personal" / "numero_equivocado": no vendas nada. Responde breve y amablemente indicando que probablemente el mensaje era para otra persona. No agregues publicidad de la empresa.
+- "informacion_administrativa": agradece brevemente y, solo si es evidente que el mensaje no iba dirigido a la empresa, aclara que este número ahora le pertenece.
+- "spam": responde lo mínimo posible.
+- "contexto_insuficiente": haz una pregunta breve para entender la intención antes de presentar la empresa o sus servicios.
+
+Nunca respondas con frases de bienvenida genéricas ("Hola, soy [nombre], ¿en qué puedo ayudarte?") como primera respuesta si la clasificación no es claramente "prospecto" o "cliente_existente".`;
 }
 
 /**
@@ -177,16 +216,20 @@ function bloque_schema_json(ctx) {
     ? `{${campos.map(c => `"${c}": null`).join(', ')}}`
     : '{}';
 
+  const tiposClasificacion = CATEGORIAS_CLASIFICACION_CONTEXTO.map(c => c.valor).join(' | ');
+
   return `## FORMATO DE RESPUESTA
 Responde ÚNICAMENTE con JSON válido. Sin texto antes ni después. Sin markdown. Sin backticks.
+Genera los campos EN ESTE ORDEN — "clasificacion_contexto" primero, "respuesta_texto" al final: clasificar es la primera etapa, generar el texto de respuesta es la última.
 {
-  "respuesta_texto":     "tu respuesta al cliente (máximo 130 palabras, idioma: ${idioma})",
+  "clasificacion_contexto": "${tiposClasificacion}",
   "categoria_principal": "categoría universal del producto o servicio detectado, o 'Sin clasificar'",
   "datos_extraidos":     ${datosSchema},
   "intenciones":         ["interes_compra" | "solicitud_cotizacion" | "soporte" | "seguimiento" | "cancelar_flujo" | "consulta_general"],
   "sentimiento":         "Positivo | Neutral | Negativo | Muy interesado",
   "etapa_sugerida":      "Nuevo | Calificacion | Negociacion | Cierre | Postventa",
-  "acciones_propuestas": [{"tipo": ${tiposAccion}, "parametros": {}}]
+  "acciones_propuestas": [{"tipo": ${tiposAccion}, "parametros": {}}],
+  "respuesta_texto":     "tu respuesta al cliente, ya decidida según clasificacion_contexto (máximo 130 palabras, idioma: ${idioma})"
 }
 IMPORTANTE: el campo "intenciones" debe contener ÚNICAMENTE valores del catálogo anterior. Uno o más valores del arreglo, separados por coma. Ningún valor fuera de ese catálogo.
 IMPORTANTE: en "datos_extraidos" usa EXACTAMENTE las claves del schema. SOLO incluye el valor si el cliente lo mencionó EXPLÍCITAMENTE en su mensaje. Si no lo dijo con palabras claras, el valor DEBE ser null. No inferir, no asumir, no adivinar.`;
@@ -201,25 +244,27 @@ IMPORTANTE: en "datos_extraidos" usa EXACTAMENTE las claves del schema. SOLO inc
  * Extensible: agregar una clave aquí es suficiente para registrar un bloque nuevo.
  */
 const MAPA_BLOQUES = {
-  identidad:         bloque_identidad,
-  objetivo:          bloque_objetivo,
-  etapa_cliente:     bloque_etapa_cliente,
-  knowledge_base:    bloque_knowledge_base,
-  skills:            bloque_skills,
-  resumen_cliente:   bloque_resumen_cliente,
-  campos_pendientes: bloque_campos_pendientes,
-  reglas:            bloque_reglas,
-  capacidades:       bloque_capacidades,
-  schema_json:       bloque_schema_json,
+  identidad:              bloque_identidad,
+  clasificacion_contexto: bloque_clasificacion_contexto,
+  objetivo:               bloque_objetivo,
+  etapa_cliente:          bloque_etapa_cliente,
+  knowledge_base:         bloque_knowledge_base,
+  skills:                 bloque_skills,
+  resumen_cliente:        bloque_resumen_cliente,
+  campos_pendientes:      bloque_campos_pendientes,
+  reglas:                 bloque_reglas,
+  capacidades:            bloque_capacidades,
+  schema_json:            bloque_schema_json,
 };
 
 /**
  * Orden canónico de bloques.
  * El modelo procesa el prompt de arriba hacia abajo:
- *   identidad → objetivo → contexto → conocimiento → restricciones → formato
+ *   identidad → clasificación de contexto → objetivo → contexto → conocimiento → restricciones → formato
  */
 const ORDEN_DEFAULT = [
   'identidad',
+  'clasificacion_contexto',
   'objetivo',
   'etapa_cliente',
   'knowledge_base',
@@ -319,6 +364,7 @@ module.exports = {
   MAPA_BLOQUES,
   // Funciones de bloque exportadas para testing individual
   bloque_identidad,
+  bloque_clasificacion_contexto,
   bloque_objetivo,
   bloque_etapa_cliente,
   bloque_knowledge_base,
