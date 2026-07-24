@@ -99,6 +99,7 @@ export default function InboxHilo() {
   const [error, setError] = useState(null);
   const [enviando, setEnviando] = useState(false);
   const finRef = useRef(null);
+  const cantidadMensajesRef = useRef(0);
 
   useEffect(() => {
     let activo = true;
@@ -119,8 +120,16 @@ export default function InboxHilo() {
     return () => { activo = false; clearInterval(intervalo); };
   }, [hiloId]);
 
+  // El polling (cada 4s) vuelve a pedir los mensajes aunque no haya ninguno
+  // nuevo — auto-scrollear en cada respuesta arrastraba al usuario hacia
+  // abajo mientras leía mensajes anteriores. Solo se baja cuando realmente
+  // llegó un mensaje nuevo (la cantidad creció), no en cada refresco.
   useEffect(() => {
-    finRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (!mensajes) return;
+    if (mensajes.length > cantidadMensajesRef.current) {
+      finRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+    cantidadMensajesRef.current = mensajes.length;
   }, [mensajes]);
 
   const clienteId = hilo?.clientes?.id;

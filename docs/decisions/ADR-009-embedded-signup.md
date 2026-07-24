@@ -79,12 +79,14 @@ Durante el flujo del popup, Meta manda estos IDs directamente al frontend vía `
 
 ## Limitaciones — requiere acción manual de Alina en Meta for Developers
 
-Esta entrega es 100% funcional en código, pero Embedded Signup **no funciona todavía en producción para clientes reales** hasta que se completen 2 pasos que solo se hacen desde la consola de Meta (fuera del alcance de este repositorio):
+Esta entrega es 100% funcional en código (validado end-to-end: el popup abre, `FB.login()` regresa el `code`, el backend lo intercambia correctamente), pero Embedded Signup **no funciona todavía en producción** hasta que se completen los pasos que solo se hacen desde la consola de Meta (fuera del alcance de este repositorio):
 
-1. **Configurar el producto "Facebook Login for Business"** en la Meta App de TARA (developers.facebook.com → la App → Agregar producto), y crear ahí una **Configuración** con caso de uso "WhatsApp Business API" — genera el `config_id` que va en `META_LOGIN_CONFIG_ID`.
-2. **App Review**: sin acceso avanzado aprobado a `whatsapp_business_management` y `business_management` (que además requiere Verificación de Negocio de Meta), Embedded Signup solo funciona para WABAs que pertenecen a personas agregadas como **Testers** en Roles de la App — no para clientes externos arbitrarios. Este paso puede tardar días y no es instantáneo.
+1. **Configurar el producto "Facebook Login for Business"** en la Meta App de TARA (developers.facebook.com → la App → Agregar producto), y crear ahí una **Configuración** con caso de uso "WhatsApp Business API" — genera el `config_id` que va en `META_LOGIN_CONFIG_ID`. ✅ Hecho — `config_id` en producción.
+2. **`META_APP_ID` y `META_LOGIN_CONFIG_ID` como variables de entorno en Render** — sin `META_APP_ID` específicamente, `configPublica()` nunca reporta `disponible: true` aunque todo lo demás esté bien (encontrado en producción: la variable nunca se había configurado, a pesar de que ADR-007 la documentaba desde el principio). ✅ Hecho.
+3. **Habilitar el SDK de JavaScript + dominio permitido**, en Facebook Login for Business → Configurar: "Inicio de sesión con el SDK de JavaScript" = Sí, más `tara-os.com` en dominios permitidos; y en Configuración de la app → Básica, `tara-os.com` en "Dominios de la app". ✅ Hecho.
+4. **Verificación de Negocio + estatus de "Tech Provider"** — hallazgo nuevo, no documentado originalmente en este ADR: al intentar el flujo real con los 3 pasos anteriores ya resueltos, Meta bloqueó el popup con *"Embedded signup is only available for BSPs or TPs"* (Business Solution Providers o Tech Providers). Esto es un requisito de Meta **más estricto que el permiso de App Review** — no es que falte el acceso avanzado a `whatsapp_business_management`, es que la cuenta de negocio en sí (Business Manager) necesita estar verificada y reconocida por Meta como Tech Provider antes de que el flujo funcione, **incluso para testers agregados en Roles de la App**. ❌ Pendiente — bloqueante, requiere iniciar Verificación de Negocio (Configuración del negocio → Centro de seguridad → Verificación) con documentos legales de la empresa (RFC/acta constitutiva, comprobante de domicilio). Puede tardar de días a semanas.
 
-Mientras el paso 2 no esté aprobado, el uso recomendado es: agregar el negocio del cliente como Tester de la Meta App para validar el flujo completo en modo Desarrollo, y usar el formulario manual para clientes de producción que no sean testers.
+Mientras el paso 4 no esté resuelto, Embedded Signup no funciona para nadie, ni siquiera en modo de prueba — el formulario manual (`FormularioWhatsAppMeta`) sigue siendo el único camino funcional para conectar números.
 
 ---
 
