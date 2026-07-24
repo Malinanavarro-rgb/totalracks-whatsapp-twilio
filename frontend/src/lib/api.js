@@ -175,6 +175,7 @@ export const api = {
 
   canalesConfig:           () => pedir('/api/config/canales'),
   conectarWhatsAppMeta:    (datos) => pedir('/api/config/canales/whatsapp-meta', { method: 'POST', body: JSON.stringify(datos) }),
+  conectarWhatsAppMetaEmbeddedSignup: (datos) => pedir('/api/config/canales/whatsapp-meta/embedded-signup', { method: 'POST', body: JSON.stringify(datos) }),
 
   usuariosConfig:          () => pedir('/api/config/usuarios'),
   invitarUsuario:          (datos) => pedir('/api/config/usuarios/invitar', { method: 'POST', body: JSON.stringify(datos) }),

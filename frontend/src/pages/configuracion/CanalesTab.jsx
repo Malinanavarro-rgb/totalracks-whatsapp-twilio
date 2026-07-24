@@ -1,14 +1,108 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 
 const CAMPOS_META_VACIOS = { whatsappBusinessAccountId: '', phoneNumberId: '', metaBusinessId: '', accessToken: '' };
 
-// Centro de Conexiones (Portal de Cliente) — reemplaza el paso de terminal
-// (scripts/conectar-empresa-meta.js) por este formulario. Sigue sin ser
-// Embedded Signup real (requiere App Review de Meta): el dueño de la
-// empresa saca estos valores de Meta Business Manager a mano y los pega
-// aquí — pero ya no depende de que Alina corra un script por él.
+const SDK_FACEBOOK_URL = 'https://connect.facebook.net/es_LA/sdk.js';
+
+// Embedded Signup (ADR-009) — flujo oficial de Meta: el popup de Facebook
+// Login for Business, no un formulario. Requiere que la plataforma tenga
+// configurado META_APP_ID + META_LOGIN_CONFIG_ID (ver
+// modules/meta-embedded-signup.js) — sin eso, `disponible` viene en false y
+// se muestra solo el formulario manual de abajo.
+function cargarSdkFacebook(appId) {
+  return new Promise((resolve) => {
+    if (window.FB) return resolve(window.FB);
+    window.fbAsyncInit = function () {
+      window.FB.init({ appId, autoLogAppEvents: true, xfbml: false, version: 'v19.0' });
+      resolve(window.FB);
+    };
+    if (document.getElementById('facebook-jssdk')) return; // ya se está cargando
+    const script = document.createElement('script');
+    script.id = 'facebook-jssdk';
+    script.src = SDK_FACEBOOK_URL;
+    script.async = true;
+    document.body.appendChild(script);
+  });
+}
+
+function BotonEmbeddedSignup({ configId, appId, onConectado }) {
+  const [enviando, setEnviando] = useState(false);
+  const [error, setError] = useState(null);
+  const datosSignupRef = useRef(null); // waba_id/phone_number_id llegan por postMessage, no por FB.login()
+
+  useEffect(() => {
+    function alRecibirMensaje(evento) {
+      if (evento.origin !== 'https://www.facebook.com' && evento.origin !== 'https://web.facebook.com') return;
+      try {
+        const datos = JSON.parse(evento.data);
+        if (datos.type === 'WA_EMBEDDED_SIGNUP' && datos.event === 'FINISH') {
+          datosSignupRef.current = datos.data; // { waba_id, phone_number_id, business_id }
+        }
+      } catch {
+        // Meta también manda mensajes que no son JSON (otros productos del SDK) — se ignoran.
+      }
+    }
+    window.addEventListener('message', alRecibirMensaje);
+    return () => window.removeEventListener('message', alRecibirMensaje);
+  }, []);
+
+  async function conectar() {
+    setError(null);
+    setEnviando(true);
+    datosSignupRef.current = null;
+    try {
+      const FB = await cargarSdkFacebook(appId);
+      FB.login((respuesta) => {
+        (async () => {
+          const code = respuesta?.authResponse?.code;
+          const datosSignup = datosSignupRef.current;
+          if (!code || !datosSignup?.waba_id || !datosSignup?.phone_number_id) {
+            setError('No se completó la conexión con WhatsApp — inténtalo de nuevo.');
+            setEnviando(false);
+            return;
+          }
+          try {
+            await api.conectarWhatsAppMetaEmbeddedSignup({
+              code,
+              wabaId: datosSignup.waba_id,
+              phoneNumberId: datosSignup.phone_number_id,
+              metaBusinessId: datosSignup.business_id,
+            });
+            onConectado();
+          } catch (e) {
+            setError(e.message);
+          } finally {
+            setEnviando(false);
+          }
+        })();
+      }, {
+        config_id: configId,
+        response_type: 'code',
+        override_default_response_type: true,
+        extras: { feature: 'whatsapp_embedded_signup', sessionInfoVersion: 2 },
+      });
+    } catch (e) {
+      setError(e.message);
+      setEnviando(false);
+    }
+  }
+
+  return (
+    <div>
+      <button type="button" onClick={conectar} disabled={enviando}>
+        {enviando ? 'Conectando…' : 'Conectar WhatsApp con Meta'}
+      </button>
+      {error && <p className="login-error">{error}</p>}
+    </div>
+  );
+}
+
+// Formulario manual — se conserva como respaldo para empresas de prueba o
+// mientras Embedded Signup no esté disponible (falta configurar la Meta App
+// o aprobar App Review, ver ADR-009). El dueño de la empresa saca estos
+// valores de Meta Business Manager a mano y los pega aquí.
 //
 // Facebook/Instagram usan credenciales distintas (Page ID / Instagram
 // Business Account ID, no un phone_number_id) y hoy no existe ningún
@@ -90,10 +184,20 @@ export default function CanalesTab() {
           </ul>
         )}
 
+        {datos.metaEmbeddedSignup?.disponible && (
+          <BotonEmbeddedSignup
+            appId={datos.metaEmbeddedSignup.appId}
+            configId={datos.metaEmbeddedSignup.configId}
+            onConectado={cargar}
+          />
+        )}
+
         {mostrarFormularioMeta ? (
           <FormularioWhatsAppMeta onConectado={() => { setMostrarFormularioMeta(false); cargar(); }} />
         ) : (
-          <button type="button" onClick={() => setMostrarFormularioMeta(true)}>Conectar un número de WhatsApp</button>
+          <button type="button" onClick={() => setMostrarFormularioMeta(true)}>
+            {datos.metaEmbeddedSignup?.disponible ? 'Conectar con otro método (manual)' : 'Conectar un número de WhatsApp'}
+          </button>
         )}
       </section>
 

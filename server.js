@@ -18,6 +18,7 @@ const { crearOrchestrator }             = require('./modules/orchestrator');
 const { TwilioWhatsAppAdapter }         = require('./adapters/channels/twilio-whatsapp');
 const { MetaCloudWhatsAppAdapter }      = require('./adapters/channels/meta-cloud-whatsapp');
 const { obtenerAdapterMetaParaEmpresa, conectarWhatsAppMeta } = require('./modules/meta-auth');
+const { configPublica: configPublicaEmbeddedSignup, intercambiarCodigoPorTokenLargo, suscribirWebhookAWaba } = require('./modules/meta-embedded-signup');
 const { ChannelRouter }                 = require('./modules/channel-router');
 const { generarUrlAutorizacion, manejarCallback } = require('./modules/google-auth');
 const { iniciarSesion, obtenerEmpresasDeUsuario, solicitarRecuperacion, restablecerPassword, ErrorAuth } = require('./modules/auth');
@@ -1625,7 +1626,8 @@ app.delete('/api/config/pipeline-etapas/:id', requireAuth, soloGerencial, async 
 
 app.get('/api/config/canales', requireAuth, async (req, res) => {
   try {
-    res.json(await listarCanales(req.supabase, req.usuario.company_id));
+    const datos = await listarCanales(req.supabase, req.usuario.company_id);
+    res.json({ ...datos, metaEmbeddedSignup: configPublicaEmbeddedSignup() });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -1645,6 +1647,34 @@ app.post('/api/config/canales/whatsapp-meta', requireAuth, soloGerencial, async 
 
     await conectarWhatsAppMeta(supabaseServicio, req.usuario.company_id, {
       whatsappBusinessAccountId, phoneNumberId, metaBusinessId, accessToken,
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Embedded Signup (ADR-009) — el frontend ya hizo el popup de Facebook Login
+// for Business y capturó waba_id/phone_number_id (Meta los manda por
+// postMessage durante el flujo) más un `code` de un solo uso (FB.login()).
+// Este endpoint hace lo único que requiere el secreto de la app (nunca
+// expuesto al frontend): cambiar ese code por un token de larga duración,
+// suscribir el webhook compartido de TARA a ese WABA, y guardar las
+// credenciales con el mismo conectarWhatsAppMeta() que ya usa el alta manual.
+app.post('/api/config/canales/whatsapp-meta/embedded-signup', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    const { code, wabaId, phoneNumberId, metaBusinessId } = req.body || {};
+    if (!code || !wabaId || !phoneNumberId) {
+      return res.status(400).json({ error: 'code, wabaId y phoneNumberId son requeridos' });
+    }
+
+    const accessToken = await intercambiarCodigoPorTokenLargo(code);
+    await suscribirWebhookAWaba(wabaId, accessToken);
+    await conectarWhatsAppMeta(supabaseServicio, req.usuario.company_id, {
+      whatsappBusinessAccountId: wabaId,
+      phoneNumberId,
+      metaBusinessId,
+      accessToken,
     });
     res.json({ ok: true });
   } catch (e) {
