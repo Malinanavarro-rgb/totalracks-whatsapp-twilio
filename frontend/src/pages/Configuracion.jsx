@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import PersonalidadTab from './configuracion/PersonalidadTab';
 import SkillsTab from './configuracion/SkillsTab';
@@ -41,7 +42,13 @@ export default function Configuracion() {
   const esGerencial = ROLES_CON_ACCESO_A_BILLING.includes(sesion?.empresaActiva?.rol);
   const tabsVisibles = TABS.filter((t) => !t.soloGerencial || esGerencial);
 
-  const [tabActiva, setTabActiva] = useState('personalidad');
+  // Deep-link (?tab=suscripcion) — usado por el banner/indicador de
+  // suscripción del panel para llevar directo al tab correcto, en vez de
+  // solo mandar a /configuracion y que el usuario busque el tab a mano.
+  const [searchParams] = useSearchParams();
+  const tabInicial = TABS.some((t) => t.id === searchParams.get('tab')) ? searchParams.get('tab') : 'personalidad';
+
+  const [tabActiva, setTabActiva] = useState(tabInicial);
   const Activa = tabsVisibles.find((t) => t.id === tabActiva)?.Componente || tabsVisibles[0]?.Componente;
 
   return (

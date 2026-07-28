@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../lib/api';
 import { iniciales, colorDesdeTexto } from '../lib/avatar';
 import LogoTara from './LogoTara';
+import SuscripcionIndicador from './SuscripcionIndicador';
 
 // Íconos de línea, mismo trazo (stroke-width 1.6) para todo el menú —
 // Brand Guidelines V1.0: el menú existe para navegar, no para llamar la
@@ -19,6 +20,14 @@ const ICONOS = {
   configuracion: <><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.2-1.6l2-1.5-2-3.4-2.3.9a7 7 0 00-2.7-1.6L13.4 2h-2.8l-.4 2.8a7 7 0 00-2.7 1.6l-2.3-.9-2 3.4 2 1.5A7 7 0 005 12c0 .5 0 1.1.2 1.6l-2 1.5 2 3.4 2.3-.9c.8.7 1.7 1.3 2.7 1.6l.4 2.8h2.8l.4-2.8c1-.3 1.9-.9 2.7-1.6l2.3.9 2-3.4-2-1.5c.1-.5.2-1 .2-1.6z"/></>,
   panelAccion:   <><path d="M9 18h6M10 21h4M12 3a6 6 0 00-3.5 10.9c.5.4.8 1 .8 1.6v.5h5.4v-.5c0-.6.3-1.2.8-1.6A6 6 0 0012 3z"/></>,
 };
+
+function IconoHamburguesa() {
+  return (
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M4 6h16M4 12h16M4 18h16" />
+    </svg>
+  );
+}
 
 // Panel de Acción Inteligente (Business Memory Core + KCE) — información y
 // acciones a nivel empresa, no personal. Mismo criterio de acceso que Modo
@@ -59,8 +68,15 @@ function modulosParaEmpresa(empresaActiva) {
 
 export default function Shell() {
   const { sesion, cerrarSesion } = useAuth();
+  const location = useLocation();
   const esGerencial = ROLES_GERENCIALES.includes(sesion?.empresaActiva?.rol);
   const modulos = modulosParaEmpresa(sesion?.empresaActiva).filter(m => !m.soloGerencial || esGerencial);
+
+  // Sidebar responsive (móvil/PWA): drawer off-canvas por debajo de 860px
+  // (ver App.css). Cerrado por defecto siempre — se abre solo con el botón
+  // de hamburguesa, y se cierra solo al navegar a otra sección.
+  const [sidebarAbierto, setSidebarAbierto] = useState(false);
+  useEffect(() => { setSidebarAbierto(false); }, [location.pathname]);
 
   async function salirDelModoSoporte() {
     await api.salirImpersonacion().catch(() => {});
@@ -76,7 +92,8 @@ export default function Shell() {
         </div>
       )}
       <div className="shell">
-      <aside className="shell-sidebar">
+      {sidebarAbierto && <div className="shell-overlay" onClick={() => setSidebarAbierto(false)} />}
+      <aside className={sidebarAbierto ? 'shell-sidebar shell-sidebar--abierto' : 'shell-sidebar'}>
         <div className="shell-logo">
           <LogoTara size={40} className="shell-logo-icono" />
           <div>
@@ -99,11 +116,22 @@ export default function Shell() {
             )
           ))}
         </nav>
+        <SuscripcionIndicador />
       </aside>
 
       <div className="shell-contenido">
         <header className="shell-header">
-          <SelectorEmpresa empresaActiva={sesion?.empresaActiva} empresas={sesion?.empresas} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <button
+              type="button"
+              className="shell-hamburguesa"
+              aria-label="Abrir menú"
+              onClick={() => setSidebarAbierto(true)}
+            >
+              <IconoHamburguesa />
+            </button>
+            <SelectorEmpresa empresaActiva={sesion?.empresaActiva} empresas={sesion?.empresas} />
+          </div>
           <div className="shell-usuario">
             {sesion?.empresaActiva?.nombre}
             <button onClick={cerrarSesion}>Cerrar sesión</button>

@@ -28,6 +28,15 @@
   --acento-soft: color-mix(in srgb, var(--acento) 12%, white);
 
   --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+
+  /* Escala tipográfica (rediseño Panel/PWA) — componentes nuevos la usan;
+     los tamaños ad hoc ya existentes en componentes previos no se tocan. */
+  --text-xs:   0.72rem;
+  --text-sm:   0.85rem;
+  --text-base: 0.95rem;
+  --text-lg:   1.1rem;
+  --text-xl:   1.4rem;
+  --text-2xl:  1.8rem;
 }
 
 * { box-sizing: border-box; }
@@ -192,6 +201,47 @@ body {
 .shell-nav-item--deshabilitado { color: #565b66; cursor: default; }
 .shell-nav-item--deshabilitado small { display: block; font-size: 0.7rem; }
 
+/* Indicador de suscripción — siempre al fondo del sidebar (margin-top:
+   auto empuja contra .shell-sidebar, que ya es flex-column). */
+.suscripcion-indicador {
+  display: flex; align-items: center; gap: 0.5rem;
+  margin-top: auto; padding: 0.65rem 0.75rem; border-radius: 8px;
+  text-decoration: none; font-size: var(--text-xs); font-weight: 650;
+  background: rgba(255, 255, 255, 0.06); transition: background 150ms;
+}
+.suscripcion-indicador:hover { background: rgba(255, 255, 255, 0.1); }
+.suscripcion-indicador-punto { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.suscripcion-indicador-texto { color: #d8dce3; }
+.suscripcion-indicador--alta  .suscripcion-indicador-punto { background: #ef6a6a; }
+.suscripcion-indicador--media .suscripcion-indicador-punto { background: #f5b95c; }
+.suscripcion-indicador--baja  .suscripcion-indicador-punto { background: var(--brand-teal); }
+
+/* ── Sidebar responsive (menú hamburguesa en móvil) ──────────────────────
+   Breakpoint 860px: por debajo, el sidebar pasa de columna fija a un
+   drawer off-canvas — necesario para uso real en teléfono/PWA. */
+.shell-hamburguesa {
+  display: none; background: none; border: none; cursor: pointer; padding: 0.4rem;
+  color: var(--text); align-items: center; justify-content: center;
+}
+.shell-overlay { display: none; }
+
+@media (max-width: 860px) {
+  .shell-hamburguesa { display: inline-flex; }
+
+  .shell-sidebar {
+    position: fixed; top: 0; left: 0; bottom: 0; z-index: 40;
+    transform: translateX(-100%);
+    transition: transform 200ms ease;
+    box-shadow: 2px 0 24px rgba(0, 0, 0, 0.25);
+  }
+  .shell-sidebar--abierto { transform: translateX(0); }
+
+  .shell-overlay {
+    display: block; position: fixed; inset: 0; z-index: 30;
+    background: rgba(0, 0, 0, 0.4);
+  }
+}
+
 .shell-contenido { flex: 1; display: flex; flex-direction: column; }
 
 .shell-header {
@@ -254,6 +304,39 @@ body {
 
 /* ── Centro de Operaciones ─────────────────────────────────────────────── */
 
+/* Banner de suscripción — primero de todo el dashboard (antes que el saludo
+   de TARA), coloreado por urgencia real (trial por vencer / pago pendiente
+   = alta, plan activo = baja) con los mismos tokens semánticos de .alerta/
+   .pill — nunca un color fuera de Brand Guidelines V1.0. */
+.suscripcion-banner {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: 1rem 1.25rem; border-radius: 14px; margin: 0 0 1.75rem;
+  text-decoration: none; transition: transform 150ms;
+}
+.suscripcion-banner:hover { transform: translateY(-1px); }
+.suscripcion-banner-titulo { margin: 0; font-size: var(--text-lg); font-weight: 700; }
+.suscripcion-banner-mensaje { margin: 0.2rem 0 0; font-size: var(--text-sm); }
+.suscripcion-banner-cta { flex-shrink: 0; font-size: var(--text-sm); font-weight: 700; white-space: nowrap; padding: 0.5rem 1rem; border-radius: 999px; }
+
+.suscripcion-banner--alta { background: var(--error-soft); border: 1px solid color-mix(in srgb, var(--error) 30%, white); }
+.suscripcion-banner--alta .suscripcion-banner-titulo  { color: var(--error); }
+.suscripcion-banner--alta .suscripcion-banner-mensaje { color: color-mix(in srgb, var(--error) 70%, black); }
+.suscripcion-banner--alta .suscripcion-banner-cta     { background: var(--error); color: #fff; }
+
+.suscripcion-banner--media { background: var(--warning-soft); border: 1px solid color-mix(in srgb, var(--warning) 35%, white); }
+.suscripcion-banner--media .suscripcion-banner-titulo  { color: color-mix(in srgb, var(--warning) 65%, black); }
+.suscripcion-banner--media .suscripcion-banner-mensaje { color: color-mix(in srgb, var(--warning) 70%, black); }
+.suscripcion-banner--media .suscripcion-banner-cta     { background: var(--warning); color: #1a1305; }
+
+.suscripcion-banner--baja { background: var(--tint); border: 1px solid var(--line); }
+.suscripcion-banner--baja .suscripcion-banner-titulo  { color: var(--ink); }
+.suscripcion-banner--baja .suscripcion-banner-mensaje { color: var(--text-secondary); }
+.suscripcion-banner--baja .suscripcion-banner-cta     { background: var(--surface); border: 1px solid var(--line); color: var(--text); }
+
+@media (max-width: 640px) {
+  .suscripcion-banner { flex-direction: column; align-items: flex-start; }
+}
+
 /* TARA como protagonista: primero el saludo + cuántas prioridades
    encontró, las métricas quedan de respaldo más abajo (Operaciones.jsx). */
 .tara-hero { margin: 0 0 2rem; max-width: 640px; }
@@ -272,7 +355,8 @@ body {
 
 /* KPIs estilo Stripe: números, no widgets — sin tarjeta ni sombra. */
 .kpi-strip { display: flex; flex-wrap: wrap; margin: 1.1rem 0 2rem; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-.kpi { flex: 1; min-width: 120px; padding: 1.4rem 1.1rem; position: relative; }
+.kpi { flex: 1; min-width: 120px; padding: 1.4rem 1.1rem; position: relative; border-radius: 10px; transition: background 150ms; }
+.kpi:hover { background: var(--tint); }
 .kpi:not(:last-child)::after { content: ''; position: absolute; right: 0; top: 22%; bottom: 22%; width: 1px; background: var(--line); }
 .kpi-valor { font-family: var(--font-mono); font-size: 1.9rem; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--ink); }
 .kpi-etiqueta { font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.3rem; }
@@ -296,7 +380,8 @@ body {
 /* Jerarquía visual por severidad — no todas las recomendaciones pesan igual. */
 
 .recomendaciones-lista { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.3rem; }
-.recomendacion-tarjeta { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.6rem; border-radius: 8px; }
+.recomendacion-tarjeta { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.6rem; border-radius: 8px; transition: transform 150ms; }
+.recomendacion-tarjeta:hover { transform: translateX(2px); }
 .recomendacion-punto { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
 .recomendacion-cuerpo { flex: 1; min-width: 0; }
 .recomendacion-texto { margin: 0; font-size: 0.8rem; line-height: 1.25; }

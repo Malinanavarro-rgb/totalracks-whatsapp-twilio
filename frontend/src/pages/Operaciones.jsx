@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { api } from '../lib/api';
 import { usePolling } from '../lib/usePolling';
 import LogoTara from '../components/LogoTara';
+import SuscripcionBanner from '../components/SuscripcionBanner';
 
 function saludoPorHora() {
   const hora = new Date().getHours();
@@ -116,6 +117,8 @@ export default function Operaciones() {
 
   return (
     <div>
+      <SuscripcionBanner />
+
       {cargando && <p className="operaciones-nota">TARA está revisando {empresa}…</p>}
       {error && <p className="login-error">No se pudieron cargar las métricas: {error}</p>}
 
