@@ -93,6 +93,92 @@ body {
 
 .login-error { color: var(--error); font-size: 0.85rem; margin: -0.5rem 0 1rem; }
 
+/* ── Registro / Onboarding (premium) ──────────────────────────────────────
+   Primera impresión real de la marca para un cliente nuevo — a diferencia
+   de .login-tarjeta (genérica, reusada también por recuperar/restablecer
+   contraseña), esta pantalla tiene su propio tratamiento: panel de marca +
+   formulario, mismos tokens congelados (--ink/--brand-teal), sin colores
+   nuevos. */
+.auth-premium { min-height: 100vh; display: grid; grid-template-columns: 1fr 1fr; }
+
+.auth-premium-marca {
+  background: var(--ink); color: #fff; padding: 3.5rem 3rem;
+  display: flex; flex-direction: column; justify-content: center; gap: 2.5rem;
+}
+.auth-premium-marca-logo { display: flex; align-items: center; gap: 0.7rem; }
+.auth-premium-marca-logo span { font-size: var(--text-lg); font-weight: 800; letter-spacing: -0.01em; }
+.auth-premium-marca-titulo { font-size: var(--text-2xl); font-weight: 700; line-height: 1.2; margin: 0; text-wrap: balance; }
+.auth-premium-marca-lista { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1.1rem; }
+.auth-premium-marca-item { display: flex; align-items: flex-start; gap: 0.75rem; }
+.auth-premium-marca-check {
+  flex-shrink: 0; width: 22px; height: 22px; border-radius: 50%; margin-top: 0.1rem;
+  background: color-mix(in srgb, var(--brand-teal) 22%, transparent);
+  display: flex; align-items: center; justify-content: center;
+}
+.auth-premium-marca-item strong { display: block; font-size: var(--text-sm); font-weight: 650; }
+.auth-premium-marca-item p { margin: 0.15rem 0 0; font-size: var(--text-xs); color: rgba(255,255,255,0.65); line-height: 1.4; }
+
+.auth-premium-formulario { display: flex; align-items: center; justify-content: center; padding: 2rem; background: var(--bg); }
+.auth-premium-tarjeta { width: 100%; max-width: 400px; }
+.auth-premium-tarjeta h1 { font-size: var(--text-xl); margin: 0 0 0.35rem; color: var(--ink); }
+.auth-premium-subtitulo { margin: 0 0 1.75rem; color: var(--text-secondary); font-size: var(--text-sm); }
+
+.auth-premium-campo { margin-bottom: 1.1rem; }
+.auth-premium-campo label { display: block; font-size: var(--text-sm); font-weight: 600; color: var(--text); margin-bottom: 0.35rem; }
+.auth-premium-campo input {
+  width: 100%; padding: 0.7rem 0.85rem; border: 1px solid var(--line); border-radius: 8px;
+  font-size: var(--text-base); background: var(--surface); transition: border-color 150ms, box-shadow 150ms;
+}
+.auth-premium-campo input:focus {
+  outline: none; border-color: var(--brand-teal);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-teal) 20%, transparent);
+}
+
+.auth-premium-boton {
+  width: 100%; padding: 0.8rem; margin-top: 0.4rem; border: none; border-radius: 8px;
+  background: var(--brand-teal); color: var(--ink); font-size: var(--text-base); font-weight: 700;
+  cursor: pointer; transition: background 150ms;
+}
+.auth-premium-boton:hover { background: color-mix(in srgb, var(--brand-teal) 85%, white); }
+.auth-premium-boton:disabled { opacity: 0.6; cursor: default; }
+
+.auth-premium-pie { margin: 1.25rem 0 0; font-size: var(--text-sm); color: var(--text-secondary); text-align: center; }
+.auth-premium-pie a { color: var(--ink); font-weight: 600; }
+
+@media (max-width: 860px) {
+  .auth-premium { grid-template-columns: 1fr; }
+  .auth-premium-marca { padding: 2.5rem 1.5rem; gap: 1.5rem; }
+  .auth-premium-marca-lista { display: none; } /* prioridad al formulario en móvil, sin scroll largo */
+}
+
+/* ── Onboarding (post-registro) ───────────────────────────────────────── */
+.onboarding-premium { min-height: 100vh; background: var(--bg); display: flex; align-items: center; justify-content: center; padding: 2rem 1.5rem; }
+.onboarding-premium-tarjeta { width: 100%; max-width: 560px; }
+.onboarding-premium-logo { display: flex; justify-content: center; margin-bottom: 1.5rem; }
+.onboarding-premium-titulo { font-size: var(--text-2xl); font-weight: 700; text-align: center; margin: 0 0 0.5rem; color: var(--ink); text-wrap: balance; }
+.onboarding-premium-subtitulo { text-align: center; color: var(--text-secondary); font-size: var(--text-base); margin: 0 0 2.25rem; }
+
+.onboarding-paso {
+  display: flex; gap: 1rem; padding: 1.25rem; border-radius: 12px;
+  background: var(--surface); border: 1px solid var(--line); margin-bottom: 1rem;
+}
+.onboarding-paso-icono {
+  flex-shrink: 0; width: 36px; height: 36px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--success-soft); color: var(--success);
+}
+.onboarding-paso-icono--pendiente { background: var(--tint); color: var(--text-secondary); }
+.onboarding-paso-cuerpo h2 { font-size: var(--text-base); margin: 0 0 0.3rem; color: var(--ink); }
+.onboarding-paso-cuerpo p { margin: 0; font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.45; }
+
+.onboarding-servicios-lista { list-style: none; padding: 0; margin: 0.6rem 0 0; display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.onboarding-servicio-pill {
+  font-size: var(--text-xs); font-weight: 600; padding: 0.3rem 0.7rem; border-radius: 999px;
+  background: var(--tint); color: var(--text);
+}
+
+.onboarding-premium-acciones { display: flex; flex-direction: column; align-items: center; gap: 0.75rem; margin-top: 1.75rem; }
+
 /* ── Landing (panel de entrada público) ───────────────────────────────────
    Mismos tokens de marca congelados que el resto del producto — ink para
    el hero, brand-teal como único acento, sin colores nuevos. */

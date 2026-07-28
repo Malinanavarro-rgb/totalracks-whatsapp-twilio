@@ -2,6 +2,23 @@ import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
+import LogoTara from '../components/LogoTara';
+
+function IconoCheck() {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.2">
+      <path d="M4 12l5 5L20 6" />
+    </svg>
+  );
+}
+
+function IconoWhatsApp() {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M4 4h16v12H8l-4 4V4z" />
+    </svg>
+  );
+}
 
 // Portal de Cliente — wizard corto de primeros pasos, deliberadamente
 // simple (una sola pantalla, no un flujo de varios pasos): confirma lo que
@@ -32,38 +49,58 @@ export default function Onboarding() {
   const empresa = sesion?.empresaActiva?.nombre || 'tu negocio';
 
   return (
-    <div className="login-pantalla">
-      <div className="login-tarjeta" style={{ maxWidth: '460px' }}>
-        <h1>¡Bienvenido a TARA, {empresa}!</h1>
-        <p className="login-subtitulo">Ya configuramos lo básico automáticamente — revísalo y en un minuto quedas listo.</p>
+    <div className="onboarding-premium">
+      <div className="onboarding-premium-tarjeta">
+        <div className="onboarding-premium-logo"><LogoTara size={48} /></div>
+        <h1 className="onboarding-premium-titulo">¡Bienvenido a TARA-OS, {empresa}!</h1>
+        <p className="onboarding-premium-subtitulo">Ya configuramos lo básico automáticamente — revísalo y en un minuto quedas listo.</p>
 
-        <h2 className="alertas-titulo alertas-titulo--secundario">Servicios detectados</h2>
-        {!servicios ? (
-          <p className="operaciones-nota">Cargando…</p>
-        ) : servicios.length === 0 ? (
-          <p className="operaciones-nota">No detectamos servicios automáticamente — puedes agregarlos después en Configuración.</p>
-        ) : (
-          <ul className="pregunta-tara-sugerencias" style={{ listStyle: 'none', padding: 0 }}>
-            {servicios.map(s => (
-              <li key={s.id} className="pregunta-tara-chip" style={{ cursor: 'default' }}>
-                {s.nombre}{s.precio ? ` — $${s.precio}` : ''}
-              </li>
-            ))}
-          </ul>
-        )}
-        <p className="login-subtitulo">Puedes editarlos cuando quieras en Configuración → Servicios.</p>
+        <div className="onboarding-paso">
+          <span className="onboarding-paso-icono"><IconoCheck /></span>
+          <div className="onboarding-paso-cuerpo">
+            <h2>Tu asistente ya está configurado</h2>
+            <p>TARA ya tiene una personalidad lista para atender a tus clientes — puedes ajustarla cuando quieras en Configuración → Personalidad.</p>
+          </div>
+        </div>
 
-        <h2 className="alertas-titulo alertas-titulo--secundario">Conecta tu primer canal</h2>
-        <p className="login-subtitulo">
-          Para que TARA empiece a atender por WhatsApp, conéctalo desde Configuración → Canales.
-          No es obligatorio hacerlo ahora — puedes explorar el panel primero.
-        </p>
+        <div className="onboarding-paso">
+          <span className="onboarding-paso-icono"><IconoCheck /></span>
+          <div className="onboarding-paso-cuerpo">
+            <h2>Servicios detectados</h2>
+            {!servicios ? (
+              <p>Cargando…</p>
+            ) : servicios.length === 0 ? (
+              <p>No detectamos servicios automáticamente — puedes agregarlos después en Configuración.</p>
+            ) : (
+              <>
+                <p>Encontramos {servicios.length} servicio{servicios.length === 1 ? '' : 's'} para empezar:</p>
+                <ul className="onboarding-servicios-lista">
+                  {servicios.map(s => (
+                    <li key={s.id} className="onboarding-servicio-pill">
+                      {s.nombre}{s.precio ? ` — $${s.precio}` : ''}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            <p style={{ marginTop: '0.5rem' }}>Puedes editarlos cuando quieras en Configuración → Servicios.</p>
+          </div>
+        </div>
 
-        <button type="button" onClick={empezar} disabled={terminando} style={{ marginTop: '0.5rem' }}>
-          {terminando ? 'Un momento…' : 'Empezar a usar TARA'}
-        </button>
+        <div className="onboarding-paso">
+          <span className="onboarding-paso-icono onboarding-paso-icono--pendiente"><IconoWhatsApp /></span>
+          <div className="onboarding-paso-cuerpo">
+            <h2>Conecta tu primer canal</h2>
+            <p>Para que TARA empiece a atender por WhatsApp, conéctalo desde Configuración → Canales. No es obligatorio hacerlo ahora — puedes explorar el panel primero.</p>
+          </div>
+        </div>
 
-        <p className="login-subtitulo"><Link to="/configuracion">Prefiero configurar todo primero</Link></p>
+        <div className="onboarding-premium-acciones">
+          <button type="button" className="auth-premium-boton" onClick={empezar} disabled={terminando} style={{ maxWidth: '320px' }}>
+            {terminando ? 'Un momento…' : 'Empezar a usar TARA-OS'}
+          </button>
+          <Link to="/configuracion" className="auth-premium-pie">Prefiero configurar todo primero</Link>
+        </div>
       </div>
     </div>
   );
