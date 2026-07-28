@@ -89,6 +89,12 @@ class Orchestrator {
     // FASE 4A — WorkflowEngine M5 (opcional: null-safe en todo el flujo)
     this._workflow = deps.workflowEngine || null;
 
+    // ADR-012 — Asistente Oficial de TARA-OS (opcional: null-safe, cero
+    // impacto en empresas que no lo usan). Resuelve datos reales de cuenta
+    // de plataforma (plan, integraciones, tickets) a partir del teléfono de
+    // quien escribe — nunca los inventa el modelo. Ver modules/cuenta-plataforma.js.
+    this._obtenerEnriquecimientoCuenta = deps.obtenerEnriquecimientoCuenta || null;
+
     // FASE 4B / ANEXO A (TA.4) — Action Runner (M8)
     this._actualizarScore  = deps.actualizarScore   || null;
     this._crearOportunidad = deps.crearOportunidad  || null;
@@ -152,6 +158,21 @@ class Orchestrator {
     const company_id  = empresaRaw.company?.id;
     const empresaConf = this._mapearEmpresaConfig(empresaRaw);
 
+    // ADR-012 — enriquecimiento opcional con datos reales de cuenta de
+    // plataforma (plan, integraciones, tickets — ver cuenta-plataforma.js).
+    // Null-safe: si no está configurado, o si falla, o si el teléfono no
+    // resuelve a ninguna cuenta (caso normal de un prospecto), el flujo
+    // sigue exactamente igual que hoy — nunca bloquea ni rompe el turno.
+    if (this._obtenerEnriquecimientoCuenta) {
+      const enriquecimientoResult = await this._paso('cuenta_plataforma', timings, () =>
+        this._obtenerEnriquecimientoCuenta(company_id, message.from)
+      );
+      if (enriquecimientoResult.ok && Array.isArray(enriquecimientoResult.value) && enriquecimientoResult.value.length > 0) {
+        const extra = this._mapearKnowledge(enriquecimientoResult.value);
+        empresaConf.knowledge_base = [empresaConf.knowledge_base, extra].filter(Boolean).join('\n\n');
+      }
+    }
+
     // ctx mínimo para logging antes de tener el contexto completo
     const ctxBase = {
       company_id,
@@ -190,7 +211,10 @@ class Orchestrator {
         historia_conversacion: historia,
         resumen_cliente:       null,   // FASE 6
         workflow_state:        null,   // FASE 5
-        capacidades:           CAPACIDADES_FASE2,
+        // ADR-012: capacidades por-empresa (personalities.capacidades) si la
+        // empresa las definió, si no, el default histórico — cero cambio de
+        // comportamiento para cualquier empresa que no lo configure.
+        capacidades:           empresaConf.capacidades.length > 0 ? empresaConf.capacidades : CAPACIDADES_FASE2,
       })
     );
     if (!ctxResult.ok) {
@@ -313,6 +337,10 @@ class Orchestrator {
       reglas:                personality?.reglas           || [],
       ai_max_turnos_memoria: personality?.max_turnos_memoria ?? 8,
       kb_max_secciones:      personality?.kb_max_secciones   ?? 3,
+      // ADR-012: completa el TODO ya anotado en CAPACIDADES_FASE2 — vacío/
+      // null para el 100% de las empresas existentes (sin cambio de
+      // comportamiento), solo TARA-OS lo usa por ahora.
+      capacidades:           Array.isArray(personality?.capacidades) ? personality.capacidades : [],
     };
   }
 
@@ -745,6 +773,7 @@ function crearOrchestrator(overrides = {}) {
   const { SchedulingEngine }       = require('./scheduling-engine');
   const { obtenerProviderParaEmpresa } = require('./google-auth');
   const { MockCalendarProvider }   = require('../adapters/calendar/mock-calendar-provider');
+  const { construirResumenCuentaParaKnowledge, crearTicket, resolverCuentaPorTelefono } = require('./cuenta-plataforma');
 
   // RLS: crearOrchestrator() se usa desde el webhook de Twilio (sin usuario
   // final) — usa supabaseServicio (bypassa RLS por diseño de Supabase).
@@ -855,6 +884,30 @@ function crearOrchestrator(overrides = {}) {
       }
     });
 
+    // ADR-012 — Asistente Oficial de TARA-OS: solo se propone si la empresa
+    // habilitó 'crear_ticket_soporte' en personalities.capacidades (hoy,
+    // únicamente TARA-OS) — ver _mapearEmpresaConfig/capacidades dinámicas.
+    // Resuelve la cuenta de plataforma por el teléfono de quien escribe
+    // (ctx.cliente.identificador) — nunca inventa organizationId/usuarioId.
+    runner.registrar('crear_ticket_soporte', async (parametros, ctx) => {
+      const { data: company } = await supabase
+        .from('companies').select('organization_id').eq('id', ctx.company_id).maybeSingle();
+      if (!company?.organization_id) {
+        return { error: 'No se pudo identificar la organización para crear el ticket.' };
+      }
+
+      const cuenta = await resolverCuentaPorTelefono(supabase, ctx.cliente?.identificador);
+
+      return crearTicket(supabase, {
+        organizationId: company.organization_id,
+        usuarioId:      cuenta?.usuario?.id || null,
+        asunto:         parametros.asunto,
+        descripcion:    parametros.descripcion,
+        prioridad:      parametros.prioridad,
+        canal:          ctx.canal || 'whatsapp',
+      });
+    });
+
     return runner;
   })();
 
@@ -868,6 +921,8 @@ function crearOrchestrator(overrides = {}) {
     obtenerOCrearCliente: overrides.obtenerOCrearCliente || obtenerOCrearCliente,
     obtenerHistorial:     overrides.obtenerHistorial     || obtenerHistorial,
     guardarConversacion:  overrides.guardarConversacion  || guardarConversacion,
+    obtenerEnriquecimientoCuenta: overrides.obtenerEnriquecimientoCuenta
+      || ((companyId, telefono) => construirResumenCuentaParaKnowledge(supabase, companyId, telefono)),
     actionRunner,
     actualizarScore:      overrides.actualizarScore      || actualizarScoreInteres,
   });

@@ -1680,3 +1680,104 @@ describe('Orchestrator — Punto 2: Case A usa valor extraído para avanzar()', 
     );
   });
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 7. ADR-012 — Asistente Oficial de TARA-OS: enriquecimiento de cuenta + capacidades dinámicas
+// ═════════════════════════════════════════════════════════════════════════════
+
+describe('Orchestrator — ADR-012: obtenerEnriquecimientoCuenta (opcional, null-safe)', () => {
+  it('sin la dep inyectada, el flujo es idéntico a antes — no la llama ni rompe', async () => {
+    const deps = makeDeps();
+    expect(deps.obtenerEnriquecimientoCuenta).toBeUndefined();
+    const orch = new Orchestrator(deps);
+    await expect(orch.procesarMensaje(makeMessage())).resolves.not.toThrow();
+  });
+
+  it('con la dep inyectada, se llama con (company_id, message.from)', async () => {
+    const obtenerEnriquecimientoCuenta = jest.fn().mockResolvedValue([]);
+    const deps = makeDeps({ obtenerEnriquecimientoCuenta });
+    const orch = new Orchestrator(deps);
+
+    await orch.procesarMensaje(makeMessage({ from: '+5218112345678' }));
+
+    expect(obtenerEnriquecimientoCuenta).toHaveBeenCalledWith('company-uuid-001', '+5218112345678');
+  });
+
+  it('si el teléfono no resuelve a ninguna cuenta (array vacío), el prompt no cambia', async () => {
+    const obtenerEnriquecimientoCuenta = jest.fn().mockResolvedValue([]);
+    const deps = makeDeps({ obtenerEnriquecimientoCuenta });
+    const orch = new Orchestrator(deps);
+
+    const logAISpy = jest.spyOn(deps.auditLogger, 'logAICall');
+    await orch.procesarMensaje(makeMessage());
+
+    const aiInputUsado = logAISpy.mock.calls[0][1];
+    expect(aiInputUsado.system_prompt).not.toContain('CUENTA_REAL_DEL_CONTACTO');
+  });
+
+  it('si resuelve una cuenta real, el contenido llega al system_prompt que ve el modelo', async () => {
+    const obtenerEnriquecimientoCuenta = jest.fn().mockResolvedValue([
+      { categoria: 'CUENTA_REAL_DEL_CONTACTO', contenido: 'Plan: TARA Professional — estado: active.' },
+    ]);
+    const deps = makeDeps({ obtenerEnriquecimientoCuenta });
+    const orch = new Orchestrator(deps);
+
+    const logAISpy = jest.spyOn(deps.auditLogger, 'logAICall');
+    await orch.procesarMensaje(makeMessage());
+
+    const aiInputUsado = logAISpy.mock.calls[0][1];
+    expect(aiInputUsado.system_prompt).toContain('CUENTA_REAL_DEL_CONTACTO');
+    expect(aiInputUsado.system_prompt).toContain('Plan: TARA Professional');
+  });
+
+  it('si la dep falla, el turno continúa sin romperse (mismo criterio que cualquier otro paso)', async () => {
+    const obtenerEnriquecimientoCuenta = jest.fn().mockRejectedValue(new Error('Supabase caído'));
+    const deps = makeDeps({ obtenerEnriquecimientoCuenta });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage());
+    expect(resultado.respuesta_texto).toBeDefined();
+    expect(resultado.respuesta_texto.length).toBeGreaterThan(0);
+  });
+});
+
+describe('Orchestrator — ADR-012: capacidades dinámicas por empresa (personalities.capacidades)', () => {
+  it('sin personality.capacidades definidas, usa CAPACIDADES_FASE2 (sin cambio de comportamiento)', async () => {
+    const deps = makeDeps();
+    const orch = new Orchestrator(deps);
+
+    const logAISpy = jest.spyOn(deps.auditLogger, 'logAICall');
+    await orch.procesarMensaje(makeMessage());
+
+    const aiInputUsado = logAISpy.mock.calls[0][1];
+    expect(aiInputUsado.system_prompt).toContain('"crear_oportunidad"');
+  });
+
+  it('con personality.capacidades definidas, el schema del prompt las usa en vez del default', async () => {
+    const empresaConCapacidades = makeEmpresaRaw();
+    empresaConCapacidades.personality.capacidades = ['crear_oportunidad', 'crear_ticket_soporte'];
+
+    const deps = makeDeps({ obtenerConfigEmpresa: jest.fn().mockResolvedValue(empresaConCapacidades) });
+    const orch = new Orchestrator(deps);
+
+    const logAISpy = jest.spyOn(deps.auditLogger, 'logAICall');
+    await orch.procesarMensaje(makeMessage());
+
+    const aiInputUsado = logAISpy.mock.calls[0][1];
+    expect(aiInputUsado.system_prompt).toContain('"crear_ticket_soporte"');
+  });
+
+  it('personality.capacidades vacío ([]) también cae al default, no queda sin acciones', async () => {
+    const empresaVacia = makeEmpresaRaw();
+    empresaVacia.personality.capacidades = [];
+
+    const deps = makeDeps({ obtenerConfigEmpresa: jest.fn().mockResolvedValue(empresaVacia) });
+    const orch = new Orchestrator(deps);
+
+    const logAISpy = jest.spyOn(deps.auditLogger, 'logAICall');
+    await orch.procesarMensaje(makeMessage());
+
+    const aiInputUsado = logAISpy.mock.calls[0][1];
+    expect(aiInputUsado.system_prompt).toContain('"crear_oportunidad"');
+  });
+});
