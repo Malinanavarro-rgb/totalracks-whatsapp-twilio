@@ -36,6 +36,67 @@ const { crearKnowledgeBase, crearServicio, crearPipelineEtapa } = require('./con
 const { crearWorkflow, crearNodo } = require('./workflow-admin');
 const { crearOrganizacionConCompany } = require('./organizaciones');
 
+// Bug real encontrado en producción (una empresa registrada sin industria
+// detectable quedaba sin NINGUNA fila en `personalities` — Personalidad no
+// cargaba en el panel, y el bot no tendría ninguna configuración si se
+// conectara un canal): toda empresa nueva necesita una personalidad desde
+// el día uno, exista o no una plantilla de industria que le aplique. Este
+// default es deliberadamente genérico — cero lenguaje de ningún giro
+// específico — para no violar el Motor Universal (ver migración 080).
+const PERSONALIDAD_GENERICA_DEFAULT = {
+  nombre_asistente: 'TARA',
+  cargo: 'Asistente Virtual',
+  tono: 'profesional y amable',
+  objetivo: 'Atender a los clientes de la empresa, responder sus preguntas y ayudarles a avanzar en lo que necesiten.',
+  idioma: 'es',
+  zona_horaria: 'America/Mexico_City',
+  modelo: 'gpt-4o-mini',
+  temperatura: 0.7,
+  max_tokens: 500,
+  campos_requeridos: [],
+  reglas: [],
+  mensaje_bienvenida: '',
+  firma: '',
+  mensaje_fuera_horario: 'Gracias por tu mensaje. En este momento estamos fuera de horario de atención — te responderemos en cuanto sea posible.',
+  mensaje_error_tecnico: 'Error técnico. Intenta de nuevo.',
+};
+
+/**
+ * Único punto que inserta la primera fila de `personalities` de una
+ * empresa — usado tanto por aplicarPlantilla() (con los datos de la
+ * plantilla detectada) como por crearEmpresaConIndustria() cuando no hubo
+ * coincidencia (con PERSONALIDAD_GENERICA_DEFAULT). Mismos defaults
+ * técnicos sensatos en ambos casos (max_turnos_memoria, kb_max_secciones,
+ * longitud_respuesta, etc.) — no se duplican.
+ */
+async function _crearPersonalidad(supabase, company_id, p) {
+  const { error } = await supabase.from('personalities').insert([{
+    company_id,
+    nombre_asistente:      p.nombre_asistente,
+    cargo:                 p.cargo,
+    tono:                  p.tono,
+    objetivo:              p.objetivo,
+    idioma:                p.idioma || 'es',
+    zona_horaria:          p.zona_horaria || 'America/Monterrey',
+    modelo:                p.modelo || 'gpt-4o-mini',
+    temperatura:           p.temperatura ?? 0.7,
+    max_tokens:            p.max_tokens ?? 500,
+    skills:                [],
+    campos_requeridos:     p.campos_requeridos || [],
+    reglas:                p.reglas || [],
+    max_turnos_memoria:    6,
+    kb_max_secciones:      2,
+    mensaje_bienvenida:    p.mensaje_bienvenida || '',
+    firma:                 p.firma || '',
+    mensaje_fuera_horario: p.mensaje_fuera_horario || PERSONALIDAD_GENERICA_DEFAULT.mensaje_fuera_horario,
+    mensaje_error_tecnico: p.mensaje_error_tecnico || PERSONALIDAD_GENERICA_DEFAULT.mensaje_error_tecnico,
+    longitud_respuesta:    'normales',
+    uso_emojis:            'moderado',
+    nivel_iniciativa:      'sugerir_productos',
+  }]);
+  if (error) throw new Error(`plantillas-industria._crearPersonalidad: ${error.message}`);
+}
+
 /**
  * Detecta la plantilla que mejor coincide con la descripción del negocio,
  * por conteo simple de palabras clave. Devuelve null si ninguna plantilla
@@ -74,33 +135,7 @@ function detectarIndustria(plantillas, descripcionNegocio) {
  * @param {Object} plantilla - fila de `plantillas_industria`
  */
 async function aplicarPlantilla(supabase, company_id, plantilla) {
-  const p = plantilla.personalidad;
-
-  const { error: errPersonalidad } = await supabase.from('personalities').insert([{
-    company_id,
-    nombre_asistente:      p.nombre_asistente,
-    cargo:                 p.cargo,
-    tono:                  p.tono,
-    objetivo:              p.objetivo,
-    idioma:                p.idioma || 'es',
-    zona_horaria:          p.zona_horaria || 'America/Monterrey',
-    modelo:                p.modelo || 'gpt-4o-mini',
-    temperatura:           p.temperatura ?? 0.7,
-    max_tokens:            p.max_tokens ?? 500,
-    skills:                [],
-    campos_requeridos:     p.campos_requeridos || [],
-    reglas:                p.reglas || [],
-    max_turnos_memoria:    6,
-    kb_max_secciones:      2,
-    mensaje_bienvenida:    p.mensaje_bienvenida || '',
-    firma:                 p.firma || '',
-    mensaje_fuera_horario: p.mensaje_fuera_horario,
-    mensaje_error_tecnico: p.mensaje_error_tecnico,
-    longitud_respuesta:    'normales',
-    uso_emojis:            'moderado',
-    nivel_iniciativa:      'sugerir_productos',
-  }]);
-  if (errPersonalidad) throw new Error(`plantillas-industria.aplicarPlantilla (personalidad): ${errPersonalidad.message}`);
+  await _crearPersonalidad(supabase, company_id, plantilla.personalidad);
 
   for (const kb of plantilla.knowledge_base_seed || []) {
     await crearKnowledgeBase(supabase, company_id, kb);
@@ -158,6 +193,13 @@ async function crearEmpresaConIndustria(supabase, { nombre, descripcionNegocio, 
 
   if (plantilla) {
     await aplicarPlantilla(supabase, company.id, plantilla);
+  } else {
+    // Sin industria detectada: KB/servicios/pipeline/workflow SÍ dependen de
+    // datos reales de una industria (no se pueden inventar), pero la
+    // personalidad no — toda empresa la necesita desde el día uno para que
+    // Personalidad cargue en el panel y el bot tenga configuración real si
+    // se conecta un canal.
+    await _crearPersonalidad(supabase, company.id, PERSONALIDAD_GENERICA_DEFAULT);
   }
 
   return {

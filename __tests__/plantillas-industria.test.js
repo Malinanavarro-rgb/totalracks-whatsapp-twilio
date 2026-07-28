@@ -175,8 +175,11 @@ describe('plantillas-industria', () => {
       expect(mockCrearWorkflow).toHaveBeenCalled();
     });
 
-    test('si no hay coincidencia, crea la empresa pero no aplica ninguna plantilla', async () => {
-      const db = crearMockDb({ data: [PLANTILLA_SALON, PLANTILLA_SOCCER], error: null });
+    test('si no hay coincidencia, crea la empresa sin plantilla PERO sí con una personalidad genérica (bug real: antes quedaba sin ninguna)', async () => {
+      const db = crearMockDb(
+        { data: [PLANTILLA_SALON, PLANTILLA_SOCCER], error: null }, // select plantillas_industria
+        { error: null },                                            // insert personalities (genérica, sin plantilla)
+      );
       mockCrearOrganizacionConCompany.mockResolvedValue({
         organization: { id: 'org-2', nombre: 'Taquería Ejemplo' },
         company: { id: COMPANY_A, nombre: 'Taquería Ejemplo' },
@@ -192,6 +195,17 @@ describe('plantillas-industria', () => {
       expect(resultado.huboCoincidencia).toBe(false);
       expect(resultado.industriaDetectada).toBeNull();
       expect(mockCrearWorkflow).not.toHaveBeenCalled();
+      expect(mockCrearKnowledgeBase).not.toHaveBeenCalled();
+
+      // La personalidad SÍ se creó (segundo from() == 'personalities').
+      const builderPersonalidad = db.from.mock.results[1].value;
+      expect(builderPersonalidad.insert).toHaveBeenCalledWith([expect.objectContaining({
+        company_id: COMPANY_A,
+        nombre_asistente: 'TARA',
+        cargo: 'Asistente Virtual',
+        mensaje_fuera_horario: expect.any(String),
+        mensaje_error_tecnico: expect.any(String),
+      })]);
     });
 
     test('lanza si falla la creación de la organización/empresa', async () => {
