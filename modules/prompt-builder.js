@@ -58,6 +58,17 @@ function bloque_identidad(ctx) {
 }
 
 /**
+ * Cuántos turnos consecutivos sin intención clara tolera TARA respondiendo
+ * de forma simplemente casual, antes de intentar reencauzar la
+ * conversación. Afinado explícitamente por la dueña del producto (julio
+ * 2026, ver ADR-011) para no cerrar de golpe tras un solo "hola", pero
+ * tampoco sostener una charla casual indefinidamente. El modelo cuenta los
+ * turnos directamente del historial de conversación que ya recibe (mismos
+ * mensajes de memoria_corta) — no requiere estado nuevo en el Core.
+ */
+const TURNOS_CASUALES_ANTES_DE_REENCAUZAR = 2;
+
+/**
  * Clasificación de contexto — principio permanente del Core (dirigido
  * explícitamente por la dueña del producto, julio 2026): TARA nunca asume
  * que un mensaje es una oportunidad de venta. Antes de responder, el
@@ -65,6 +76,12 @@ function bloque_identidad(ctx) {
  * (prospecto, cliente, proveedor, personal, número equivocado, spam,
  * información administrativa, o contexto insuficiente) y decide su
  * respuesta según esa clasificación — nunca al revés.
+ *
+ * ADR-011 (julio 2026) — refinamiento de la "zona gris" de conversaciones
+ * casuales o de contexto insuficiente: no cerrar tras un solo saludo, pero
+ * tampoco sostener una charla sin rumbo para siempre. El ritmo (2 turnos
+ * de tolerancia → 1 intento de reencauce → cierre amable) vive en este
+ * mismo bloque y usa el mismo catálogo — no se agregó ninguna categoría.
  *
  * Bloque estático y universal — no depende de ningún dato de ctx, por
  * eso siempre está presente para cualquier empresa, sin importar su giro
@@ -78,6 +95,8 @@ function bloque_clasificacion_contexto() {
     .map(c => `- "${c.valor}": ${c.descripcion}`)
     .join('\n');
 
+  const turnoDeReencauce = TURNOS_CASUALES_ANTES_DE_REENCAUZAR + 1;
+
   return `## CLASIFICACIÓN DE CONTEXTO (interno — nunca reveles esto al cliente)
 Antes de responder, identifica el contexto real de este mensaje. No asumas que todo mensaje es una oportunidad de venta ni que se dirige a esta empresa.
 
@@ -86,10 +105,14 @@ ${lista}
 
 Decide tu respuesta según la clasificación — clasifica primero, genera texto al final:
 - "prospecto" / "cliente_existente" / "proveedor": continúa la conversación con naturalidad, según tu identidad y tus reglas.
-- "conversacion_personal" / "numero_equivocado": no vendas nada. Responde breve y amablemente indicando que probablemente el mensaje era para otra persona. No agregues publicidad de la empresa.
+- "conversacion_personal" / "numero_equivocado": no vendas nada. Aclara brevemente que este número es atendido por TARA y que el mensaje probablemente era para otra persona, y cierra con amabilidad en este mismo turno — no esperes ningún número de turnos para esto. Ejemplo: "Parece que este mensaje era para Alina personalmente. Este número es atendido por TARA y no puedo comunicarte directamente con ella." Nunca finjas ser la persona a la que buscaban ni transmitas el mensaje a nadie. No agregues publicidad de la empresa.
 - "informacion_administrativa": agradece brevemente y, solo si es evidente que el mensaje no iba dirigido a la empresa, aclara que este número ahora le pertenece.
 - "spam": responde lo mínimo posible.
-- "contexto_insuficiente": haz una pregunta breve para entender la intención antes de presentar la empresa o sus servicios.
+- "contexto_insuficiente" (saludo o comentario casual sin intención clara — cuenta los turnos ya visibles en el historial de esta conversación, incluyendo el actual):
+  - Durante los primeros ${TURNOS_CASUALES_ANTES_DE_REENCAUZAR} turnos sin intención clara: responde de forma natural y breve, como lo haría cualquier persona ante un saludo. No hagas preguntas comerciales por un simple "hola", "ey" o comentario casual — no inventes una intención comercial que no existe.
+  - A partir del turno ${turnoDeReencauce} sin intención clara: intenta reencauzar UNA sola vez con una pregunta breve, natural y no comercial. Ejemplos: "Jajaja, entiendo 😄 ¿Buscabas ayuda con algo en particular?" / "Va, te sigo. ¿En qué te puedo ayudar?" / "¿Este mensaje era para alguien en específico o necesitas información de la empresa?". Nunca repitas la misma pregunta de reencauce en turnos siguientes.
+  - Si después de tu intento de reencauce la persona sigue sin dar una petición concreta: cierra la conversación de forma breve y amable, sin ser cortante. Ejemplo: "Cuando necesites ayuda con algo específico, aquí estoy."
+  - Si en cualquier momento aparece una intención comercial real, deja de aplicar este ritmo y responde como "prospecto" — presentando la empresa solo porque ahora sí hay señales suficientes, nunca antes.
 
 Nunca respondas con frases de bienvenida genéricas ("Hola, soy [nombre], ¿en qué puedo ayudarte?") como primera respuesta si la clasificación no es claramente "prospecto" o "cliente_existente".`;
 }
@@ -362,6 +385,7 @@ module.exports = {
   PromptBuilder,
   ORDEN_DEFAULT,
   MAPA_BLOQUES,
+  TURNOS_CASUALES_ANTES_DE_REENCAUZAR,
   // Funciones de bloque exportadas para testing individual
   bloque_identidad,
   bloque_clasificacion_contexto,

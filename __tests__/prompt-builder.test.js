@@ -17,6 +17,7 @@ const {
   PromptBuilder,
   ORDEN_DEFAULT,
   MAPA_BLOQUES,
+  TURNOS_CASUALES_ANTES_DE_REENCAUZAR,
   bloque_identidad,
   bloque_clasificacion_contexto,
   bloque_objetivo,
@@ -160,6 +161,64 @@ describe('bloque_clasificacion_contexto()', () => {
   test('instruye a no vender en conversación personal o número equivocado', () => {
     const result = bloque_clasificacion_contexto();
     expect(result).toContain('no vendas nada');
+  });
+
+  // ── ADR-011: zona gris de conversaciones casuales / contexto insuficiente ──
+
+  test('TURNOS_CASUALES_ANTES_DE_REENCAUZAR está definido como 2', () => {
+    expect(TURNOS_CASUALES_ANTES_DE_REENCAUZAR).toBe(2);
+  });
+
+  test('instruye a tolerar los primeros 2 turnos casuales sin reencauzar', () => {
+    const result = bloque_clasificacion_contexto();
+    expect(result).toContain(`primeros ${TURNOS_CASUALES_ANTES_DE_REENCAUZAR} turnos`);
+  });
+
+  test('instruye a reencauzar a partir del turno 3 (TURNOS_CASUALES_ANTES_DE_REENCAUZAR + 1)', () => {
+    const result = bloque_clasificacion_contexto();
+    expect(result).toContain(`turno ${TURNOS_CASUALES_ANTES_DE_REENCAUZAR + 1}`);
+  });
+
+  test('incluye los 3 ejemplos de pregunta de reencauce', () => {
+    const result = bloque_clasificacion_contexto();
+    expect(result).toContain('¿Buscabas ayuda con algo en particular?');
+    expect(result).toContain('Va, te sigo. ¿En qué te puedo ayudar?');
+    expect(result).toContain('¿Este mensaje era para alguien en específico o necesitas información de la empresa?');
+  });
+
+  test('incluye el ejemplo de cierre amable', () => {
+    const result = bloque_clasificacion_contexto();
+    expect(result).toContain('Cuando necesites ayuda con algo específico, aquí estoy.');
+  });
+
+  test('incluye el ejemplo de aclaración cuando buscan a una persona específica', () => {
+    const result = bloque_clasificacion_contexto();
+    expect(result).toContain('Este número es atendido por TARA y no puedo comunicarte directamente con ella.');
+  });
+
+  test('prohíbe explícitamente inventar intención comercial', () => {
+    expect(bloque_clasificacion_contexto()).toContain('no inventes una intención comercial');
+  });
+
+  test('prohíbe explícitamente preguntas comerciales ante un simple saludo', () => {
+    expect(bloque_clasificacion_contexto()).toContain('No hagas preguntas comerciales por un simple');
+  });
+
+  test('prohíbe explícitamente repetir la misma pregunta de reencauce', () => {
+    expect(bloque_clasificacion_contexto()).toContain('Nunca repitas la misma pregunta de reencauce');
+  });
+
+  test('prohíbe explícitamente fingir ser la persona buscada o transmitir el mensaje', () => {
+    expect(bloque_clasificacion_contexto()).toContain('Nunca finjas ser la persona a la que buscaban ni transmitas el mensaje a nadie');
+  });
+
+  test('instruye a cerrar la conversación personal/número equivocado en el mismo turno, sin esperar', () => {
+    expect(bloque_clasificacion_contexto()).toContain('no esperes ningún número de turnos para esto');
+  });
+
+  test('instruye a volver a "prospecto" si aparece una intención comercial real, sin importar el turno', () => {
+    const result = bloque_clasificacion_contexto();
+    expect(result).toContain('Si en cualquier momento aparece una intención comercial real');
   });
 
   test('produce el mismo contenido sin importar el contexto (agnóstico)', () => {
