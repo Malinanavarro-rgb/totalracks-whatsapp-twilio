@@ -103,11 +103,22 @@ const TRIGGERS_OPORTUNIDAD = [
   'cuanto cuesta', 'precio', 'presupuesto',
 ];
 
+// Bug real encontrado en producción (2026-07-30, Empresa Demo Paneles
+// Solares): comparaba contra 'cotizacion' y 'precio', ninguno de los dos
+// existe en el catálogo real de intenciones (INTENCIONES_VALIDAS,
+// modules/workflow-admin.js: 'interes_compra' | 'solicitud_cotizacion' |
+// 'soporte' | 'seguimiento' | 'cancelar_flujo' | 'consulta_general') — esas
+// dos condiciones nunca eran verdaderas, así que la única vía real para
+// crear una oportunidad era que el mensaje del turno contuviera
+// textualmente una palabra de TRIGGERS_OPORTUNIDAD. Un cliente con interés
+// real ("una casa de 2 pisos, son 5 climas") clasificado correctamente
+// como interes_compra/solicitud_cotizacion nunca generaba oportunidad. No
+// es específico de ningún giro — afecta a cualquier empresa.
 function requiereCrearOportunidad(mensajeCliente, intenciones) {
   const msg = mensajeCliente.toLowerCase();
   return TRIGGERS_OPORTUNIDAD.some(t => msg.includes(t)) ||
-    intenciones.includes('cotizacion') ||
-    intenciones.includes('precio');
+    intenciones.includes('solicitud_cotizacion') ||
+    intenciones.includes('interes_compra');
 }
 
 /**

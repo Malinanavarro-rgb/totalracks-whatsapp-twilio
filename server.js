@@ -97,6 +97,7 @@ const { registrarEvento: registrarEventoAdmin, listarEventos: listarEventosAdmin
 const { dashboardGlobal }                = require('./modules/plataforma-analitica');
 const {
   crearSesionDemo, resolverSesionDemoActiva, finalizarSesionDemo, listarSesionesActivas, listarEmpresasDemo,
+  obtenerEstadoSesionDemo,
 } = require('./modules/plataforma-demo');
 
 const app           = express();
@@ -400,7 +401,18 @@ async function procesarMensajeEntrante(message, enviar, proveedor = 'desconocido
     // tal cual sonaba como "dos hola seguidos". Se recorta el saludo
     // redundante de la respuesta de la IA, no el mensaje_bienvenida
     // configurado (que trae el nombre/rol del asesor, más valioso aquí).
-    const SALUDO_INICIAL = /^¡?(hola|buen[oa]s?\s+(d[ií]as|tardes|noches)|qu[ée]\s+tal)[,.!¡\s]*/i;
+    //
+    // Bug real encontrado en producción (2026-07-30, Empresa Demo Paneles
+    // Solares): dos problemas en el mismo regex impedían reconocer "Buen
+    // día" (singular, sin "o/a" tras "buen") como saludo — (1) "buen[oa]s?"
+    // exigía obligatoriamente la "o"/"a" (matchea "bueno/buena/buenos/
+    // buenas" pero no "buen"); (2) "d[ií]as" exigía la "s" de plural
+    // ("días"), nunca "día" singular. La IA respondió "Buen día, ¿en
+    // qué...?" y el regex no lo reconoció, dejando "¡Hola!... Buen día,
+    // ¿en qué...?" (dos saludos seguidos). Se hacen ambas "o/a" y la "s" de
+    // "día(s)" opcionales — "tardes"/"noches" se dejan igual, siempre se
+    // usan en plural en este saludo.
+    const SALUDO_INICIAL = /^¡?(hola|buen[oa]?s?\s+(d[ií]as?|tardes|noches)|qu[ée]\s+tal)[,.!¡\s]*/i;
     const sinSaludoRedundante = textoFinal.replace(SALUDO_INICIAL, '').trim();
     textoFinal = `${personality.mensaje_bienvenida}\n\n${sinSaludoRedundante || textoFinal}`;
   }
@@ -2199,6 +2211,20 @@ app.post('/api/admin/demo/:id/finalizar', requireAdmin, async (req, res) => {
     const sesion = await finalizarSesionDemo(supabaseServicio, { sesionId: req.params.id, adminId: req.admin.id });
     if (!sesion) return res.status(404).json({ error: 'Sesión demo no encontrada o ya finalizada.' });
     res.json(sesion);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Estado en vivo de una sesión demo — filtrado siempre por authorized_phone
+// (nunca por company_id solo), para que el prospecto real de esta sesión
+// nunca se confunda con los clientes sembrados de la misma empresa demo.
+app.get('/api/admin/demo/:id/estado', requireAdmin, async (req, res) => {
+  try {
+    const { data: sesion, error } = await supabaseServicio.from('sesiones_demo').select('*').eq('id', req.params.id).maybeSingle();
+    if (error || !sesion) return res.status(404).json({ error: 'Sesión demo no encontrada.' });
+    const estado = await obtenerEstadoSesionDemo(supabaseServicio, sesion);
+    res.json(estado);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
