@@ -2,7 +2,7 @@
 
 const {
   crearSesionDemo, resolverSesionDemoActiva, finalizarSesionDemo, generarResumenSesion,
-  listarSesionesActivas, listarEmpresasDemo,
+  listarSesionesActivas, listarEmpresasDemo, normalizarTelefonoMX,
 } = require('../modules/plataforma-demo');
 
 // ─── Mock Builder (mismo patrón que __tests__/plataforma-impersonacion.test.js) ──
@@ -78,6 +78,52 @@ describe('plataforma-demo', () => {
         { data: null, error: { message: 'boom' } },
       );
       await expect(crearSesionDemo(db, { adminId: ADMIN_ID, companyId: COMPANY_ID, authorizedPhone })).rejects.toThrow(/boom/);
+    });
+
+    test('normaliza el teléfono si se escribe sin código de país (bug real de producción, 2026-07-30)', async () => {
+      const telefonoCrudo = '8142850036';
+      const telefonoEsperado = '+5218142850036';
+
+      const eqCalls = [];
+      const insertCalls = [];
+      const builder = {
+        select: jest.fn().mockReturnThis(),
+        insert: jest.fn((payload) => { insertCalls.push(payload[0]); return builder; }),
+        eq: jest.fn((campo, valor) => { eqCalls.push([campo, valor]); return builder; }),
+        is: jest.fn().mockReturnThis(),
+        gt: jest.fn().mockReturnThis(),
+        single: jest.fn().mockResolvedValue({ data: { id: 'sesion-x', authorized_phone: telefonoEsperado }, error: null }),
+        maybeSingle: jest.fn().mockResolvedValue({ data: null, error: null }),
+        then: (resolve) => resolve({ data: null, error: null }),
+      };
+      const db = { from: jest.fn(() => builder) };
+
+      await crearSesionDemo(db, { adminId: ADMIN_ID, companyId: COMPANY_ID, authorizedPhone: telefonoCrudo, duracionMinutos: 30 });
+
+      expect(eqCalls).toContainEqual(['authorized_phone', telefonoEsperado]);
+      expect(insertCalls.some(fila => fila.authorized_phone === telefonoEsperado)).toBe(true);
+    });
+  });
+
+  describe('normalizarTelefonoMX()', () => {
+    test('10 dígitos sin código de país → agrega +521', () => {
+      expect(normalizarTelefonoMX('8142850036')).toBe('+5218142850036');
+    });
+
+    test('+52 + 10 dígitos, sin el "1" de móvil → lo agrega', () => {
+      expect(normalizarTelefonoMX('+528142850036')).toBe('+5218142850036');
+    });
+
+    test('ya viene en formato correcto (+521 + 10 dígitos) → lo deja igual', () => {
+      expect(normalizarTelefonoMX('+5218142850036')).toBe('+5218142850036');
+    });
+
+    test('con espacios/guiones → los limpia antes de normalizar', () => {
+      expect(normalizarTelefonoMX('81 4285 0036')).toBe('+5218142850036');
+    });
+
+    test('número de otro país (no 10/12/13 dígitos reconocidos) → antepone + sin inventar 521', () => {
+      expect(normalizarTelefonoMX('+14155238886')).toBe('+14155238886');
     });
   });
 

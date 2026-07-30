@@ -29,21 +29,45 @@ const { registrarEvento } = require('./plataforma-audit');
 const CACHE_TTL_MS = 30 * 1000;
 const _cache = new Map();
 
+/**
+ * Normaliza un teléfono mexicano al formato exacto en el que llega
+ * message.from de un WhatsApp real ("+521" + 10 dígitos — confirmado
+ * revisando clientes ya existentes en la base, ej. "+5218125418218").
+ *
+ * Bug real encontrado en producción (2026-07-30): un admin activó una demo
+ * escribiendo el teléfono tal cual lo dicta ("8142850036", 10 dígitos) —
+ * resolverSesionDemoActiva() compara por igualdad exacta, así que nunca
+ * hizo match contra el "+521..." real del webhook, y el número siguió
+ * respondiendo como TARA-OS sin ningún error visible. Se normaliza aquí,
+ * en el único punto de entrada manual (crearSesionDemo) — nunca en
+ * resolverSesionDemoActiva, que siempre recibe message.from ya normalizado
+ * por el adapter real.
+ */
+function normalizarTelefonoMX(telefono) {
+  const soloDigitos = String(telefono || '').replace(/[^\d]/g, '');
+  if (soloDigitos.length === 13 && soloDigitos.startsWith('521')) return `+${soloDigitos}`;
+  if (soloDigitos.length === 12 && soloDigitos.startsWith('52')) return `+521${soloDigitos.slice(2)}`;
+  if (soloDigitos.length === 10) return `+521${soloDigitos}`;
+  return telefono.startsWith('+') ? telefono : `+${soloDigitos}`;
+}
+
 async function crearSesionDemo(supabase, { adminId, companyId, authorizedPhone, duracionMinutos }) {
   if (!adminId || !companyId || !authorizedPhone) {
     throw new Error('plataforma-demo.crearSesionDemo: adminId, companyId y authorizedPhone son obligatorios.');
   }
 
+  const authorizedPhoneNormalizado = normalizarTelefonoMX(authorizedPhone);
+
   const { data: activaExistente } = await supabase
     .from('sesiones_demo')
     .select('id')
-    .eq('authorized_phone', authorizedPhone)
+    .eq('authorized_phone', authorizedPhoneNormalizado)
     .is('finalizado_en', null)
     .gt('expira_en', new Date().toISOString())
     .maybeSingle();
 
   if (activaExistente) {
-    const err = new Error(`Ya existe una sesión demo activa para ${authorizedPhone}. Finalízala antes de activar una nueva.`);
+    const err = new Error(`Ya existe una sesión demo activa para ${authorizedPhoneNormalizado}. Finalízala antes de activar una nueva.`);
     err.status = 409;
     throw err;
   }
@@ -52,18 +76,18 @@ async function crearSesionDemo(supabase, { adminId, companyId, authorizedPhone, 
 
   const { data, error } = await supabase
     .from('sesiones_demo')
-    .insert([{ company_id: companyId, admin_id: adminId, authorized_phone: authorizedPhone, expira_en: expiraEn.toISOString() }])
+    .insert([{ company_id: companyId, admin_id: adminId, authorized_phone: authorizedPhoneNormalizado, expira_en: expiraEn.toISOString() }])
     .select()
     .single();
 
   if (error) throw new Error(`plataforma-demo.crearSesionDemo: ${error.message}`);
 
-  _cache.delete(authorizedPhone);
+  _cache.delete(authorizedPhoneNormalizado);
 
   const { data: company } = await supabase.from('companies').select('organization_id').eq('id', companyId).maybeSingle();
   await registrarEvento(supabase, {
     adminId, accion: 'demo_activar', companyId, organizationId: company?.organization_id,
-    detalle: { authorized_phone: authorizedPhone, expira_en: expiraEn.toISOString() },
+    detalle: { authorized_phone: authorizedPhoneNormalizado, expira_en: expiraEn.toISOString() },
   });
 
   return data;
@@ -188,5 +212,5 @@ async function listarEmpresasDemo(supabase) {
 
 module.exports = {
   crearSesionDemo, resolverSesionDemoActiva, finalizarSesionDemo, generarResumenSesion,
-  listarSesionesActivas, listarEmpresasDemo,
+  listarSesionesActivas, listarEmpresasDemo, normalizarTelefonoMX,
 };

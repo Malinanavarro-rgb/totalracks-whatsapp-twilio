@@ -99,7 +99,7 @@ export default function DemoEnVivo() {
               </select>
             </label>
             <label>Teléfono autorizado del prospecto
-              <input value={telefono} onChange={e => setTelefono(e.target.value)} required placeholder="+5218112345678" />
+              <input value={telefono} onChange={e => setTelefono(e.target.value)} required placeholder="8112345678 (a 10 dígitos, el backend agrega +521 automáticamente)" />
             </label>
             <label>Duración
               <select value={duracion} onChange={e => setDuracion(Number(e.target.value))}>
