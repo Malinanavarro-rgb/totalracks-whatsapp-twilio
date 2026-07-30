@@ -2,7 +2,7 @@
 
 const {
   crearSesionDemo, resolverSesionDemoActiva, finalizarSesionDemo, generarResumenSesion,
-  listarSesionesActivas, listarEmpresasDemo, normalizarTelefonoMX,
+  listarSesionesActivas, listarEmpresasDemo, normalizarTelefonoMX, obtenerEstadoSesionDemo,
 } = require('../modules/plataforma-demo');
 
 // ─── Mock Builder (mismo patrón que __tests__/plataforma-impersonacion.test.js) ──
@@ -18,6 +18,7 @@ function crearBuilder(resultado = { data: null, error: null }) {
     gte:         jest.fn().mockReturnThis(),
     lte:         jest.fn().mockReturnThis(),
     order:       jest.fn().mockReturnThis(),
+    limit:       jest.fn().mockReturnThis(),
     single:      jest.fn().mockResolvedValue(resultado),
     maybeSingle: jest.fn().mockResolvedValue(resultado),
     then: (resolve) => resolve(resultado),
@@ -263,6 +264,45 @@ describe('plataforma-demo', () => {
     test('devuelve arreglo vacío si hay error', async () => {
       const db = crearMockDb({ data: null, error: { message: 'boom' } });
       expect(await listarEmpresasDemo(db)).toEqual([]);
+    });
+  });
+
+  describe('obtenerEstadoSesionDemo()', () => {
+    const SESION = { company_id: COMPANY_ID, authorized_phone: '+5210000000040' };
+
+    test('sin cliente registrado: cliente=null, no consulta oportunidades/citas/conversaciones/workflow_sessions', async () => {
+      const db = crearMockDb({ data: null, error: null });
+
+      const estado = await obtenerEstadoSesionDemo(db, SESION);
+
+      expect(estado.cliente).toBeNull();
+      expect(estado.oportunidades).toEqual([]);
+      expect(estado.citas).toEqual([]);
+      expect(estado.conversaciones).toEqual([]);
+      expect(estado.datos_extraidos).toEqual({});
+      expect(estado.nodo_actual).toBeNull();
+      expect(db._llamadas).toEqual(['clientes']);
+    });
+
+    test('con cliente: agrega oportunidad, cita, conversaciones (en orden cronológico) y datos_extraidos del workflow activo', async () => {
+      const CLIENTE = { id: 200, nombre: 'Roberto', telefono: SESION.authorized_phone };
+      const db = crearMockDb(
+        { data: CLIENTE, error: null },
+        { data: [{ estado: 'Nuevo' }], error: null },
+        { data: [{ inicio: '2026-08-01T10:00:00Z', estado: 'agendada' }], error: null },
+        { data: [{ mensaje_cliente: 'msg2', respuesta_tara: 'r2' }, { mensaje_cliente: 'msg1', respuesta_tara: 'r1' }], error: null }, // viene desc de la DB
+        { data: { status: 'activo', current_node: 'preguntar_ciudad', captured_fields: { nombre: 'Roberto' } }, error: null },
+      );
+
+      const estado = await obtenerEstadoSesionDemo(db, SESION);
+
+      expect(estado.cliente).toEqual(CLIENTE);
+      expect(estado.oportunidades).toEqual([{ estado: 'Nuevo' }]);
+      expect(estado.citas).toEqual([{ inicio: '2026-08-01T10:00:00Z', estado: 'agendada' }]);
+      // se invierte a orden cronológico (más viejo primero) para mostrar la conversación en orden natural
+      expect(estado.conversaciones).toEqual([{ mensaje_cliente: 'msg1', respuesta_tara: 'r1' }, { mensaje_cliente: 'msg2', respuesta_tara: 'r2' }]);
+      expect(estado.datos_extraidos).toEqual({ nombre: 'Roberto' });
+      expect(estado.nodo_actual).toBe('preguntar_ciudad');
     });
   });
 });

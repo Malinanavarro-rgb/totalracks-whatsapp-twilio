@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { adminApi } from '../adminApi';
+import { usePolling } from '../../lib/usePolling';
 
 // Modo Demo en Tiempo Real (Alina, 2026-07-30): el número oficial de
 // TARA-OS sigue atendiendo todo el tráfico normal — esta pantalla solo
@@ -117,15 +118,18 @@ export default function DemoEnVivo() {
           <div className="pm-panel-body">
             {activas.length === 0 && <p className="pm-nota" style={{ padding: '0 1.15rem 1rem' }}>Sin sesiones demo vigentes.</p>}
             {activas.map(sesion => (
-              <div className="pm-accion-fila" key={sesion.id}>
-                <div className="pm-txt">
-                  <b>{sesion.companies?.nombre || 'Empresa demo'}</b>
-                  <span>{sesion.authorized_phone} · vence {new Date(sesion.expira_en).toLocaleString('es-MX')}</span>
+              <div key={sesion.id} style={{ borderBottom: '1px solid var(--pm-borde, #e5e7eb)', padding: '0.9rem 1.15rem' }}>
+                <div className="pm-accion-fila" style={{ padding: 0, border: 'none' }}>
+                  <div className="pm-txt">
+                    <b>{sesion.companies?.nombre || 'Empresa demo'}</b>
+                    <span>{sesion.authorized_phone} · vence {new Date(sesion.expira_en).toLocaleString('es-MX')}</span>
+                  </div>
+                  <div className="pm-accion-control">
+                    <button className="pm-btn pm-btn--chico" onClick={() => verPanelEnVivo(sesion.company_id)}>Ver panel en vivo</button>
+                    <button className="pm-btn pm-btn--chico pm-btn--peligro" onClick={() => finalizar(sesion.id)}>Finalizar ahora</button>
+                  </div>
                 </div>
-                <div className="pm-accion-control">
-                  <button className="pm-btn pm-btn--chico" onClick={() => verPanelEnVivo(sesion.company_id)}>Ver panel en vivo</button>
-                  <button className="pm-btn pm-btn--chico pm-btn--peligro" onClick={() => finalizar(sesion.id)}>Finalizar ahora</button>
-                </div>
+                <EstadoSesionEnVivo sesionId={sesion.id} />
               </div>
             ))}
           </div>
@@ -143,6 +147,44 @@ export default function DemoEnVivo() {
             <div className="pm-campo-fila"><span className="l">Acciones ejecutadas</span><span className="v">{Object.entries(resumen.acciones_por_tipo || {}).map(([tipo, n]) => `${tipo}: ${n}`).join(' · ') || '—'}</span></div>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+// Estado en vivo del prospecto REAL de esta sesión — filtrado por
+// authorized_phone en el backend, nunca mezclado con los clientes
+// sembrados de la misma empresa demo (Alina, 2026-07-30). Polling de 4s,
+// mismo patrón que Operaciones/Inbox/CRM.
+function EstadoSesionEnVivo({ sesionId }) {
+  const { datos: estado, cargando } = usePolling(() => adminApi.estadoSesionDemo(sesionId), 4000);
+
+  if (cargando) return <p className="pm-nota" style={{ margin: '0.6rem 0 0' }}>Cargando estado en vivo…</p>;
+  if (!estado?.cliente) return <p className="pm-nota" style={{ margin: '0.6rem 0 0' }}>Nadie ha escrito todavía desde este número.</p>;
+
+  const { cliente, oportunidades, citas, conversaciones, datos_extraidos, nodo_actual } = estado;
+
+  return (
+    <div style={{ marginTop: '0.7rem', paddingLeft: '0.1rem', display: 'grid', gap: '0.5rem' }}>
+      <div className="pm-campo-fila"><span className="l">Cliente real de esta sesión</span><span className="v">{cliente.nombre} · {cliente.telefono}</span></div>
+      {nodo_actual && <div className="pm-campo-fila"><span className="l">Paso actual del flujo</span><span className="v">{nodo_actual}</span></div>}
+      {Object.keys(datos_extraidos || {}).length > 0 && (
+        <div className="pm-campo-fila"><span className="l">Datos capturados</span><span className="v">{Object.entries(datos_extraidos).map(([k, v]) => `${k}: ${v}`).join(' · ')}</span></div>
+      )}
+      <div className="pm-campo-fila"><span className="l">Oportunidad</span><span className="v">{oportunidades[0] ? oportunidades[0].estado : 'Ninguna todavía'}</span></div>
+      <div className="pm-campo-fila"><span className="l">Cita</span><span className="v">{citas[0] ? `${new Date(citas[0].inicio).toLocaleString('es-MX')} (${citas[0].estado})` : 'Ninguna todavía'}</span></div>
+      {conversaciones.length > 0 && (
+        <details>
+          <summary className="pm-nota-inline" style={{ cursor: 'pointer' }}>Conversación en vivo ({conversaciones.length})</summary>
+          <div style={{ marginTop: '0.4rem', display: 'grid', gap: '0.35rem' }}>
+            {conversaciones.map((c, i) => (
+              <div key={i} style={{ fontSize: '0.85rem' }}>
+                <div><b>Cliente:</b> {c.mensaje_cliente}</div>
+                <div><b>TARA:</b> {c.respuesta_tara}</div>
+              </div>
+            ))}
+          </div>
+        </details>
       )}
     </div>
   );

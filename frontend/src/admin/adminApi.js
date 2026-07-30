@@ -72,4 +72,5 @@ export const adminApi = {
   activarDemo: (companyId, authorizedPhone, duracionMinutos) =>
     pedir('/api/admin/demo/activar', { method: 'POST', body: JSON.stringify({ companyId, authorizedPhone, duracionMinutos }) }),
   finalizarDemo: (sesionId) => pedir(`/api/admin/demo/${sesionId}/finalizar`, { method: 'POST' }),
+  estadoSesionDemo: (sesionId) => pedir(`/api/admin/demo/${sesionId}/estado`),
 };

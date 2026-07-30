@@ -144,6 +144,17 @@ async function finalizarSesionDemo(supabase, { sesionId, adminId }) {
   return { ...fila, resumen };
 }
 
+/** Resuelve el cliente (si existe) atado al teléfono autorizado de una sesión demo. */
+async function _clienteDeSesion(supabase, sesion) {
+  const { data: cliente } = await supabase
+    .from('clientes')
+    .select('id, nombre, telefono, estado, score_interes, created_at')
+    .eq('company_id', sesion.company_id)
+    .eq('telefono', sesion.authorized_phone)
+    .maybeSingle();
+  return cliente || null;
+}
+
 /**
  * Agrega, para la ventana de tiempo de una sesión demo, todo lo que TARA
  * ejecutó de verdad (cliente, oportunidad, cita, decisiones) — sin tabla de
@@ -153,12 +164,7 @@ async function generarResumenSesion(supabase, sesion) {
   const desde = sesion.iniciado_en;
   const hasta = new Date().toISOString();
 
-  const { data: cliente } = await supabase
-    .from('clientes')
-    .select('id, nombre, telefono, estado, score_interes, created_at')
-    .eq('company_id', sesion.company_id)
-    .eq('telefono', sesion.authorized_phone)
-    .maybeSingle();
+  const cliente = await _clienteDeSesion(supabase, sesion);
 
   const [oportunidades, citas, logs] = await Promise.all([
     cliente
@@ -188,6 +194,43 @@ async function generarResumenSesion(supabase, sesion) {
   };
 }
 
+/**
+ * Estado EN VIVO de una sesión demo (a diferencia de generarResumenSesion,
+ * pensada para el cierre): para que el Panel Maestro distinga, mientras la
+ * demo está en curso, al prospecto real de esa sesión de los clientes
+ * sembrados de la misma empresa (Alina, 2026-07-30 — "no quiero que los
+ * registros sembrados oculten la prueba real"). Se filtra siempre por
+ * `authorized_phone`, nunca por company_id solo — así nunca mezcla con el
+ * resto de los clientes de la empresa demo.
+ */
+async function obtenerEstadoSesionDemo(supabase, sesion) {
+  const cliente = await _clienteDeSesion(supabase, sesion);
+
+  const [oportunidades, citas, conversaciones, workflowSesion] = await Promise.all([
+    cliente
+      ? supabase.from('oportunidades').select('estado, descripcion, presupuesto_estimado, presupuesto_confirmado, updated_at').eq('cliente_id', cliente.id)
+      : Promise.resolve({ data: [] }),
+    cliente
+      ? supabase.from('citas').select('inicio, fin, estado').eq('cliente_id', cliente.id)
+      : Promise.resolve({ data: [] }),
+    cliente
+      ? supabase.from('conversaciones').select('mensaje_cliente, respuesta_tara, intenciones, sentimiento, created_at').eq('cliente_id', cliente.id).order('created_at', { ascending: false }).limit(10)
+      : Promise.resolve({ data: [] }),
+    cliente
+      ? supabase.from('workflow_sessions').select('status, current_node, captured_fields, updated_at').eq('cliente_id', cliente.id).order('updated_at', { ascending: false }).limit(1).maybeSingle()
+      : Promise.resolve({ data: null }),
+  ]);
+
+  return {
+    cliente,
+    oportunidades: oportunidades.data || [],
+    citas: citas.data || [],
+    conversaciones: (conversaciones.data || []).reverse(),
+    datos_extraidos: workflowSesion.data?.captured_fields || {},
+    nodo_actual: workflowSesion.data?.current_node || null,
+  };
+}
+
 async function listarSesionesActivas(supabase) {
   const { data, error } = await supabase
     .from('sesiones_demo')
@@ -212,5 +255,5 @@ async function listarEmpresasDemo(supabase) {
 
 module.exports = {
   crearSesionDemo, resolverSesionDemoActiva, finalizarSesionDemo, generarResumenSesion,
-  listarSesionesActivas, listarEmpresasDemo, normalizarTelefonoMX,
+  listarSesionesActivas, listarEmpresasDemo, normalizarTelefonoMX, obtenerEstadoSesionDemo,
 };
