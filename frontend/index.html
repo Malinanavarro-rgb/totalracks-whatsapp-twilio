@@ -1,17 +1,30 @@
 <!doctype html>
-<html lang="en">
+<html lang="es-MX">
   <head>
     <meta charset="UTF-8" />
+
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+
+    <title>TARA-OS — Panel de Operación</title>
+
+    <meta name="description" content="Panel de TARA-OS para administrar conversaciones, clientes, operaciones y automatizaciones." />
+
+    <meta name="application-name" content="TARA-OS" />
+    <meta name="theme-color" content="#0F766E" />
+    <meta name="color-scheme" content="light" />
+
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#0b0f19" />
+    <link rel="apple-touch-icon" sizes="192x192" href="/icons/icon-192.png" />
+    <!-- rel="manifest" lo inyecta vite-plugin-pwa automáticamente en build -->
+
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="TARA-OS" />
-    <title>TARA Matrix™ — Panel</title>
   </head>
+
   <body>
+    <noscript>Necesitas habilitar JavaScript para utilizar TARA-OS.</noscript>
+
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
