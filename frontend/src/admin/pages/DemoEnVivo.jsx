@@ -1,27 +1,35 @@
 import { useEffect, useState, useCallback } from 'react';
 import { adminApi } from '../adminApi';
-import { usePolling } from '../../lib/usePolling';
 
-// Modo Demo en Tiempo Real (Alina, 2026-07-30): el número oficial de
-// TARA-OS sigue atendiendo todo el tráfico normal — esta pantalla solo
-// activa/gestiona la ventana de tiempo en la que un teléfono autorizado es
-// atendido como si fuera una empresa demo pre-armada (ver
-// modules/plataforma-demo.js, migración 083). "Ver panel en vivo" reusa la
-// impersonación que ya existe (adminApi.impersonar) — el super-admin ve el
-// panel real de la empresa demo (Operaciones/Inbox/CRM/Agenda), no una
-// pantalla aparte.
+// Modo Demo en Tiempo Real + Demo Live View (Alina, 2026-07-30): el número
+// oficial de TARA-OS sigue atendiendo todo el tráfico normal — esta
+// pantalla activa/gestiona la ventana de tiempo y los teléfonos
+// autorizados ("participantes") de una empresa demo. Una sesión ya no es
+// "un teléfono" — es un tablero con N participantes, cada uno una
+// conversación completamente independiente (ver modules/plataforma-demo.js).
+// "Abrir Demo Live View" abre la URL pública (/demo-live/:token) en una
+// pestaña aparte — esa es la pantalla que se comparte con el prospecto,
+// nunca el Panel Maestro.
 const DURACIONES = [30, 60, 90];
+const ESTADOS_PARTICIPANTE = [
+  { valor: 'pausado', etiqueta: 'Pausar' },
+  { valor: 'bloqueado', etiqueta: 'Bloquear' },
+  { valor: 'activo', etiqueta: 'Reactivar' },
+  { valor: 'finalizado', etiqueta: 'Finalizar' },
+];
 
 export default function DemoEnVivo() {
   const [empresas, setEmpresas] = useState([]);
   const [activas, setActivas] = useState([]);
   const [companyId, setCompanyId] = useState('');
-  const [telefono, setTelefono] = useState('');
   const [duracion, setDuracion] = useState(60);
+  const [maxParticipantes, setMaxParticipantes] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState(null);
   const [mensaje, setMensaje] = useState(null);
   const [resumen, setResumen] = useState(null);
+  const [participantesPorSesion, setParticipantesPorSesion] = useState({});
+  const [formParticipante, setFormParticipante] = useState({});
 
   const cargar = useCallback(async () => {
     try {
@@ -32,6 +40,11 @@ export default function DemoEnVivo() {
       setEmpresas(empresasData);
       setActivas(activasData);
       if (!companyId && empresasData[0]) setCompanyId(empresasData[0].id);
+
+      const listas = await Promise.all(activasData.map(s => adminApi.participantesDemo(s.id).catch(() => [])));
+      const mapa = {};
+      activasData.forEach((s, i) => { mapa[s.id] = listas[i]; });
+      setParticipantesPorSesion(mapa);
     } catch (e) {
       setError(e.message);
     }
@@ -46,9 +59,8 @@ export default function DemoEnVivo() {
     setError(null);
     setMensaje(null);
     try {
-      await adminApi.activarDemo(companyId, telefono, duracion);
-      setMensaje(`Demo activada para ${telefono} — ${duracion} minutos.`);
-      setTelefono('');
+      await adminApi.activarDemo(companyId, duracion, maxParticipantes ? Number(maxParticipantes) : null);
+      setMensaje('Demo activada — agrega a los participantes autorizados abajo.');
       await cargar();
     } catch (e2) {
       setError(e2.message);
@@ -57,8 +69,8 @@ export default function DemoEnVivo() {
     }
   }
 
-  async function finalizar(sesionId) {
-    if (!window.confirm('¿Finalizar esta sesión demo ahora?')) return;
+  async function finalizarSesion(sesionId) {
+    if (!window.confirm('¿Finalizar toda la sesión demo ahora? Esto cierra a todos los participantes a la vez.')) return;
     try {
       const sesion = await adminApi.finalizarDemo(sesionId);
       setResumen(sesion.resumen);
@@ -68,9 +80,40 @@ export default function DemoEnVivo() {
     }
   }
 
-  async function verPanelEnVivo(companyIdSesion) {
-    await adminApi.impersonar(companyIdSesion, 'Modo Demo en Tiempo Real');
-    window.open('/operaciones', '_blank');
+  function abrirDemoLiveView(publicToken) {
+    window.open(`/demo-live/${publicToken}`, '_blank');
+  }
+
+  async function agregarParticipante(sesionId, e) {
+    e.preventDefault();
+    const datos = formParticipante[sesionId] || {};
+    if (!datos.phone) return;
+    try {
+      await adminApi.agregarParticipanteDemo(sesionId, datos);
+      setFormParticipante(prev => ({ ...prev, [sesionId]: { phone: '', displayName: '', scenario: '' } }));
+      await cargar();
+    } catch (e2) {
+      setError(e2.message);
+    }
+  }
+
+  async function cambiarEstadoParticipante(sesionId, participantId, status) {
+    try {
+      await adminApi.actualizarParticipanteDemo(sesionId, participantId, status);
+      await cargar();
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
+  async function limpiarDatos(sesionId, participantId) {
+    if (!window.confirm('¿Borrar todos los datos de este participante (cliente, conversación, oportunidad, cita)? Sigue autorizado para empezar de cero.')) return;
+    try {
+      await adminApi.limpiarDatosParticipanteDemo(sesionId, participantId);
+      await cargar();
+    } catch (e) {
+      setError(e.message);
+    }
   }
 
   return (
@@ -79,7 +122,7 @@ export default function DemoEnVivo() {
         <div className="pm-detalle-id">
           <div>
             <h1>Demo en Tiempo Real</h1>
-            <p>Un teléfono autorizado, durante una ventana de tiempo, es atendido como una empresa demo — el resto del tráfico de TARA-OS no cambia.</p>
+            <p>Uno o varios teléfonos autorizados, durante una ventana de tiempo, son atendidos como una empresa demo — el resto del tráfico de TARA-OS no cambia.</p>
           </div>
         </div>
       </div>
@@ -87,52 +130,90 @@ export default function DemoEnVivo() {
       {mensaje && <p className="pm-exito">{mensaje}</p>}
       {error && <p className="pm-error">{error}</p>}
 
-      <div className="pm-grid-2">
-        <div className="pm-panel">
-          <div className="pm-panel-head"><h2>Activar demo en tiempo real</h2></div>
-          <form className="pm-form-inline" onSubmit={activar} style={{ padding: '0 1.15rem 1.1rem' }}>
-            <label>Empresa demo
-              <select value={companyId} onChange={e => setCompanyId(e.target.value)} required>
-                {empresas.length === 0 && <option value="">Sin empresas demo configuradas</option>}
-                {empresas.map(emp => (
-                  <option key={emp.id} value={emp.id}>{emp.nombre} {emp.industria_slug ? `(${emp.industria_slug})` : ''}</option>
-                ))}
-              </select>
-            </label>
-            <label>Teléfono autorizado del prospecto
-              <input value={telefono} onChange={e => setTelefono(e.target.value)} required placeholder="8112345678 (a 10 dígitos, el backend agrega +521 automáticamente)" />
-            </label>
-            <label>Duración
-              <select value={duracion} onChange={e => setDuracion(Number(e.target.value))}>
-                {DURACIONES.map(d => <option key={d} value={d}>{d} minutos</option>)}
-              </select>
-            </label>
-            <button className="pm-btn pm-btn--primario" disabled={enviando || !companyId}>
-              {enviando ? 'Activando…' : 'Activar demo en tiempo real'}
-            </button>
-          </form>
-        </div>
+      <div className="pm-panel">
+        <div className="pm-panel-head"><h2>Activar demo en tiempo real</h2></div>
+        <form className="pm-form-inline" onSubmit={activar} style={{ padding: '0 1.15rem 1.1rem' }}>
+          <label>Empresa demo
+            <select value={companyId} onChange={e => setCompanyId(e.target.value)} required>
+              {empresas.length === 0 && <option value="">Sin empresas demo configuradas</option>}
+              {empresas.map(emp => (
+                <option key={emp.id} value={emp.id}>{emp.nombre} {emp.industria_slug ? `(${emp.industria_slug})` : ''}</option>
+              ))}
+            </select>
+          </label>
+          <label>Duración
+            <select value={duracion} onChange={e => setDuracion(Number(e.target.value))}>
+              {DURACIONES.map(d => <option key={d} value={d}>{d} minutos</option>)}
+            </select>
+          </label>
+          <label>Máximo de participantes (opcional)
+            <input type="number" min="1" value={maxParticipantes} onChange={e => setMaxParticipantes(e.target.value)} placeholder="Sin límite" style={{ width: 120 }} />
+          </label>
+          <button className="pm-btn pm-btn--primario" disabled={enviando || !companyId}>
+            {enviando ? 'Activando…' : 'Activar demo en tiempo real'}
+          </button>
+        </form>
+      </div>
 
-        <div className="pm-panel">
-          <div className="pm-panel-head"><h2>Sesiones activas</h2><span className="n">{activas.length}</span></div>
-          <div className="pm-panel-body">
-            {activas.length === 0 && <p className="pm-nota" style={{ padding: '0 1.15rem 1rem' }}>Sin sesiones demo vigentes.</p>}
-            {activas.map(sesion => (
+      <div className="pm-panel">
+        <div className="pm-panel-head"><h2>Sesiones activas</h2><span className="n">{activas.length}</span></div>
+        <div className="pm-panel-body">
+          {activas.length === 0 && <p className="pm-nota" style={{ padding: '0 1.15rem 1rem' }}>Sin sesiones demo vigentes.</p>}
+          {activas.map(sesion => {
+            const participantes = participantesPorSesion[sesion.id] || [];
+            const formActual = formParticipante[sesion.id] || { phone: '', displayName: '', scenario: '' };
+
+            return (
               <div key={sesion.id} style={{ borderBottom: '1px solid var(--pm-borde, #e5e7eb)', padding: '0.9rem 1.15rem' }}>
                 <div className="pm-accion-fila" style={{ padding: 0, border: 'none' }}>
                   <div className="pm-txt">
                     <b>{sesion.companies?.nombre || 'Empresa demo'}</b>
-                    <span>{sesion.authorized_phone} · vence {new Date(sesion.expira_en).toLocaleString('es-MX')}</span>
+                    <span>vence {new Date(sesion.expira_en).toLocaleString('es-MX')} · {participantes.length}{sesion.max_participantes ? `/${sesion.max_participantes}` : ''} participante(s)</span>
                   </div>
                   <div className="pm-accion-control">
-                    <button className="pm-btn pm-btn--chico" onClick={() => verPanelEnVivo(sesion.company_id)}>Ver panel en vivo</button>
-                    <button className="pm-btn pm-btn--chico pm-btn--peligro" onClick={() => finalizar(sesion.id)}>Finalizar ahora</button>
+                    <button className="pm-btn pm-btn--chico pm-btn--primario" onClick={() => abrirDemoLiveView(sesion.public_token)}>Abrir Demo Live View</button>
+                    <button className="pm-btn pm-btn--chico pm-btn--peligro" onClick={() => finalizarSesion(sesion.id)}>Finalizar sesión completa</button>
                   </div>
                 </div>
-                <EstadoSesionEnVivo sesionId={sesion.id} />
+
+                <div style={{ marginTop: '0.7rem', display: 'grid', gap: '0.5rem' }}>
+                  {participantes.map(p => (
+                    <div key={p.id} className="pm-accion-fila" style={{ padding: '0.5rem 0' }}>
+                      <div className="pm-txt">
+                        <b>{p.display_name || p.phone}</b>
+                        <span>{p.phone} · {p.scenario || 'sin escenario'} · <span className={`pm-pill ${p.status === 'activo' ? 'pm-pill--ok' : p.status === 'bloqueado' ? 'pm-pill--danger' : 'pm-pill--muted'}`}><i />{p.status}</span></span>
+                      </div>
+                      <div className="pm-accion-control">
+                        {ESTADOS_PARTICIPANTE.filter(o => o.valor !== p.status).map(o => (
+                          <button key={o.valor} className="pm-btn pm-btn--chico" onClick={() => cambiarEstadoParticipante(sesion.id, p.id, o.valor)}>{o.etiqueta}</button>
+                        ))}
+                        <button className="pm-btn pm-btn--chico" onClick={() => limpiarDatos(sesion.id, p.id)}>Limpiar datos</button>
+                      </div>
+                    </div>
+                  ))}
+
+                  <form className="pm-form-inline" onSubmit={e => agregarParticipante(sesion.id, e)} style={{ marginTop: '0.4rem' }}>
+                    <input
+                      placeholder="Teléfono (8112345678)" value={formActual.phone}
+                      onChange={e => setFormParticipante(prev => ({ ...prev, [sesion.id]: { ...formActual, phone: e.target.value } }))}
+                      style={{ width: 160 }} required
+                    />
+                    <input
+                      placeholder="Nombre del escenario (ej. Cliente residencial)" value={formActual.displayName}
+                      onChange={e => setFormParticipante(prev => ({ ...prev, [sesion.id]: { ...formActual, displayName: e.target.value } }))}
+                      style={{ width: 220 }}
+                    />
+                    <input
+                      placeholder="Escenario (ej. Residencial — ahorro)" value={formActual.scenario}
+                      onChange={e => setFormParticipante(prev => ({ ...prev, [sesion.id]: { ...formActual, scenario: e.target.value } }))}
+                      style={{ width: 200 }}
+                    />
+                    <button className="pm-btn pm-btn--chico">Agregar participante</button>
+                  </form>
+                </div>
               </div>
-            ))}
-          </div>
+            );
+          })}
         </div>
       </div>
 
@@ -140,51 +221,14 @@ export default function DemoEnVivo() {
         <div className="pm-panel">
           <div className="pm-panel-head"><h2>Resumen de la última sesión finalizada</h2></div>
           <div className="pm-campo-lista">
-            <div className="pm-campo-fila"><span className="l">Cliente registrado</span><span className="v">{resumen.cliente?.nombre || 'Ninguno (nadie escribió durante la ventana)'}</span></div>
+            <div className="pm-campo-fila"><span className="l">Participantes</span><span className="v">{resumen.participantes}</span></div>
+            <div className="pm-campo-fila"><span className="l">Clientes registrados</span><span className="v">{resumen.clientes_registrados}</span></div>
             <div className="pm-campo-fila"><span className="l">Duración</span><span className="v">{Math.round(resumen.duracion_ms / 60000)} min</span></div>
             <div className="pm-campo-fila"><span className="l">Oportunidades creadas</span><span className="v">{resumen.oportunidades?.length || 0}</span></div>
             <div className="pm-campo-fila"><span className="l">Citas agendadas</span><span className="v">{resumen.citas?.length || 0}</span></div>
             <div className="pm-campo-fila"><span className="l">Acciones ejecutadas</span><span className="v">{Object.entries(resumen.acciones_por_tipo || {}).map(([tipo, n]) => `${tipo}: ${n}`).join(' · ') || '—'}</span></div>
           </div>
         </div>
-      )}
-    </div>
-  );
-}
-
-// Estado en vivo del prospecto REAL de esta sesión — filtrado por
-// authorized_phone en el backend, nunca mezclado con los clientes
-// sembrados de la misma empresa demo (Alina, 2026-07-30). Polling de 4s,
-// mismo patrón que Operaciones/Inbox/CRM.
-function EstadoSesionEnVivo({ sesionId }) {
-  const { datos: estado, cargando } = usePolling(() => adminApi.estadoSesionDemo(sesionId), 4000);
-
-  if (cargando) return <p className="pm-nota" style={{ margin: '0.6rem 0 0' }}>Cargando estado en vivo…</p>;
-  if (!estado?.cliente) return <p className="pm-nota" style={{ margin: '0.6rem 0 0' }}>Nadie ha escrito todavía desde este número.</p>;
-
-  const { cliente, oportunidades, citas, conversaciones, datos_extraidos, nodo_actual } = estado;
-
-  return (
-    <div style={{ marginTop: '0.7rem', paddingLeft: '0.1rem', display: 'grid', gap: '0.5rem' }}>
-      <div className="pm-campo-fila"><span className="l">Cliente real de esta sesión</span><span className="v">{cliente.nombre} · {cliente.telefono}</span></div>
-      {nodo_actual && <div className="pm-campo-fila"><span className="l">Paso actual del flujo</span><span className="v">{nodo_actual}</span></div>}
-      {Object.keys(datos_extraidos || {}).length > 0 && (
-        <div className="pm-campo-fila"><span className="l">Datos capturados</span><span className="v">{Object.entries(datos_extraidos).map(([k, v]) => `${k}: ${v}`).join(' · ')}</span></div>
-      )}
-      <div className="pm-campo-fila"><span className="l">Oportunidad</span><span className="v">{oportunidades[0] ? oportunidades[0].estado : 'Ninguna todavía'}</span></div>
-      <div className="pm-campo-fila"><span className="l">Cita</span><span className="v">{citas[0] ? `${new Date(citas[0].inicio).toLocaleString('es-MX')} (${citas[0].estado})` : 'Ninguna todavía'}</span></div>
-      {conversaciones.length > 0 && (
-        <details>
-          <summary className="pm-nota-inline" style={{ cursor: 'pointer' }}>Conversación en vivo ({conversaciones.length})</summary>
-          <div style={{ marginTop: '0.4rem', display: 'grid', gap: '0.35rem' }}>
-            {conversaciones.map((c, i) => (
-              <div key={i} style={{ fontSize: '0.85rem' }}>
-                <div><b>Cliente:</b> {c.mensaje_cliente}</div>
-                <div><b>TARA:</b> {c.respuesta_tara}</div>
-              </div>
-            ))}
-          </div>
-        </details>
       )}
     </div>
   );
