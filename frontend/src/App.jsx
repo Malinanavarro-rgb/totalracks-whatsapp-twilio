@@ -30,11 +30,6 @@ import './App.css';
 // nunca descarga este bundle. Primer code-splitting real del proyecto.
 const AdminApp = lazy(() => import('./admin/AdminApp'));
 
-// Demo Live View: árbol público aparte (sin AuthProvider/sesión de ningún
-// tipo) — un prospecto sin cuenta nunca debe tocar el bundle del panel de
-// tenant ni el de Panel Maestro. Mismo criterio de code-splitting.
-const DemoLiveApp = lazy(() => import('./demo-live/DemoLiveApp'));
-
 export default function App() {
   return (
     <BrowserRouter>
@@ -45,14 +40,6 @@ export default function App() {
           <Route path="/aceptar-invitacion/:token" element={<AceptarInvitacion />} />
           <Route path="/recuperar-password" element={<RecuperarPassword />} />
           <Route path="/restablecer-password" element={<RestablecerPassword />} />
-          <Route
-            path="/demo-live/:token"
-            element={
-              <Suspense fallback={<div className="pantalla-cargando">Cargando…</div>}>
-                <DemoLiveApp />
-              </Suspense>
-            }
-          />
           <Route
             path="/onboarding"
             element={

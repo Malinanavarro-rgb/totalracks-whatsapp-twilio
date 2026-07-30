@@ -96,9 +96,8 @@ const { iniciarImpersonacion, resolverSesionImpersonada, finalizarImpersonacion 
 const { registrarEvento: registrarEventoAdmin, listarEventos: listarEventosAdmin } = require('./modules/plataforma-audit');
 const { dashboardGlobal }                = require('./modules/plataforma-analitica');
 const {
-  crearSesionDemo, finalizarSesionDemo, listarSesionesActivas, listarEmpresasDemo,
-  agregarParticipante, actualizarParticipante, limpiarDatosParticipante,
-  resolverParticipacionActiva, registrarActividadParticipante, obtenerEstadoPublico,
+  crearSesionDemo, resolverSesionDemoActiva, finalizarSesionDemo, listarSesionesActivas, listarEmpresasDemo,
+  obtenerEstadoSesionDemo,
 } = require('./modules/plataforma-demo');
 
 const app           = express();
@@ -461,18 +460,13 @@ app.post('/webhook/twilio', async (req, res) => {
     // conversación, nunca por dónde sale la respuesta.
     const numeroOrigen = await channelRouter.resolverEndpointDeEmpresa(message.company_id);
 
-    // Modo Demo en Tiempo Real (Alina, 2026-07-30) + Demo Live View
-    // multi-participante (misma tarde): si quien escribe es un teléfono con
-    // una participación demo vigente, esta conversación se atiende como si
-    // fuera la empresa demo, sin afectar a nadie más ni cambiar el canal de
-    // salida. Sin participación activa, message.company_id no cambia —
-    // mismo flujo de siempre.
-    const participacionDemo = await resolverParticipacionActiva(supabaseServicio, message.from);
-    if (participacionDemo) {
-      message.company_id = participacionDemo.company_id;
-      registrarActividadParticipante(supabaseServicio, participacionDemo.participant_id)
-        .catch(e => console.warn('⚠️  registrarActividadParticipante:', e.message));
-    }
+    // Modo Demo en Tiempo Real (Alina, 2026-07-30): si quien escribe es un
+    // teléfono con sesión demo vigente, esta conversación se atiende como
+    // si fuera la empresa demo, sin afectar a nadie más ni cambiar el canal
+    // de salida. Sin sesión activa, message.company_id no cambia — mismo
+    // flujo de siempre.
+    const sesionDemo = await resolverSesionDemoActiva(supabaseServicio, message.from);
+    if (sesionDemo) message.company_id = sesionDemo.company_id;
 
     await procesarMensajeEntrante(
       message,
@@ -541,12 +535,8 @@ app.post('/webhook/meta', async (req, res) => {
     // Modo Demo en Tiempo Real — ver nota equivalente en el webhook de
     // Twilio: el override ocurre después de resolver las credenciales
     // reales de envío (metaAdapterEmpresa), nunca antes.
-    const participacionDemo = await resolverParticipacionActiva(supabaseServicio, message.from);
-    if (participacionDemo) {
-      message.company_id = participacionDemo.company_id;
-      registrarActividadParticipante(supabaseServicio, participacionDemo.participant_id)
-        .catch(e => console.warn('⚠️  registrarActividadParticipante:', e.message));
-    }
+    const sesionDemo = await resolverSesionDemoActiva(supabaseServicio, message.from);
+    if (sesionDemo) message.company_id = sesionDemo.company_id;
 
     await procesarMensajeEntrante(
       message,
@@ -1869,21 +1859,6 @@ app.post('/api/invitaciones/:token/aceptar', async (req, res) => {
   }
 });
 
-// Demo Live View — pública, sin login, 100% solo lectura (Alina, 2026-07-30).
-// Resuelve TODO a partir del token; nunca acepta un company_id/session_id
-// explícito. obtenerEstadoPublico() ya cura la respuesta por allowlist
-// (nunca expone company_id/admin_id/cliente_id crudo, teléfonos siempre
-// enmascarados) — este endpoint no le agrega ni le quita nada.
-app.get('/api/demo-live/:token/estado', async (req, res) => {
-  try {
-    const estado = await obtenerEstadoPublico(supabaseServicio, req.params.token);
-    if (!estado) return res.status(404).json({ error: 'Demo no encontrada.' });
-    res.json(estado);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
 // ── LEGAL (requerido por verificación OAuth de Google — Anexo A, TA.0.1) ──────
 
 app.get('/privacidad', (req, res) => res.sendFile(path.join(__dirname, 'legal', 'privacidad.html')));
@@ -2221,9 +2196,9 @@ app.get('/api/admin/demo/activas', requireAdmin, async (req, res) => {
 
 app.post('/api/admin/demo/activar', requireAdmin, async (req, res) => {
   try {
-    const { companyId, duracionMinutos, maxParticipantes } = req.body || {};
+    const { companyId, authorizedPhone, duracionMinutos } = req.body || {};
     const sesion = await crearSesionDemo(supabaseServicio, {
-      adminId: req.admin.id, companyId, duracionMinutos, maxParticipantes,
+      adminId: req.admin.id, companyId, authorizedPhone, duracionMinutos,
     });
     res.json(sesion);
   } catch (e) {
@@ -2241,46 +2216,15 @@ app.post('/api/admin/demo/:id/finalizar', requireAdmin, async (req, res) => {
   }
 });
 
-// Demo Live View — gestión de participantes (Panel Maestro, requireAdmin).
-// "Agregar durante una sesión ya activa" es el MISMO camino que agregar el
-// primero — no hay caso especial de "número inicial" (Alina, 2026-07-30).
-app.get('/api/admin/demo/:id/participantes', requireAdmin, async (req, res) => {
+// Estado en vivo de una sesión demo — filtrado siempre por authorized_phone
+// (nunca por company_id solo), para que el prospecto real de esta sesión
+// nunca se confunda con los clientes sembrados de la misma empresa demo.
+app.get('/api/admin/demo/:id/estado', requireAdmin, async (req, res) => {
   try {
-    const { data, error } = await supabaseServicio
-      .from('demo_session_participants').select('*').eq('demo_id', req.params.id).order('created_at');
-    if (error) return res.status(500).json({ error: error.message });
-    res.json(data || []);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-app.post('/api/admin/demo/:id/participantes', requireAdmin, async (req, res) => {
-  try {
-    const { phone, displayName, scenario } = req.body || {};
-    const participante = await agregarParticipante(supabaseServicio, { demoId: req.params.id, phone, displayName, scenario });
-    res.json(participante);
-  } catch (e) {
-    res.status(e.status || 500).json({ error: e.message });
-  }
-});
-
-app.patch('/api/admin/demo/:id/participantes/:participantId', requireAdmin, async (req, res) => {
-  try {
-    const { status } = req.body || {};
-    const participante = await actualizarParticipante(supabaseServicio, { participantId: req.params.participantId, status });
-    if (!participante) return res.status(404).json({ error: 'Participante no encontrado.' });
-    res.json(participante);
-  } catch (e) {
-    res.status(e.status || 500).json({ error: e.message });
-  }
-});
-
-app.delete('/api/admin/demo/:id/participantes/:participantId/datos', requireAdmin, async (req, res) => {
-  try {
-    const resultado = await limpiarDatosParticipante(supabaseServicio, req.params.participantId);
-    if (!resultado) return res.status(404).json({ error: 'Participante no encontrado.' });
-    res.json(resultado);
+    const { data: sesion, error } = await supabaseServicio.from('sesiones_demo').select('*').eq('id', req.params.id).maybeSingle();
+    if (error || !sesion) return res.status(404).json({ error: 'Sesión demo no encontrada.' });
+    const estado = await obtenerEstadoSesionDemo(supabaseServicio, sesion);
+    res.json(estado);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

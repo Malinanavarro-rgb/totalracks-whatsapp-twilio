@@ -69,15 +69,8 @@ export const adminApi = {
 
   empresasDemo: () => pedir('/api/admin/demo/empresas'),
   sesionesDemoActivas: () => pedir('/api/admin/demo/activas'),
-  activarDemo: (companyId, duracionMinutos, maxParticipantes) =>
-    pedir('/api/admin/demo/activar', { method: 'POST', body: JSON.stringify({ companyId, duracionMinutos, maxParticipantes }) }),
+  activarDemo: (companyId, authorizedPhone, duracionMinutos) =>
+    pedir('/api/admin/demo/activar', { method: 'POST', body: JSON.stringify({ companyId, authorizedPhone, duracionMinutos }) }),
   finalizarDemo: (sesionId) => pedir(`/api/admin/demo/${sesionId}/finalizar`, { method: 'POST' }),
-
-  participantesDemo: (sesionId) => pedir(`/api/admin/demo/${sesionId}/participantes`),
-  agregarParticipanteDemo: (sesionId, { phone, displayName, scenario }) =>
-    pedir(`/api/admin/demo/${sesionId}/participantes`, { method: 'POST', body: JSON.stringify({ phone, displayName, scenario }) }),
-  actualizarParticipanteDemo: (sesionId, participantId, status) =>
-    pedir(`/api/admin/demo/${sesionId}/participantes/${participantId}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
-  limpiarDatosParticipanteDemo: (sesionId, participantId) =>
-    pedir(`/api/admin/demo/${sesionId}/participantes/${participantId}/datos`, { method: 'DELETE' }),
+  estadoSesionDemo: (sesionId) => pedir(`/api/admin/demo/${sesionId}/estado`),
 };
