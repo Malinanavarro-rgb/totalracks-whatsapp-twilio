@@ -57,13 +57,28 @@ async function crearSesionDemo(supabase, { adminId, companyId, authorizedPhone, 
   }
 
   const authorizedPhoneNormalizado = normalizarTelefonoMX(authorizedPhone);
+  const ahora = new Date().toISOString();
+
+  // Bug real (2026-07-30): el índice único parcial de sesiones_demo solo
+  // filtra por `finalizado_en IS NULL` (Postgres no permite `now()` en un
+  // índice parcial) — una sesión ya expirada pero nunca finalizada a mano
+  // seguía bloqueando cualquier reactivación del mismo teléfono con
+  // "duplicate key value violates unique constraint". Se autofinaliza
+  // aquí cualquier sesión vencida de este teléfono antes de insertar, para
+  // que el índice único nunca choque con una sesión que ya no está vigente.
+  await supabase
+    .from('sesiones_demo')
+    .update({ finalizado_en: ahora })
+    .eq('authorized_phone', authorizedPhoneNormalizado)
+    .is('finalizado_en', null)
+    .lte('expira_en', ahora);
 
   const { data: activaExistente } = await supabase
     .from('sesiones_demo')
     .select('id')
     .eq('authorized_phone', authorizedPhoneNormalizado)
     .is('finalizado_en', null)
-    .gt('expira_en', new Date().toISOString())
+    .gt('expira_en', ahora)
     .maybeSingle();
 
   if (activaExistente) {

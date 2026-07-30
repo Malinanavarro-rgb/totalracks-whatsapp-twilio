@@ -52,6 +52,7 @@ describe('plataforma-demo', () => {
       const FILA = { id: 'sesion-1', company_id: COMPANY_ID, admin_id: ADMIN_ID, authorized_phone: authorizedPhone, expira_en: new Date(Date.now() + 3600000).toISOString(), finalizado_en: null };
 
       const db = crearMockDb(
+        { data: null, error: null },                          // update: autofinalizar sesiones vencidas de este teléfono
         { data: null, error: null },                          // check activaExistente → ninguna
         { data: FILA, error: null },                          // insert sesiones_demo
         { data: { organization_id: 'org-1' }, error: null },  // select companies
@@ -61,22 +62,41 @@ describe('plataforma-demo', () => {
       const resultado = await crearSesionDemo(db, { adminId: ADMIN_ID, companyId: COMPANY_ID, authorizedPhone, duracionMinutos: 60 });
 
       expect(resultado).toEqual(FILA);
-      expect(db._llamadas).toEqual(['sesiones_demo', 'sesiones_demo', 'companies', 'plataforma_audit_log']);
+      expect(db._llamadas).toEqual(['sesiones_demo', 'sesiones_demo', 'sesiones_demo', 'companies', 'plataforma_audit_log']);
     });
 
-    test('rechaza con status 409 si ya existe una sesión activa para ese teléfono', async () => {
+    test('rechaza con status 409 si ya existe una sesión activa (vigente) para ese teléfono', async () => {
       const authorizedPhone = '+5210000000003';
-      const db = crearMockDb({ data: { id: 'sesion-existente' }, error: null });
+      const db = crearMockDb(
+        { data: null, error: null },                     // update: autofinalizar vencidas → ninguna
+        { data: { id: 'sesion-existente' }, error: null }, // check activaExistente → sí, sigue vigente
+      );
 
       await expect(crearSesionDemo(db, { adminId: ADMIN_ID, companyId: COMPANY_ID, authorizedPhone }))
         .rejects.toMatchObject({ status: 409 });
     });
 
+    test('una sesión vencida (nunca finalizada a mano) no bloquea una nueva — se autofinaliza antes de checar duplicados', async () => {
+      const authorizedPhone = '+5210000000005';
+      const FILA = { id: 'sesion-2', company_id: COMPANY_ID, admin_id: ADMIN_ID, authorized_phone: authorizedPhone };
+
+      const db = crearMockDb(
+        { data: null, error: null },                          // update: autofinaliza la vencida (no importa el resultado)
+        { data: null, error: null },                          // check activaExistente → ya ninguna, quedó autofinalizada
+        { data: FILA, error: null },                          // insert
+        { data: null, error: null },                          // select companies
+        { data: null, error: null },                          // insert audit
+      );
+
+      await expect(crearSesionDemo(db, { adminId: ADMIN_ID, companyId: COMPANY_ID, authorizedPhone })).resolves.toEqual(FILA);
+    });
+
     test('lanza si el INSERT falla', async () => {
       const authorizedPhone = '+5210000000004';
       const db = crearMockDb(
-        { data: null, error: null },
-        { data: null, error: { message: 'boom' } },
+        { data: null, error: null }, // update: autofinalizar vencidas
+        { data: null, error: null }, // check activaExistente
+        { data: null, error: { message: 'boom' } }, // insert falla
       );
       await expect(crearSesionDemo(db, { adminId: ADMIN_ID, companyId: COMPANY_ID, authorizedPhone })).rejects.toThrow(/boom/);
     });
@@ -90,9 +110,11 @@ describe('plataforma-demo', () => {
       const builder = {
         select: jest.fn().mockReturnThis(),
         insert: jest.fn((payload) => { insertCalls.push(payload[0]); return builder; }),
+        update: jest.fn().mockReturnThis(),
         eq: jest.fn((campo, valor) => { eqCalls.push([campo, valor]); return builder; }),
         is: jest.fn().mockReturnThis(),
         gt: jest.fn().mockReturnThis(),
+        lte: jest.fn().mockReturnThis(),
         single: jest.fn().mockResolvedValue({ data: { id: 'sesion-x', authorized_phone: telefonoEsperado }, error: null }),
         maybeSingle: jest.fn().mockResolvedValue({ data: null, error: null }),
         then: (resolve) => resolve({ data: null, error: null }),
