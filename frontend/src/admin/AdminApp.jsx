@@ -10,6 +10,7 @@ import OrganizacionDetalle from './pages/OrganizacionDetalle';
 import Planes from './pages/Planes';
 import CentroCobro from './pages/CentroCobro';
 import Auditoria from './pages/Auditoria';
+import DemoEnVivo from './pages/DemoEnVivo';
 import './admin.css';
 
 // Primer punto de code-splitting real del proyecto: este árbol completo
@@ -33,6 +34,7 @@ export default function AdminApp() {
           <Route path="tara" element={<TaraOperador />} />
           <Route path="organizaciones" element={<Organizaciones />} />
           <Route path="organizaciones/:id" element={<OrganizacionDetalle />} />
+          <Route path="demo" element={<DemoEnVivo />} />
           <Route path="planes" element={<Planes />} />
           <Route path="centro-cobro" element={<CentroCobro />} />
           <Route path="auditoria" element={<Auditoria />} />

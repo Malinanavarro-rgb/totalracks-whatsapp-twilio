@@ -66,4 +66,10 @@ export const adminApi = {
   centroCobro: () => pedir('/api/admin/centro-cobro'),
   analitica: () => pedir('/api/admin/analitica'),
   auditLog: (organizationId) => pedir(`/api/admin/audit-log${organizationId ? `?organizationId=${organizationId}` : ''}`),
+
+  empresasDemo: () => pedir('/api/admin/demo/empresas'),
+  sesionesDemoActivas: () => pedir('/api/admin/demo/activas'),
+  activarDemo: (companyId, authorizedPhone, duracionMinutos) =>
+    pedir('/api/admin/demo/activar', { method: 'POST', body: JSON.stringify({ companyId, authorizedPhone, duracionMinutos }) }),
+  finalizarDemo: (sesionId) => pedir(`/api/admin/demo/${sesionId}/finalizar`, { method: 'POST' }),
 };

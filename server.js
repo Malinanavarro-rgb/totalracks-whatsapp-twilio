@@ -95,6 +95,9 @@ const { crearRequireAdmin }             = require('./modules/admin-auth-middlewa
 const { iniciarImpersonacion, resolverSesionImpersonada, finalizarImpersonacion } = require('./modules/plataforma-impersonacion');
 const { registrarEvento: registrarEventoAdmin, listarEventos: listarEventosAdmin } = require('./modules/plataforma-audit');
 const { dashboardGlobal }                = require('./modules/plataforma-analitica');
+const {
+  crearSesionDemo, resolverSesionDemoActiva, finalizarSesionDemo, listarSesionesActivas, listarEmpresasDemo,
+} = require('./modules/plataforma-demo');
 
 const app           = express();
 const adapter       = new TwilioWhatsAppAdapter(twilioClient);
@@ -439,7 +442,19 @@ app.post('/webhook/twilio', async (req, res) => {
     }
     message.company_id = routeResult.company_id;
 
+    // Número/credencial de salida siempre se resuelve con el company_id
+    // REAL (dueño del número físico) — antes de cualquier posible override
+    // de Modo Demo, que solo cambia a qué empresa se atiende la
+    // conversación, nunca por dónde sale la respuesta.
     const numeroOrigen = await channelRouter.resolverEndpointDeEmpresa(message.company_id);
+
+    // Modo Demo en Tiempo Real (Alina, 2026-07-30): si quien escribe es un
+    // teléfono con sesión demo vigente, esta conversación se atiende como
+    // si fuera la empresa demo, sin afectar a nadie más ni cambiar el canal
+    // de salida. Sin sesión activa, message.company_id no cambia — mismo
+    // flujo de siempre.
+    const sesionDemo = await resolverSesionDemoActiva(supabaseServicio, message.from);
+    if (sesionDemo) message.company_id = sesionDemo.company_id;
 
     await procesarMensajeEntrante(
       message,
@@ -504,6 +519,12 @@ app.post('/webhook/meta', async (req, res) => {
       console.error('❌ Webhook Meta: empresa sin credenciales activas —', message.company_id);
       return res.status(200).end();
     }
+
+    // Modo Demo en Tiempo Real — ver nota equivalente en el webhook de
+    // Twilio: el override ocurre después de resolver las credenciales
+    // reales de envío (metaAdapterEmpresa), nunca antes.
+    const sesionDemo = await resolverSesionDemoActiva(supabaseServicio, message.from);
+    if (sesionDemo) message.company_id = sesionDemo.company_id;
 
     await procesarMensajeEntrante(
       message,
@@ -2135,6 +2156,49 @@ app.post('/api/admin/impersonar/salir', requireAdmin, async (req, res) => {
     if (token) await finalizarImpersonacion(supabaseServicio, { token, adminId: req.admin.id });
     res.clearCookie('tara_impersonacion', ADMIN_COOKIE_OPTS);
     res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Modo Demo en Tiempo Real — ver modules/plataforma-demo.js. El teléfono
+// autorizado queda atado a una empresa demo pre-armada (companies.es_demo)
+// durante una ventana de tiempo; el resto del tráfico de TARA-OS no cambia.
+app.get('/api/admin/demo/empresas', requireAdmin, async (req, res) => {
+  try {
+    const empresas = await listarEmpresasDemo(supabaseServicio);
+    res.json(empresas);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/admin/demo/activas', requireAdmin, async (req, res) => {
+  try {
+    const sesiones = await listarSesionesActivas(supabaseServicio);
+    res.json(sesiones);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/admin/demo/activar', requireAdmin, async (req, res) => {
+  try {
+    const { companyId, authorizedPhone, duracionMinutos } = req.body || {};
+    const sesion = await crearSesionDemo(supabaseServicio, {
+      adminId: req.admin.id, companyId, authorizedPhone, duracionMinutos,
+    });
+    res.json(sesion);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/admin/demo/:id/finalizar', requireAdmin, async (req, res) => {
+  try {
+    const sesion = await finalizarSesionDemo(supabaseServicio, { sesionId: req.params.id, adminId: req.admin.id });
+    if (!sesion) return res.status(404).json({ error: 'Sesión demo no encontrada o ya finalizada.' });
+    res.json(sesion);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
