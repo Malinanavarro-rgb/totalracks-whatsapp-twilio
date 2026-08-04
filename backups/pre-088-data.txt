@@ -1,0 +1,13 @@
+# TARA-OS — Datos pre-migración 088
+# Generado: 2026-08-04T16:15:40.585Z
+
+
+## COTIZACIONES (volcado completo — 0 filas)
+
+## CONTEOS DE TABLAS ALTERADAS
+  cotizaciones: 0 filas
+  proyectos: 1 filas
+  seguimientos: 0 filas
+  clientes: 73 filas
+  plantillas_industria: 3 filas
+  companies: 14 filas

@@ -1,0 +1,21 @@
+# TARA-OS — Schema pre-migración 088 (Ingeniería y Cotización, Fase 1)
+# Generado: 2026-08-04T16:15:40.585Z
+
+
+## cotizaciones
+  Columnas: (tabla vacía — columnas no disponibles sin filas)
+
+## proyectos
+  Columnas: id, company_id, nombre, descripcion, estado, riesgo, fecha_inicio, fecha_fin_estimada, created_at, updated_at
+
+## seguimientos
+  Columnas: (tabla vacía — columnas no disponibles sin filas)
+
+## clientes
+  Columnas: id, telefono, nombre, empresa, ciudad, email, fuente, estado, score_interes, created_at, updated_at, company_id, atendido_por, asesor_id, notas, logo_url
+
+## plantillas_industria
+  Columnas: id, slug, nombre_visible, palabras_clave, requiere_agenda, personalidad, knowledge_base_seed, servicios_seed, pipeline_etapas_seed, workflow_seed, created_at, industria_padre, dashboard_kpis_seed, cotizacion_config, ui_config
+
+## companies
+  Columnas: id, slug, estado, nombre, descripcion, created_at, logo_url, color_acento, industria_slug, nav_labels, organization_id, onboarding_completado, es_demo
