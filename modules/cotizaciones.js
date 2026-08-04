@@ -19,6 +19,7 @@
 
 const { obtenerMotor } = require('./motores-ingenieria');
 const { reatarAdjuntosACotizacion } = require('./cotizacion-adjuntos');
+const { seleccionarPaqueteRecomendado } = require('./paquetes-solares');
 const { ChannelRouter } = require('./channel-router');
 const { obtenerAdapterMetaParaEmpresa } = require('./meta-auth');
 const { TwilioWhatsAppAdapter } = require('../adapters/channels/twilio-whatsapp');
@@ -389,6 +390,22 @@ async function correrCotizacionDesdeWorkflow(supabase, { companyId, clienteId, c
     calculadoPor: calculadoPor || null,
   });
 
+  // Paquete comercial recomendado (Alina, 2026-08-04): capa separada del
+  // resultado técnico — calculos_ingenieria.resultados nunca se toca aquí.
+  // Si ningún paquete del catálogo alcanza la cantidad técnica, se deja
+  // sin recomendación (nunca se "redondea hacia abajo" ni se inventa un
+  // precio) — el asesor arma un paquete a la medida en la bandeja.
+  const numeroPanelesTecnico = calculo.resultados?.numero_paneles?.valor;
+  if (numeroPanelesTecnico) {
+    const paquete = await seleccionarPaqueteRecomendado(supabase, { companyId, numeroPanelesTecnico });
+    if (paquete) {
+      await supabase.from('cotizaciones').update({
+        paquete_recomendado_id: paquete.id,
+        precio_paquete_recomendado: paquete.precio_contado,
+      }).eq('id', cotizacion.id);
+    }
+  }
+
   if (destinatario) {
     try {
       await enviar(supabase, companyId, destinatario, _textoSeguimientoIngenieria(calculo.estado_calculo));
@@ -425,8 +442,51 @@ async function puedeEnviarCotizacion(supabase, cotizacionId) {
   return { puede: true, motivo: null };
 }
 
+/**
+ * Decisión HUMANA del asesor sobre el precio final (Alina, 2026-08-04,
+ * punto 5 del flujo: "el asesor revisa y puede ajustar el precio antes de
+ * aprobar la cotización") — separada a propósito del paquete recomendado
+ * automático. Si no se manda `precioFinal`, se acepta el precio del
+ * paquete recomendado TAL CUAL (aprobar sin ajustar sigue siendo una
+ * decisión explícita, con usuario y fecha, nunca implícita).
+ *
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {Object} datos
+ * @param {number} datos.cotizacionId
+ * @param {string} datos.usuarioId
+ * @param {number} [datos.precioFinal] - si se omite, usa precio_paquete_recomendado
+ * @returns {Promise<Object>} la cotización actualizada
+ */
+async function autorizarPrecioFinal(supabase, { cotizacionId, usuarioId, precioFinal }) {
+  const { data: cotizacion, error: errCot } = await supabase
+    .from('cotizaciones').select('precio_paquete_recomendado').eq('id', cotizacionId).maybeSingle();
+  if (errCot || !cotizacion) {
+    const err = new Error('Cotización no encontrada');
+    err.status = 404;
+    throw err;
+  }
+
+  const precio = precioFinal ?? cotizacion.precio_paquete_recomendado;
+  if (precio == null) {
+    const err = new Error('No hay precio de paquete recomendado ni precioFinal explícito — no se puede autorizar sin un monto.');
+    err.status = 400;
+    throw err;
+  }
+
+  const { data, error } = await supabase
+    .from('cotizaciones')
+    .update({ precio_final_autorizado: precio, precio_final_autorizado_por: usuarioId, precio_final_autorizado_en: new Date().toISOString() })
+    .eq('id', cotizacionId)
+    .select()
+    .single();
+
+  if (error) throw new Error(`cotizaciones.autorizarPrecioFinal: ${error.message}`);
+  return data;
+}
+
 module.exports = {
   resolverHSP, resolverParametro, resolverParametrosPanelesSolares, listarProductosPorTipo,
+  autorizarPrecioFinal,
   correrYGuardarCalculo, marcarIngenieriaValidada, marcarPredimensionamientoRevisado,
   mapearCapturedFieldsAInfoTecnica, correrCotizacionDesdeWorkflow, enviarProactivoWhatsApp,
   puedeEnviarCotizacion,

@@ -44,9 +44,10 @@ const { resolverOCrearHilo, registrarMensaje, listarHilos, obtenerHilo, listarMe
 const { analizarHilo, programarAnalisis, obtenerAnalisisHilo } = require('./modules/inbox-analisis');
 const { tipoContenidoDeMime, subirAdjunto, generarUrlFirmada } = require('./modules/inbox-adjuntos');
 const { asociarSiHaySesionDeCotizacionActiva, listarAdjuntosDeCotizacion } = require('./modules/cotizacion-adjuntos');
-const { marcarPredimensionamientoRevisado, marcarIngenieriaValidada, puedeEnviarCotizacion } = require('./modules/cotizaciones');
+const { marcarPredimensionamientoRevisado, marcarIngenieriaValidada, puedeEnviarCotizacion, autorizarPrecioFinal } = require('./modules/cotizaciones');
 const { listarLineas, agregarLinea, actualizarLinea, eliminarLinea, aplicarCalculoALineas } = require('./modules/cotizacion-lineas');
 const { generarPdfCotizacion, generarYEnviarCotizacion } = require('./modules/cotizacion-pdf');
+const { listarPaquetes, crearPaquete, actualizarPaquete, desactivarPaquete, eliminarPaquete } = require('./modules/paquetes-solares');
 const { transcribirAudio, describirImagen } = require('./modules/adjuntos-ia');
 const { esGerencial } = require('./modules/permisos');
 const {
@@ -1851,6 +1852,53 @@ app.delete('/api/config/nodos/:id', requireAuth, soloGerencial, async (req, res)
   }
 });
 
+// ── PAQUETES SOLARES — catálogo comercial configurable (Alina, 2026-08-04) ────
+// El precio comercial ya no se calcula sumando la lista de materiales — se
+// selecciona un paquete estándar (tabla de precios del cliente) por
+// cantidad de paneles. CRUD gerencial: cualquier empresa puede tener su
+// propia tabla de precios sin tocar código (modules/paquetes-solares.js).
+
+app.get('/api/paquetes-solares', requireAuth, async (req, res) => {
+  try {
+    res.json(await listarPaquetes(req.supabase, req.usuario.company_id, { soloActivos: req.query.activos === 'true' }));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/paquetes-solares', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    res.status(201).json(await crearPaquete(req.supabase, req.usuario.company_id, req.body));
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message });
+  }
+});
+
+app.patch('/api/paquetes-solares/:id', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    res.json(await actualizarPaquete(req.supabase, req.usuario.company_id, req.params.id, req.body));
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message });
+  }
+});
+
+app.post('/api/paquetes-solares/:id/desactivar', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    res.json(await desactivarPaquete(req.supabase, req.usuario.company_id, req.params.id));
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message });
+  }
+});
+
+app.delete('/api/paquetes-solares/:id', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    await eliminarPaquete(req.supabase, req.usuario.company_id, req.params.id);
+    res.status(204).send();
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
 // ── COTIZACIONES — bandeja de revisión (Fase 2, Ingeniería y Cotización) ──────
 // Mínimo necesario para probar el flujo de aprobación humana de punta a
 // punta (escenario 5, Alina 2026-08-04): listar/ver + los dos estados de
@@ -1916,6 +1964,17 @@ app.get('/api/cotizaciones/:id/puede-enviar', requireAuth, async (req, res) => {
     res.json(await puedeEnviarCotizacion(req.supabase, req.params.id));
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// Decisión humana del asesor sobre el precio final (Alina, 2026-08-04) —
+// separada del paquete recomendado automático. Body opcional: {precioFinal}.
+app.post('/api/cotizaciones/:id/autorizar-precio', requireAuth, async (req, res) => {
+  try {
+    const cotizacion = await autorizarPrecioFinal(req.supabase, { cotizacionId: req.params.id, usuarioId: req.usuario.id, precioFinal: req.body?.precioFinal });
+    res.json(cotizacion);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
   }
 });
 

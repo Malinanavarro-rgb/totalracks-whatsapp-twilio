@@ -125,46 +125,34 @@ describe('eliminarLinea()', () => {
   });
 });
 
-describe('aplicarCalculoALineas()', () => {
-  test('ya existen líneas calculado_automatico → no duplica, devuelve []', async () => {
+describe('aplicarCalculoALineas() — Alina 2026-08-04: ahora usa el paquete comercial, no suma el catálogo', () => {
+  test('ya existe línea calculado_automatico → no duplica, devuelve []', async () => {
     const db = crearMockDbPorTabla({ cotizacion_lineas: { data: { id: 'existente' }, error: null } });
     const resultado = await aplicarCalculoALineas(db, { companyId: 'c1', cotizacionId: 1 });
     expect(resultado).toEqual([]);
   });
 
-  test('sin cálculo guardado → no crea nada, devuelve []', async () => {
-    const db = crearMockDbPorTabla({ calculos_ingenieria: { data: null, error: null } });
+  test('sin paquete_recomendado_id (técnico excedió el catálogo) → no crea nada, devuelve []', async () => {
+    const db = crearMockDbPorTabla({
+      cotizacion_lineas: { data: null, error: null },
+      cotizaciones: { data: { paquete_recomendado_id: null }, error: null },
+    });
     const resultado = await aplicarCalculoALineas(db, { companyId: 'c1', cotizacionId: 1 });
     expect(resultado).toEqual([]);
   });
 
-  test('con cálculo completo → crea panel + inversor + 3 líneas pendientes de levantamiento', async () => {
-    // cotizacion_lineas se usa para 3 cosas distintas en este flujo (chequeo
-    // de existencia, insert de cada línea, select de recalcularTotales) —
-    // un mock por nombre de tabla no distingue eso, así que aquí se
-    // despacha por MÉTODO invocado en vez de por tabla.
+  test('con paquete recomendado → crea UNA sola línea con el precio autorizado (no el recomendado, si ya fue ajustado)', async () => {
     let contadorInsert = 0;
     const db = {
       from: jest.fn((tabla) => {
-        if (tabla === 'calculos_ingenieria') {
-          return crearBuilder({
-            data: {
-              version: 1,
-              catalogo_usado: {
-                panel: { id: 'panel-1', marca: 'Jinko', modelo: 'Tiger', precio: 3200, specs: { potencia_wp: 550 } },
-                inversores_candidatos: [{ id: 'inv-1', marca: 'Growatt', modelo: 'MIN4000', precio: 9500 }],
-              },
-              resultados: { numero_paneles: { valor: 8 }, inversor_seleccionado: { inversorSeleccionado: { id: 'inv-1' } } },
-            },
-            error: null,
-          });
+        if (tabla === 'cotizaciones') {
+          return crearBuilder({ data: { paquete_recomendado_id: 'pkg-12', precio_paquete_recomendado: 94000, precio_final_autorizado: 90000 }, error: null });
         }
-        if (tabla === 'cotizaciones') return crearBuilder({ data: null, error: null });
-        // cotizacion_lineas: la primera vez es el chequeo "¿ya existe?" (null),
-        // de ahí en adelante cada llamada es un INSERT nuevo (id único) o el
-        // SELECT de recalcularTotales (array, no importa el contenido aquí).
+        if (tabla === 'paquetes_solares') {
+          return crearBuilder({ data: { id: 'pkg-12', nombre: 'Paquete 12 paneles', componentes_incluidos: ['monitoreo', 'estructura de aluminio'], precio_contado: 94000 }, error: null });
+        }
         const builder = crearBuilder({ data: null, error: null });
-        builder.maybeSingle = jest.fn().mockResolvedValue({ data: null, error: null });
+        builder.maybeSingle = jest.fn().mockResolvedValue({ data: null, error: null }); // "¿ya existe línea?" → no
         builder.single = jest.fn().mockImplementation(() => Promise.resolve({ data: { id: `linea-${++contadorInsert}` }, error: null }));
         builder.then = (resolve) => resolve({ data: [], error: null });
         return builder;
@@ -172,7 +160,53 @@ describe('aplicarCalculoALineas()', () => {
     };
 
     const lineas = await aplicarCalculoALineas(db, { companyId: 'c1', cotizacionId: 1 });
-    expect(lineas).toHaveLength(5); // panel + inversor + estructura + cableado + mano de obra
-    expect(lineas.every(l => l.id?.startsWith('linea-'))).toBe(true);
+    expect(lineas).toHaveLength(1); // UNA sola línea, no una por componente
+    expect(lineas[0].id).toBe('linea-1');
+  });
+
+  test('el precio de la línea usa precio_final_autorizado cuando existe, no precio_paquete_recomendado', async () => {
+    let payloadCapturado = null;
+    const db = {
+      from: jest.fn((tabla) => {
+        if (tabla === 'cotizaciones') {
+          return crearBuilder({ data: { paquete_recomendado_id: 'pkg-12', precio_paquete_recomendado: 94000, precio_final_autorizado: 90000 }, error: null });
+        }
+        if (tabla === 'paquetes_solares') {
+          return crearBuilder({ data: { id: 'pkg-12', nombre: 'Paquete 12 paneles', componentes_incluidos: [], precio_contado: 94000 }, error: null });
+        }
+        const builder = crearBuilder({ data: null, error: null });
+        builder.maybeSingle = jest.fn().mockResolvedValue({ data: null, error: null });
+        builder.insert = jest.fn((rows) => { payloadCapturado = rows[0]; return builder; });
+        builder.single = jest.fn().mockResolvedValue({ data: { id: 'linea-1' }, error: null });
+        builder.then = (resolve) => resolve({ data: [], error: null });
+        return builder;
+      }),
+    };
+
+    await aplicarCalculoALineas(db, { companyId: 'c1', cotizacionId: 1 });
+    expect(payloadCapturado.precio_unitario).toBe(90000); // autorizado, NO el recomendado (94000)
+  });
+
+  test('sin precio_final_autorizado todavía, usa precio_paquete_recomendado', async () => {
+    let payloadCapturado = null;
+    const db = {
+      from: jest.fn((tabla) => {
+        if (tabla === 'cotizaciones') {
+          return crearBuilder({ data: { paquete_recomendado_id: 'pkg-8', precio_paquete_recomendado: 64000, precio_final_autorizado: null }, error: null });
+        }
+        if (tabla === 'paquetes_solares') {
+          return crearBuilder({ data: { id: 'pkg-8', nombre: 'Paquete 8 paneles', componentes_incluidos: [], precio_contado: 64000 }, error: null });
+        }
+        const builder = crearBuilder({ data: null, error: null });
+        builder.maybeSingle = jest.fn().mockResolvedValue({ data: null, error: null });
+        builder.insert = jest.fn((rows) => { payloadCapturado = rows[0]; return builder; });
+        builder.single = jest.fn().mockResolvedValue({ data: { id: 'linea-1' }, error: null });
+        builder.then = (resolve) => resolve({ data: [], error: null });
+        return builder;
+      }),
+    };
+
+    await aplicarCalculoALineas(db, { companyId: 'c1', cotizacionId: 1 });
+    expect(payloadCapturado.precio_unitario).toBe(64000);
   });
 });

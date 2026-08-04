@@ -1,7 +1,7 @@
 'use strict';
 
 const {
-  mapearCapturedFieldsAInfoTecnica, correrCotizacionDesdeWorkflow, puedeEnviarCotizacion,
+  mapearCapturedFieldsAInfoTecnica, correrCotizacionDesdeWorkflow, puedeEnviarCotizacion, autorizarPrecioFinal,
 } = require('../modules/cotizaciones');
 const {
   asociarSiHaySesionDeCotizacionActiva, reatarAdjuntosACotizacion,
@@ -17,6 +17,9 @@ function crearBuilder(resultado = { data: null, error: null }) {
     delete:      jest.fn().mockReturnThis(),
     eq:          jest.fn().mockReturnThis(),
     is:          jest.fn().mockReturnThis(),
+    lte:         jest.fn().mockReturnThis(),
+    gte:         jest.fn().mockReturnThis(),
+    or:          jest.fn().mockReturnThis(),
     order:       jest.fn().mockReturnThis(),
     limit:       jest.fn().mockReturnThis(),
     single:      jest.fn().mockResolvedValue(resultado),
@@ -49,6 +52,7 @@ function crearMockDbPorTabla(overrides = {}) {
     productos: { data: null, error: null },
     irradiacion_regional: { data: null, error: null },
     calculos_ingenieria: { data: { id: 'calc-1', estado_calculo: 'bloqueado', version: 1, alertas: [{ tipo: 'consumo_faltante', severidad: 'bloqueo', mensaje: 'x' }] }, error: null },
+    paquetes_solares: { data: null, error: null },
   };
   const resultados = { ...defaults, ...overrides };
   return { from: jest.fn((tabla) => crearBuilder(resultados[tabla] ?? { data: null, error: null })) };
@@ -186,6 +190,100 @@ describe('correrCotizacionDesdeWorkflow()', () => {
     await expect(correrCotizacionDesdeWorkflow(db, {
       companyId: COMPANY_A, clienteId: 7, capturedFields: {}, destinatario: '+528100000000', enviarProactivo,
     })).resolves.toMatchObject({ estado_calculo: 'bloqueado' });
+  });
+
+  test('estado_calculo bloqueado (sin numero_paneles en resultados) → NUNCA consulta paquetes_solares', async () => {
+    const db = crearMockDbPorTabla(); // default: bloqueado, sin resultados.numero_paneles
+    await correrCotizacionDesdeWorkflow(db, { companyId: COMPANY_A, clienteId: 7, capturedFields: {} });
+    expect(db.from).not.toHaveBeenCalledWith('paquetes_solares');
+  });
+
+  test('con numero_paneles técnico y un paquete que alcanza → guarda paquete_recomendado_id y el precio como SNAPSHOT', async () => {
+    let payloadUpdateCotizacion = null;
+    const db = crearMockDbPorTabla({
+      calculos_ingenieria: { data: { id: 'calc-1', estado_calculo: 'completo', version: 1, alertas: [], resultados: { numero_paneles: { valor: 7 } } }, error: null },
+      paquetes_solares: { data: { id: 'pkg-8', cantidad_paneles: 8, precio_contado: 64000 }, error: null },
+    });
+    // Interceptar específicamente el UPDATE a cotizaciones para capturar el payload
+    const fromOriginal = db.from;
+    db.from = jest.fn((tabla) => {
+      const builder = fromOriginal(tabla);
+      if (tabla === 'cotizaciones') {
+        const updateOriginal = builder.update;
+        builder.update = jest.fn((payload) => { payloadUpdateCotizacion = payload; return updateOriginal.call(builder, payload); });
+      }
+      return builder;
+    });
+
+    await correrCotizacionDesdeWorkflow(db, { companyId: COMPANY_A, clienteId: 7, capturedFields: {} });
+
+    expect(db.from).toHaveBeenCalledWith('paquetes_solares');
+    expect(payloadUpdateCotizacion).toEqual({ paquete_recomendado_id: 'pkg-8', precio_paquete_recomendado: 64000 });
+  });
+
+  test('con numero_paneles técnico pero NINGÚN paquete alcanza → no actualiza cotizaciones con paquete (queda null)', async () => {
+    const db = crearMockDbPorTabla({
+      calculos_ingenieria: { data: { id: 'calc-1', estado_calculo: 'completo', version: 1, alertas: [], resultados: { numero_paneles: { valor: 30 } } }, error: null },
+      paquetes_solares: { data: null, error: null }, // ningún paquete del catálogo alcanza
+    });
+    let seLlamoUpdateConPaquete = false;
+    const fromOriginal = db.from;
+    db.from = jest.fn((tabla) => {
+      const builder = fromOriginal(tabla);
+      if (tabla === 'cotizaciones') {
+        const updateOriginal = builder.update;
+        builder.update = jest.fn((payload) => { if (payload.paquete_recomendado_id !== undefined) seLlamoUpdateConPaquete = true; return updateOriginal.call(builder, payload); });
+      }
+      return builder;
+    });
+
+    await correrCotizacionDesdeWorkflow(db, { companyId: COMPANY_A, clienteId: 7, capturedFields: {} });
+    expect(seLlamoUpdateConPaquete).toBe(false);
+  });
+});
+
+describe('autorizarPrecioFinal()', () => {
+  test('sin precioFinal explícito, usa precio_paquete_recomendado', async () => {
+    const db = crearMockDb(
+      { data: { precio_paquete_recomendado: 64000 }, error: null },
+      { data: { id: 1, precio_final_autorizado: 64000 }, error: null },
+    );
+    const resultado = await autorizarPrecioFinal(db, { cotizacionId: 1, usuarioId: 'u1' });
+    const builderUpdate = db.from.mock.results[1].value;
+    expect(builderUpdate.update).toHaveBeenCalledWith(expect.objectContaining({ precio_final_autorizado: 64000, precio_final_autorizado_por: 'u1' }));
+    expect(resultado.precio_final_autorizado).toBe(64000);
+  });
+
+  test('con precioFinal explícito, lo usa en vez del recomendado (el asesor ajustó)', async () => {
+    const db = crearMockDb(
+      { data: { precio_paquete_recomendado: 64000 }, error: null },
+      { data: { id: 1, precio_final_autorizado: 60000 }, error: null },
+    );
+    await autorizarPrecioFinal(db, { cotizacionId: 1, usuarioId: 'u1', precioFinal: 60000 });
+    const builderUpdate = db.from.mock.results[1].value;
+    expect(builderUpdate.update).toHaveBeenCalledWith(expect.objectContaining({ precio_final_autorizado: 60000 }));
+  });
+
+  test('cotización inexistente → 404', async () => {
+    const db = crearMockDb({ data: null, error: null });
+    await expect(autorizarPrecioFinal(db, { cotizacionId: 999, usuarioId: 'u1' })).rejects.toMatchObject({ status: 404 });
+  });
+
+  test('sin precio_paquete_recomendado NI precioFinal explícito → 400, nunca autoriza sin monto', async () => {
+    const db = crearMockDb({ data: { precio_paquete_recomendado: null }, error: null });
+    await expect(autorizarPrecioFinal(db, { cotizacionId: 1, usuarioId: 'u1' })).rejects.toMatchObject({ status: 400 });
+  });
+
+  test('siempre registra quién y cuándo autorizó (nunca queda implícito)', async () => {
+    const db = crearMockDb(
+      { data: { precio_paquete_recomendado: 64000 }, error: null },
+      { data: { id: 1 }, error: null },
+    );
+    await autorizarPrecioFinal(db, { cotizacionId: 1, usuarioId: 'usuario-42' });
+    const builderUpdate = db.from.mock.results[1].value;
+    const payload = builderUpdate.update.mock.calls[0][0];
+    expect(payload.precio_final_autorizado_por).toBe('usuario-42');
+    expect(payload.precio_final_autorizado_en).toEqual(expect.any(String));
   });
 });
 

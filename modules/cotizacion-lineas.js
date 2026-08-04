@@ -146,69 +146,58 @@ async function listarLineas(supabase, cotizacionId) {
 }
 
 /**
- * "Aplicar cálculo a la lista de materiales" (Fase 1, sección 2.1 del plan
- * original) — pre-llena cotizacion_lineas a partir del resultado del motor
- * (panel + inversor, con cantidades/specs reales), SIEMPRE editable después
- * por el asesor. No inventa precio de estructura/cableado/mano de obra —
- * esas líneas quedan `pendiente_levantamiento: true` con precio 0, el
- * asesor las completa a mano (Fase 1, punto 11: nunca asumir cableado/
- * estructura definitiva sin conocer las condiciones reales del sitio).
+ * "Aplicar cálculo a la lista de materiales" — Alina, 2026-08-04: ya NO
+ * suma cada componente del catálogo con su precio individual (así era en
+ * Fase 3; el cliente tiene una tabla de precios estándar por paquete que
+ * reemplaza ese cálculo). Ahora crea UNA sola línea con el paquete
+ * comercial recomendado (modules/paquetes-solares.js) — precio fijo, ya
+ * incluye estructura/instalación/material eléctrico/trámite CFE/monitoreo
+ * según lo que traiga `paquetes_solares.componentes_incluidos`, nunca
+ * inventado por línea. El precio de la línea usa
+ * `cotizaciones.precio_final_autorizado` si el asesor ya lo autorizó, o
+ * `precio_paquete_recomendado` si todavía no — SIEMPRE editable después.
+ *
+ * Si la cotización no tiene paquete_recomendado_id (el cálculo técnico
+ * excedió el catálogo estándar, ver seleccionarPaqueteRecomendado), no crea
+ * ninguna línea — el asesor arma la cotización a la medida a mano, nunca
+ * se inventa un paquete que no existe.
  *
  * Idempotente por diseño de uso: pensado para llamarse UNA vez por
- * cotización recién calculada — si ya hay líneas con origen
- * 'calculado_automatico', no las duplica (el asesor pudo haberlas ya
+ * cotización recién calculada — si ya hay una línea con origen
+ * 'calculado_automatico', no la duplica (el asesor pudo haberla ya
  * ajustado o borrado a propósito).
  *
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {Object} datos
  * @param {string} datos.companyId
  * @param {number} datos.cotizacionId
- * @returns {Promise<Array>} las líneas creadas (vacío si no había cálculo o ya existían)
+ * @returns {Promise<Array>} la línea creada (vacío si ya existía o no hay paquete recomendado)
  */
 async function aplicarCalculoALineas(supabase, { companyId, cotizacionId }) {
   const { data: yaExisten } = await supabase
     .from('cotizacion_lineas').select('id').eq('cotizacion_id', cotizacionId).eq('origen', 'calculado_automatico').limit(1).maybeSingle();
   if (yaExisten) return [];
 
-  const { data: calculo } = await supabase
-    .from('calculos_ingenieria').select('*').eq('cotizacion_id', cotizacionId).order('version', { ascending: false }).limit(1).maybeSingle();
-  if (!calculo?.resultados) return [];
+  const { data: cotizacion } = await supabase
+    .from('cotizaciones').select('paquete_recomendado_id, precio_paquete_recomendado, precio_final_autorizado').eq('id', cotizacionId).maybeSingle();
+  if (!cotizacion?.paquete_recomendado_id) return [];
 
-  const { panel, inversores_candidatos } = calculo.catalogo_usado || {};
-  const inversorId = calculo.resultados.inversor_seleccionado?.inversorSeleccionado?.id;
-  const inversor = (inversores_candidatos || []).find(i => i.id === inversorId);
+  const { data: paquete } = await supabase.from('paquetes_solares').select('*').eq('id', cotizacion.paquete_recomendado_id).maybeSingle();
+  if (!paquete) return [];
 
-  const lineasCreadas = [];
-  let orden = 0;
+  const precio = cotizacion.precio_final_autorizado ?? cotizacion.precio_paquete_recomendado ?? paquete.precio_contado;
+  const componentes = Array.isArray(paquete.componentes_incluidos) ? paquete.componentes_incluidos : [];
+  const descripcion = componentes.length
+    ? `${paquete.nombre} — incluye: ${componentes.join(', ')}`
+    : paquete.nombre;
 
-  if (panel && calculo.resultados.numero_paneles?.valor) {
-    lineasCreadas.push(await agregarLinea(supabase, {
-      companyId, cotizacionId, productoId: panel.id,
-      descripcion: `Panel solar ${panel.marca || ''} ${panel.modelo || ''} ${panel.specs?.potencia_wp || ''}W`.trim().replace(/\s+/g, ' '),
-      cantidad: calculo.resultados.numero_paneles.valor, precioUnitario: panel.precio || 0,
-      origen: 'calculado_automatico', orden: orden++,
-    }));
-  }
+  const linea = await agregarLinea(supabase, {
+    companyId, cotizacionId, productoId: null, conceptoLibre: paquete.nombre,
+    descripcion, cantidad: 1, precioUnitario: precio,
+    origen: 'calculado_automatico', orden: 0,
+  });
 
-  if (inversor) {
-    lineasCreadas.push(await agregarLinea(supabase, {
-      companyId, cotizacionId, productoId: inversor.id,
-      descripcion: `Inversor ${inversor.marca || ''} ${inversor.modelo || ''}`.trim().replace(/\s+/g, ' '),
-      cantidad: 1, precioUnitario: inversor.precio || 0,
-      origen: 'calculado_automatico', orden: orden++,
-    }));
-  }
-
-  // Estructura/cableado/protecciones/mano de obra: nunca un precio inventado
-  // — quedan pendientes de que el asesor las levante o cotice a mano.
-  for (const concepto of ['Estructura de montaje', 'Cableado y protecciones eléctricas', 'Mano de obra e instalación']) {
-    lineasCreadas.push(await agregarLinea(supabase, {
-      companyId, cotizacionId, conceptoLibre: concepto, descripcion: concepto,
-      cantidad: 1, precioUnitario: 0, origen: 'sugerido', pendienteLevantamiento: true, orden: orden++,
-    }));
-  }
-
-  return lineasCreadas;
+  return [linea];
 }
 
 module.exports = { recalcularTotales, agregarLinea, actualizarLinea, eliminarLinea, listarLineas, aplicarCalculoALineas, IVA_DEFAULT };
