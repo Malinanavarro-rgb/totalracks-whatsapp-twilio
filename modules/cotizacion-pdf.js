@@ -1,34 +1,35 @@
 /**
  * TARA Matrix™ — cotizacion-pdf.js
  * ─────────────────────────────────────────────────────────────────────────────
- * Genera el PDF COMERCIAL de una cotización (Alina, 2026-08-04) — no es un
- * documento administrativo, es una pieza de venta: portada con propuesta
- * de valor, resumen ejecutivo visual, sistema recomendado con fotos/
- * componentes, beneficios, garantías, y solo AL FINAL la inversión
- * (subtotal/IVA/total). Misma arquitectura técnica que siempre: HTML →
- * Puppeteer → PDF → WhatsApp, el mismo HTML que consume la vista previa.
+ * PROPUESTA COMERCIAL PREMIUM (Alina, 2026-08-04) — segunda iteración de
+ * filosofía. Ya no es "una cotización con mejor diseño": es un documento
+ * editorial que cuenta una historia (el sueño → por qué este sistema → qué
+ * recibes → beneficios → confianza → inversión, en ese orden, respondiendo
+ * en secuencia a las preguntas reales que trae el cliente en la cabeza).
+ * Cero íconos, cero emoji, cero ilustraciones tipo clipart — tipografía
+ * editorial (serif de despliegue + sans de cuerpo), mucho blanco, un solo
+ * color de acento. Misma arquitectura técnica de siempre: HTML → Puppeteer
+ * → PDF → WhatsApp, el mismo HTML para vista previa y PDF real.
  *
- * Reusable entre industrias (Alina): el copy específico de cada giro
- * (título/subtítulo de portada, beneficios, iconos de componentes) llega
- * como `pdfConfig` — normalmente `plantillas_industria.cotizacion_pdf_config`
- * — y el RESUMEN EJECUTIVO llega ya traducido a tarjetas como
- * `resumenEjecutivo` (ver motores-ingenieria/paneles-solares.js
- * ::resumenEjecutivoParaPdf — cada motor de industria expone la suya).
- * construirHtmlCotizacion() en sí no conoce nada específico de paneles
- * solares — solo sabe pintar portada/tarjetas/paquete/beneficios/garantías/
- * inversión/técnico/footer a partir de los datos que le llegan.
+ * Arquitectura de imagen en 3 niveles (migración 096) — cada bloque visual
+ * (portada, panel, inversor, instalación) resuelve su fuente en cascada:
+ *   Nivel 1 (Premium)     → foto real de la empresa/paquete
+ *   Nivel 2 (Profesional) → foto de stock configurada por industria
+ *   Nivel 3 (Editorial)   → sin foto: composición geométrica abstracta +
+ *                           tipografía grande. Nunca un ícono, nunca un
+ *                           dibujo — ver _visualEditorial().
+ * Ninguna plantilla depende de que exista una imagen específica.
+ *
+ * Reusable entre industrias: el copy (pdfConfig) y las métricas
+ * (resumenEjecutivo, por motor) llegan resueltos por el caller — esta
+ * función no tiene nada hardcodeado de paneles solares.
  *
  * Última línea de defensa antes de generar: SIEMPRE valida
  * puedeEnviarCotizacion() (Fase 2) — nunca genera un PDF de una cotización
- * sin ingenieria_validada_para_cotizar, ni con una alerta de bloqueo activa,
- * sin importar quién llame a esta función.
+ * sin ingenieria_validada_para_cotizar, ni con una alerta de bloqueo activa.
  *
- * Requiere un cliente de Supabase con service_role: el bucket privado
- * `cotizaciones-pdf` tiene su propia RLS de Storage (independiente de la de
- * nuestras tablas), no configurada para aceptar el JWT de un usuario normal
- * — mismo criterio que inbox-adjuntos.js. El caller (server.js) debe
- * autorizar con req.supabase ANTES de llamar aquí, y pasar supabaseServicio
- * solo para esta operación.
+ * Requiere un cliente de Supabase con service_role — ver nota de Storage
+ * más abajo (mismo criterio que inbox-adjuntos.js).
  *
  * @module modules/cotizacion-pdf
  */
@@ -46,15 +47,18 @@ const { ChannelRouter } = require('./channel-router');
 const { supabaseServicio } = require('./clients');
 
 const BUCKET_COTIZACIONES_PDF = 'cotizaciones-pdf';
-// Misma instancia ligera que arma modules/cotizaciones.js (ver ahí el porqué
-// — este módulo tampoco depende de server.js ni de ninguna request HTTP).
 const _channelRouter = new ChannelRouter(supabaseServicio);
 
+// Paleta editorial: casi monocromo (tinta cálida + papel), UN solo acento.
+// empresa.color_acento (si la empresa lo configuró) sobreescribe el verde
+// por defecto — sigue siendo "un solo color", solo cambia cuál.
 const COLORES_DEFAULT = {
-  acento: '#1a1a2e', sol: '#f59e0b', solClaro: '#fde68a', teal: '#22c7b8',
-  texto: '#111827', textoSecundario: '#6b7280', superficie: '#ffffff',
-  fondoSuave: '#f8fafc', borde: '#e5e7eb', exito: '#16a34a',
+  tinta: '#17170f', textoSecundario: '#6b6a62', papel: '#ffffff',
+  papelCalido: '#faf9f6', borde: '#e7e5df', acento: '#1b4332', acentoSuave: '#e8efe9',
 };
+
+const FUENTE_DISPLAY = `Georgia, 'Iowan Old Style', 'Palatino Linotype', 'Times New Roman', serif`;
+const FUENTE_CUERPO = `-apple-system, "Segoe UI", Roboto, Arial, sans-serif`;
 
 // ── Helpers de formato/escape ───────────────────────────────────────────────
 
@@ -74,199 +78,201 @@ function _formatoFecha(fechaIso) {
   return new Date(fechaIso || Date.now()).toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' });
 }
 
-function _iconoProducto(tipo) {
-  const t = (tipo || '').toLowerCase();
-  if (t.includes('panel')) return '☀️';
-  if (t.includes('inversor')) return '⚡';
-  if (t.includes('bateria') || t.includes('batería')) return '🔋';
-  return '🔧';
+/**
+ * Resuelve la fuente de una imagen en cascada: propia de la empresa/paquete
+ * (Nivel 1) → stock configurado por industria (Nivel 2) → null (Nivel 3,
+ * el caller pinta el tratamiento editorial). Nunca decide POR SÍ SOLA que
+ * hay que usar una imagen — solo devuelve la primera URL real que exista.
+ *
+ * @param {...(string|null|undefined)} fuentes - en orden de prioridad
+ * @returns {string|null}
+ */
+function resolverImagenBloque(...fuentes) {
+  for (const f of fuentes) {
+    if (f) return f;
+  }
+  return null;
 }
 
-function _iconoComponente(nombre, componentesIconos) {
-  const clave = (nombre || '').toLowerCase().trim();
-  return componentesIconos?.[clave] || '✔️';
-}
-
-// ── Ilustración de portada (SVG inline, autocontenido) ──────────────────────
-// Aprobado por Alina: ilustración vectorial en vez de fotografía real (no
-// hay fotos cargadas en el sistema y el PDF debe ser autocontenido, sin
-// depender de bajar imágenes externas).
-
-function _ilustracionHero(colores) {
+/**
+ * Composición editorial abstracta (Nivel 3, sin foto) — NUNCA un ícono ni
+ * un dibujo figurativo: solo geometría (arcos, líneas finas) en el color
+ * de acento, sobre el papel. Dos variantes: 'hero' (portada, más grande) y
+ * 'marca' (fichas de producto, un monograma dentro de un arco).
+ */
+function _visualEditorial(variante, colores, letra) {
+  if (variante === 'hero') {
+    return `
+    <svg viewBox="0 0 600 260" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+      <rect x="0" y="0" width="600" height="260" fill="${colores.papelCalido}"/>
+      <circle cx="480" cy="40" r="220" fill="none" stroke="${colores.acento}" stroke-width="1.25" opacity="0.35"/>
+      <circle cx="480" cy="40" r="160" fill="none" stroke="${colores.acento}" stroke-width="1" opacity="0.22"/>
+      <line x1="0" y1="230" x2="600" y2="230" stroke="${colores.acento}" stroke-width="1" opacity="0.3"/>
+    </svg>`;
+  }
+  // 'marca' — monograma discreto para fichas de panel/inversor/instalación
   return `
-  <svg viewBox="0 0 400 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Casa con paneles solares">
-    <defs>
-      <linearGradient id="cielo" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="${colores.solClaro}" stop-opacity="0.5"/>
-        <stop offset="100%" stop-color="${colores.solClaro}" stop-opacity="0"/>
-      </linearGradient>
-      <linearGradient id="sol" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0%" stop-color="${colores.sol}"/>
-        <stop offset="100%" stop-color="#fbbf24"/>
-      </linearGradient>
-      <linearGradient id="panelG" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0%" stop-color="${colores.acento}"/>
-        <stop offset="100%" stop-color="#2d2d54"/>
-      </linearGradient>
-    </defs>
-    <rect x="0" y="0" width="400" height="200" fill="url(#cielo)"/>
-    <circle cx="330" cy="55" r="34" fill="url(#sol)"/>
-    <g stroke="${colores.sol}" stroke-width="3" stroke-linecap="round" opacity="0.7">
-      <line x1="330" y1="5" x2="330" y2="-8"/>
-      <line x1="375" y1="20" x2="384" y2="11"/>
-      <line x1="390" y1="55" x2="404" y2="55"/>
-    </g>
-    <path d="M60 190 L60 120 L150 70 L240 120 L240 190 Z" fill="${colores.superficie}" stroke="${colores.borde}" stroke-width="2"/>
-    <path d="M50 125 L150 68 L250 125 L232 125 L150 80 L68 125 Z" fill="${colores.teal}"/>
-    <g transform="translate(78,88) rotate(-31)">
-      ${[0, 1, 2, 3].map(i => `<rect x="${i * 27}" y="0" width="24" height="46" rx="2" fill="url(#panelG)" stroke="#ffffff" stroke-width="1.5"/>`).join('')}
-      <line x1="0" y1="23" x2="108" y2="23" stroke="#ffffff" stroke-width="1"/>
-    </g>
-    <rect x="130" y="140" width="40" height="50" fill="${colores.fondoSuave}" stroke="${colores.borde}" stroke-width="1.5"/>
-    <rect x="70" y="150" width="22" height="22" fill="${colores.solClaro}" stroke="${colores.borde}" stroke-width="1.5"/>
-    <rect x="210" y="150" width="22" height="22" fill="${colores.solClaro}" stroke="${colores.borde}" stroke-width="1.5"/>
+  <svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <circle cx="40" cy="40" r="38" fill="none" stroke="${colores.acento}" stroke-width="1"/>
+    <text x="40" y="49" text-anchor="middle" font-family="${FUENTE_DISPLAY}" font-size="26" fill="${colores.acento}">${_escaparHtml(letra)}</text>
   </svg>`;
 }
 
-// ── Secciones ────────────────────────────────────────────────────────────
+/** Un bloque visual (foto real o tratamiento editorial) — nunca depende de que exista la imagen. */
+function _bloqueVisual({ imagenUrl, variante, letra, alt, colores, claseAlto }) {
+  if (imagenUrl) {
+    return `<div class="visual-foto ${claseAlto || ''}"><img src="${_escaparHtml(imagenUrl)}" alt="${_escaparHtml(alt || '')}"/></div>`;
+  }
+  return `<div class="visual-editorial ${claseAlto || ''}">${_visualEditorial(variante, colores, letra)}</div>`;
+}
 
-function _seccionPortada({ cotizacion, cliente, empresa, asesorNombre, pdfConfig, colores }) {
+// ── Secciones (una por "página" de la historia) ─────────────────────────────
+
+function _numeroSeccion(n) {
+  return `<span class="numero-seccion">${String(n).padStart(2, '0')}</span>`;
+}
+
+function _seccionPortada({ cotizacion, cliente, empresa, asesorNombre, pdfConfig, colores, imagenHero }) {
   const logo = empresa?.logo_url
     ? `<img src="${_escaparHtml(empresa.logo_url)}" alt="${_escaparHtml(empresa?.nombre)}" class="logo-img"/>`
-    : `<div class="logo-iniciales">${_escaparHtml(_iniciales(empresa?.nombre))}</div>`;
+    : `<span class="logo-texto">${_escaparHtml(empresa?.nombre)}</span>`;
 
   return `
-  <section class="portada">
-    <div class="marca-superior">
-      ${logo}
-      <span class="marca-nombre">${_escaparHtml(empresa?.nombre)}</span>
-    </div>
-    <div class="hero">
-      <div class="hero-ilustracion">${_ilustracionHero(colores)}</div>
-      <h1>${_escaparHtml(pdfConfig?.hero?.titulo || 'Propuesta comercial')}</h1>
+  <section class="pagina portada">
+    <div class="marca-superior">${logo}<span class="folio-discreto">${_escaparHtml(cotizacion.folio || `#${cotizacion.id}`)}</span></div>
+    ${_bloqueVisual({ imagenUrl: imagenHero, variante: 'hero', alt: 'Tu nuevo sistema solar', colores, claseAlto: 'visual-hero' })}
+    <div class="hero-texto">
+      <h1>${_escaparHtml(pdfConfig?.hero?.titulo || 'Tu propuesta')}</h1>
       <p class="hero-subtitulo">${_escaparHtml(pdfConfig?.hero?.subtitulo || '')}</p>
     </div>
     <div class="meta-portada">
       <div><span>Preparado para</span><strong>${_escaparHtml(cliente?.nombre)}</strong></div>
-      <div><span>Cotización</span><strong>${_escaparHtml(cotizacion.folio || `#${cotizacion.id}`)}</strong></div>
       <div><span>Fecha</span><strong>${_formatoFecha(cotizacion.created_at)}</strong></div>
       <div><span>Asesor</span><strong>${_escaparHtml(asesorNombre || 'Nuestro equipo')}</strong></div>
     </div>
   </section>`;
 }
 
-function _seccionResumenEjecutivo(resumenEjecutivo) {
+/** "¿Por qué este sistema?" — narrativa breve + las 3 cifras más persuasivas, nunca 8 tarjetas. */
+function _seccionPorQue({ resumenEjecutivo, pdfConfig }) {
   const disponibles = (resumenEjecutivo || []).filter(t => t.disponible);
-  if (disponibles.length === 0) return '';
+  if (disponibles.length === 0 && !pdfConfig?.porQueEsteSistema?.texto) return '';
 
-  const tarjetas = disponibles.map(t => `
-    <div class="tarjeta-resumen">
-      <div class="tarjeta-icono">${t.icono}</div>
-      <div class="tarjeta-valor">${_escaparHtml(t.valorTexto)}</div>
-      <div class="tarjeta-etiqueta">${_escaparHtml(t.etiqueta)}</div>
+  const CLAVES_PRIORITARIAS = ['ahorro_mensual', 'cobertura', 'numero_paneles', 'ahorro_anual'];
+  const destacadas = CLAVES_PRIORITARIAS.map(c => disponibles.find(t => t.clave === c)).filter(Boolean).slice(0, 3);
+
+  const cifras = destacadas.map(t => `
+    <div class="cifra">
+      <div class="cifra-valor">${_escaparHtml(t.valorTexto)}</div>
+      <div class="cifra-etiqueta">${_escaparHtml(t.etiqueta)}</div>
     </div>`).join('');
 
   return `
-  <section class="seccion">
-    <h2>Resumen ejecutivo</h2>
-    <div class="grid-resumen">${tarjetas}</div>
+  <section class="pagina seccion">
+    ${_numeroSeccion(2)}
+    <h2>Por qué este sistema</h2>
+    ${pdfConfig?.porQueEsteSistema?.texto ? `<p class="parrafo-editorial">${_escaparHtml(pdfConfig.porQueEsteSistema.texto)}</p>` : ''}
+    ${cifras ? `<div class="fila-cifras">${cifras}</div>` : ''}
   </section>`;
 }
 
-function _seccionSistemaRecomendado({ paquete, pdfConfig }) {
+/** "¿Qué recibirás exactamente?" — fichas de equipo con foto real o marca editorial, nunca ícono. */
+function _seccionQueRecibiras({ paquete, colores }) {
   if (!paquete) return '';
 
   const componentes = Array.isArray(paquete.componentes_incluidos) ? paquete.componentes_incluidos : [];
-  const listaComponentes = componentes.map(c => `
-    <li><span class="check-icono">${_iconoComponente(c, pdfConfig?.componentesIconos)}</span>${_escaparHtml(c)}</li>`).join('');
 
   const fichaPanel = paquete.marca_panel ? `
     <div class="ficha-equipo">
-      <div class="ficha-icono">${_iconoProducto('panel_solar')}</div>
+      ${_bloqueVisual({ imagenUrl: paquete.imagen_panel_url, variante: 'marca', letra: 'P', alt: 'Panel solar', colores, claseAlto: 'visual-ficha' })}
       <div class="ficha-titulo">Panel solar</div>
       <div class="ficha-detalle">${_escaparHtml(paquete.marca_panel)} ${_escaparHtml(paquete.modelo_panel || '')}</div>
-      ${paquete.potencia_panel_wp ? `<div class="ficha-spec">${paquete.potencia_panel_wp} W c/u</div>` : ''}
     </div>` : '';
 
   const fichaInversor = paquete.marca_inversor ? `
     <div class="ficha-equipo">
-      <div class="ficha-icono">${_iconoProducto('inversor')}</div>
+      ${_bloqueVisual({ imagenUrl: paquete.imagen_inversor_url, variante: 'marca', letra: 'I', alt: 'Inversor', colores, claseAlto: 'visual-ficha' })}
       <div class="ficha-titulo">${_escaparHtml(paquete.tipo_inversor === 'microinversor' ? 'Microinversores' : 'Inversor')}</div>
       <div class="ficha-detalle">${_escaparHtml(paquete.marca_inversor)} ${_escaparHtml(paquete.modelo_inversor || '')}</div>
-      ${paquete.cantidad_inversores ? `<div class="ficha-spec">${paquete.cantidad_inversores} pieza(s)${paquete.entradas_por_inversor ? ` · ${paquete.entradas_por_inversor} entradas c/u` : ''}</div>` : ''}
+    </div>` : '';
+
+  const fichaInstalacion = paquete.imagen_instalacion_url ? `
+    <div class="ficha-equipo">
+      ${_bloqueVisual({ imagenUrl: paquete.imagen_instalacion_url, variante: 'marca', letra: 'S', alt: 'Instalación terminada', colores, claseAlto: 'visual-ficha' })}
+      <div class="ficha-titulo">Instalación</div>
+      <div class="ficha-detalle">Proyecto terminado</div>
     </div>` : '';
 
   return `
-  <section class="seccion">
-    <h2>Sistema recomendado</h2>
-    <div class="paquete-nombre">${_escaparHtml(paquete.nombre)}${paquete.potencia_total_kwp ? ` — ${paquete.potencia_total_kwp} kWp instalados` : ''}</div>
-    ${(fichaPanel || fichaInversor) ? `<div class="grid-fichas">${fichaPanel}${fichaInversor}</div>` : ''}
-    ${listaComponentes ? `<ul class="lista-componentes">${listaComponentes}</ul>` : ''}
+  <section class="pagina seccion">
+    ${_numeroSeccion(3)}
+    <h2>Qué recibirás exactamente</h2>
+    <p class="paquete-nombre">${_escaparHtml(paquete.nombre)}</p>
+    <div class="grid-fichas">${fichaPanel}${fichaInversor}${fichaInstalacion}</div>
+    ${componentes.length ? `<p class="lista-componentes-editorial">${componentes.map(_escaparHtml).join(' · ')}</p>` : ''}
   </section>`;
 }
 
+/** Beneficios en lenguaje de beneficio — el dato técnico, si existe, va como pie de nota pequeño. */
 function _seccionBeneficios(pdfConfig) {
   const beneficios = pdfConfig?.beneficios || [];
   if (beneficios.length === 0) return '';
 
   const items = beneficios.map(b => `
     <div class="beneficio">
-      <div class="beneficio-icono">${b.icono || '✔️'}</div>
-      <div class="beneficio-texto">${_escaparHtml(b.texto)}</div>
+      <div class="beneficio-titulo">${_escaparHtml(b.titulo)}</div>
+      ${b.detalleTecnico ? `<div class="beneficio-detalle">${_escaparHtml(b.detalleTecnico)}</div>` : ''}
     </div>`).join('');
 
   return `
-  <section class="seccion">
-    <h2>Beneficios de tu sistema</h2>
-    <div class="grid-beneficios">${items}</div>
+  <section class="pagina seccion">
+    ${_numeroSeccion(4)}
+    <h2>Lo que ganas</h2>
+    <div class="lista-beneficios">${items}</div>
   </section>`;
 }
 
-function _tarjetaGarantia(titulo, icono, items) {
-  const filas = items.filter(([, valor]) => valor).map(([etiqueta, valor]) => `<div><span>${etiqueta}</span><strong>${_escaparHtml(valor)}</strong></div>`).join('');
-  return `
-    <div class="tarjeta-garantia">
-      <div class="garantia-icono">${icono}</div>
-      <div class="garantia-titulo">${titulo}</div>
-      ${filas || '<div class="garantia-pendiente">Consulta con tu asesor</div>'}
-    </div>`;
-}
-
-function _seccionGarantias(paquete) {
+/** Confianza — certificaciones/garantías/tecnología/CFE, en formato de marca editorial, nunca ícono infantil. */
+function _seccionConfianza({ paquete, pdfConfig }) {
   const g = paquete?.garantias || {};
+  const garantiaPanel = g.panel?.producto_anios || g.panel?.rendimiento_anios;
+  const garantiaInversor = g.inversor?.garantia_anios || g.inversor?.vida_util_anios;
+
+  const marcas = [
+    ...(pdfConfig?.confianza || []).map(c => ({ titulo: c.titulo, detalle: c.detalle })),
+    garantiaPanel ? { titulo: 'Garantía de panel', detalle: [g.panel?.producto_anios && `${g.panel.producto_anios} años producto`, g.panel?.rendimiento_anios && `${g.panel.rendimiento_anios} años rendimiento`].filter(Boolean).join(' · ') } : null,
+    garantiaInversor ? { titulo: 'Garantía de inversor', detalle: [g.inversor?.garantia_anios && `${g.inversor.garantia_anios} años`, g.inversor?.vida_util_anios && `vida útil ${g.inversor.vida_util_anios} años`].filter(Boolean).join(' · ') } : null,
+  ].filter(Boolean);
+
+  if (marcas.length === 0) return '';
+
+  const items = marcas.map(m => `
+    <div class="marca-confianza">
+      <div class="marca-titulo">${_escaparHtml(m.titulo)}</div>
+      <div class="marca-detalle">${_escaparHtml(m.detalle || 'Consulta con tu asesor')}</div>
+    </div>`).join('');
+
   return `
-  <section class="seccion">
-    <h2>Garantías</h2>
-    <div class="grid-garantias">
-      ${_tarjetaGarantia('Paneles solares', '☀️', [
-        ['Garantía de producto', g.panel?.producto_anios ? `${g.panel.producto_anios} años` : null],
-        ['Garantía de rendimiento', g.panel?.rendimiento_anios ? `${g.panel.rendimiento_anios} años` : null],
-      ])}
-      ${_tarjetaGarantia('Microinversores', '⚡', [
-        ['Garantía', g.inversor?.garantia_anios ? `${g.inversor.garantia_anios} años` : null],
-        ['Vida útil estimada', g.inversor?.vida_util_anios ? `${g.inversor.vida_util_anios} años` : null],
-      ])}
-    </div>
+  <section class="pagina seccion">
+    ${_numeroSeccion(5)}
+    <h2>Respaldo y confianza</h2>
+    <div class="grid-confianza">${items}</div>
   </section>`;
 }
 
+/** La inversión — al final, siempre. Minimalista: sin tabla pesada. */
 function _seccionInversion({ cotizacion, lineas }) {
   const filas = (lineas || []).map(l => `
-    <tr>
-      <td>${_escaparHtml(l.descripcion)}${l.pendiente_levantamiento ? ' <span class="pendiente">(sujeto a levantamiento en sitio)</span>' : ''}</td>
-      <td class="num">${Number(l.cantidad).toLocaleString('es-MX')}</td>
-      <td class="num">${_formatoMoneda(l.precio_unitario)}</td>
-      <td class="num">${l.descuento_pct ? `${l.descuento_pct}%` : '—'}</td>
-      <td class="num">${_formatoMoneda(l.subtotal)}</td>
-    </tr>`).join('');
+    <div class="linea-inversion">
+      <span>${_escaparHtml(l.descripcion)}${l.pendiente_levantamiento ? ' <em>(sujeto a levantamiento en sitio)</em>' : ''}</span>
+      <span class="num">${_formatoMoneda(l.subtotal)}</span>
+    </div>`).join('');
 
   return `
-  <section class="seccion seccion-inversion">
+  <section class="pagina seccion seccion-inversion">
+    ${_numeroSeccion(6)}
     <h2>Tu inversión</h2>
-    <table>
-      <thead><tr><th>Concepto</th><th class="num">Cantidad</th><th class="num">Precio unitario</th><th class="num">Descuento</th><th class="num">Subtotal</th></tr></thead>
-      <tbody>${filas}</tbody>
-    </table>
+    <div class="lineas-inversion">${filas}</div>
     <div class="totales">
       <div><span>Subtotal</span><span>${_formatoMoneda(cotizacion.subtotal)}</span></div>
       <div><span>IVA</span><span>${_formatoMoneda(cotizacion.iva)}</span></div>
@@ -277,68 +283,49 @@ function _seccionInversion({ cotizacion, lineas }) {
       ${cotizacion.forma_pago ? `<div><span>Forma de pago</span><strong>${_escaparHtml(cotizacion.forma_pago)}</strong></div>` : ''}
       ${cotizacion.vigencia_dias ? `<div><span>Vigencia</span><strong>${cotizacion.vigencia_dias} días</strong></div>` : ''}
     </div>
-    ${cotizacion.condiciones_comerciales ? `<div class="condiciones"><strong>Condiciones comerciales:</strong> ${_escaparHtml(cotizacion.condiciones_comerciales)}</div>` : ''}
-  </section>`;
-}
-
-function _seccionTecnica({ cotizacion, calculoDatosEntrada }) {
-  const info = calculoDatosEntrada || {};
-  const filas = [
-    ['Ubicación', info.ubicacion],
-    ['Tipo de alimentación eléctrica', info.tipoAlimentacion],
-    ['Área utilizada', info.areaDisponibleM2 ? `${info.areaDisponibleM2} m²` : null],
-  ].filter(([, v]) => v);
-
-  if (filas.length === 0) return '';
-
-  return `
-  <section class="seccion">
-    <h2>Información técnica</h2>
-    <div class="tecnica-grid">
-      ${filas.map(([etiqueta, valor]) => `<div><span>${etiqueta}</span><strong>${_escaparHtml(valor)}</strong></div>`).join('')}
-    </div>
-    <p class="aviso">Predimensionamiento — ingeniería preliminar sujeta a validación física, estructural y eléctrica en sitio. El detalle técnico completo queda documentado internamente con tu asesor.</p>
+    ${cotizacion.condiciones_comerciales ? `<p class="condiciones-texto">${_escaparHtml(cotizacion.condiciones_comerciales)}</p>` : ''}
   </section>`;
 }
 
 function _footer({ empresa, asesorNombre, whatsappEmpresa, qrDataUri }) {
   return `
-  <section class="footer">
-    <div class="footer-datos">
+  <section class="pagina footer">
+    <div class="footer-firma">
       <div class="footer-empresa">${_escaparHtml(empresa?.nombre)}</div>
-      ${asesorNombre ? `<div>Asesor: ${_escaparHtml(asesorNombre)}</div>` : ''}
-      ${whatsappEmpresa ? `<div>WhatsApp: ${_escaparHtml(whatsappEmpresa)}</div>` : ''}
-      ${empresa?.correo_contacto ? `<div>${_escaparHtml(empresa.correo_contacto)}</div>` : ''}
-      ${empresa?.sitio_web ? `<div>${_escaparHtml(empresa.sitio_web)}</div>` : ''}
+      ${asesorNombre ? `<div class="footer-asesor">${_escaparHtml(asesorNombre)}</div>` : ''}
+      <div class="footer-contacto">
+        ${whatsappEmpresa ? `<span>WhatsApp ${_escaparHtml(whatsappEmpresa)}</span>` : ''}
+        ${empresa?.correo_contacto ? `<span>${_escaparHtml(empresa.correo_contacto)}</span>` : ''}
+        ${empresa?.sitio_web ? `<span>${_escaparHtml(empresa.sitio_web)}</span>` : ''}
+      </div>
+      <p class="footer-transparencia">Esta propuesta fue generada mediante nuestro sistema inteligente de análisis y posteriormente revisada y validada por un especialista.</p>
     </div>
-    ${qrDataUri ? `<div class="footer-qr"><img src="${qrDataUri}" alt="Código QR de contacto"/><span>Escanea para escribirnos</span></div>` : ''}
+    ${qrDataUri ? `<div class="footer-qr"><img src="${qrDataUri}" alt="Código QR de contacto"/></div>` : ''}
   </section>`;
 }
 
 /**
  * Arma el HTML del PDF comercial — función pura, testable sin Puppeteer ni
- * DB. Ningún dato específico de paneles solares está hardcodeado aquí: el
- * copy (pdfConfig) y las métricas (resumenEjecutivo) llegan ya resueltos
- * por el caller, así que esta misma función sirve para cualquier industria
- * que le pase datos con esta forma.
+ * DB. Ver cabecera del módulo para la filosofía completa.
  *
  * @param {Object} datos
  * @param {Object} datos.cotizacion
  * @param {Array} datos.lineas
  * @param {Object} datos.cliente
  * @param {Object} datos.empresa
- * @param {Object} [datos.paquete] - fila de paquetes_solares (o equivalente de otra industria), null si es cotización a la medida
- * @param {Array} [datos.resumenEjecutivo] - ver motor.resumenEjecutivoParaPdf()
- * @param {Object} [datos.pdfConfig] - plantilla.cotizacion_pdf_config
- * @param {Object} [datos.calculoDatosEntrada] - calculos_ingenieria.datos_entrada, solo para la sección técnica (resumen, no fórmulas)
+ * @param {Object} [datos.paquete]
+ * @param {Array} [datos.resumenEjecutivo]
+ * @param {Object} [datos.pdfConfig]
+ * @param {Object} [datos.calculoDatosEntrada]
  * @param {string} [datos.asesorNombre]
  * @param {string} [datos.whatsappEmpresa]
  * @param {string} [datos.qrDataUri]
+ * @param {string} [datos.imagenHero] - ya resuelta en cascada (Nivel 1/2), null si Nivel 3
  * @returns {string} HTML completo
  */
 function construirHtmlCotizacion({
   cotizacion, lineas, cliente, empresa, paquete, resumenEjecutivo, pdfConfig,
-  calculoDatosEntrada, asesorNombre, whatsappEmpresa, qrDataUri,
+  calculoDatosEntrada, asesorNombre, whatsappEmpresa, qrDataUri, imagenHero,
 }) {
   const colores = { ...COLORES_DEFAULT, ...(empresa?.color_acento ? { acento: empresa.color_acento } : {}) };
 
@@ -348,122 +335,99 @@ function construirHtmlCotizacion({
 <meta charset="utf-8">
 <style>
   * { box-sizing: border-box; }
-  body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: ${colores.texto}; margin: 0; padding: 0; font-size: 13px; }
-  .seccion { padding: 28px 44px; }
-  h2 { font-size: 18px; font-weight: 700; color: ${colores.acento}; margin: 0 0 16px; }
+  body { font-family: ${FUENTE_CUERPO}; color: ${colores.tinta}; margin: 0; padding: 0; font-size: 13px; background: ${colores.papel}; }
+  .pagina { padding: 40px 52px; }
+  .numero-seccion { display: block; font-size: 11px; letter-spacing: .12em; color: ${colores.acento}; font-weight: 600; margin-bottom: 10px; }
+  h2 { font-family: ${FUENTE_DISPLAY}; font-size: 24px; font-weight: 400; color: ${colores.tinta}; margin: 0 0 18px; letter-spacing: -0.01em; }
 
   /* Portada */
-  .portada { padding: 32px 44px 36px; background: linear-gradient(180deg, ${colores.fondoSuave} 0%, #ffffff 65%); }
-  .marca-superior { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
-  .logo-img { height: 34px; max-width: 140px; object-fit: contain; }
-  .logo-iniciales { width: 34px; height: 34px; border-radius: 8px; background: ${colores.acento}; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; }
-  .marca-nombre { font-weight: 700; color: ${colores.acento}; font-size: 14px; }
-  .hero { text-align: center; padding: 8px 0 20px; }
-  .hero-ilustracion { width: 320px; max-width: 80%; margin: 0 auto 8px; }
-  .hero-ilustracion svg { width: 100%; height: auto; display: block; }
-  .hero h1 { font-size: 26px; font-weight: 800; color: ${colores.acento}; margin: 4px 0 8px; letter-spacing: -0.01em; }
-  .hero-subtitulo { font-size: 14px; color: ${colores.textoSecundario}; max-width: 440px; margin: 0 auto; }
-  .meta-portada { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 20px; border-top: 1px solid ${colores.borde}; padding-top: 18px; }
-  .meta-portada div { display: flex; flex-direction: column; gap: 2px; }
-  .meta-portada span { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: ${colores.textoSecundario}; }
-  .meta-portada strong { font-size: 13px; color: ${colores.texto}; }
+  .portada { padding: 0; }
+  .marca-superior { display: flex; justify-content: space-between; align-items: center; padding: 28px 52px 0; }
+  .logo-img { height: 30px; max-width: 140px; object-fit: contain; }
+  .logo-texto { font-family: ${FUENTE_DISPLAY}; font-size: 15px; letter-spacing: .02em; color: ${colores.tinta}; }
+  .folio-discreto { font-size: 10px; color: ${colores.textoSecundario}; letter-spacing: .05em; }
+  .visual-hero { width: 100%; height: 260px; }
+  .visual-hero img, .visual-hero svg { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .hero-texto { padding: 36px 52px 0; max-width: 480px; }
+  .hero-texto h1 { font-family: ${FUENTE_DISPLAY}; font-size: 34px; font-weight: 400; line-height: 1.15; color: ${colores.tinta}; margin: 0 0 14px; letter-spacing: -0.01em; }
+  .hero-subtitulo { font-size: 15px; color: ${colores.textoSecundario}; line-height: 1.5; margin: 0; }
+  .meta-portada { display: flex; gap: 40px; margin: 36px 52px 40px; padding-top: 20px; border-top: 1px solid ${colores.borde}; }
+  .meta-portada div { display: flex; flex-direction: column; gap: 3px; }
+  .meta-portada span { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: ${colores.textoSecundario}; }
+  .meta-portada strong { font-size: 13px; font-weight: 500; color: ${colores.tinta}; }
 
-  /* Resumen ejecutivo */
-  .grid-resumen { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-  .tarjeta-resumen { background: ${colores.fondoSuave}; border: 1px solid ${colores.borde}; border-radius: 10px; padding: 14px 10px; text-align: center; break-inside: avoid; }
-  .tarjeta-icono { font-size: 20px; margin-bottom: 6px; }
-  .tarjeta-valor { font-size: 16px; font-weight: 800; color: ${colores.acento}; font-variant-numeric: tabular-nums; }
-  .tarjeta-etiqueta { font-size: 10px; color: ${colores.textoSecundario}; margin-top: 3px; line-height: 1.3; }
+  /* Por qué este sistema */
+  .parrafo-editorial { font-size: 16px; line-height: 1.65; color: ${colores.tinta}; max-width: 520px; margin: 0 0 32px; font-family: ${FUENTE_DISPLAY}; }
+  .fila-cifras { display: flex; gap: 48px; }
+  .cifra-valor { font-family: ${FUENTE_DISPLAY}; font-size: 40px; color: ${colores.acento}; font-variant-numeric: tabular-nums; line-height: 1; }
+  .cifra-etiqueta { font-size: 11px; color: ${colores.textoSecundario}; margin-top: 8px; text-transform: uppercase; letter-spacing: .04em; }
 
-  /* Sistema recomendado */
-  .paquete-nombre { font-size: 15px; font-weight: 700; color: ${colores.texto}; margin-bottom: 14px; }
-  .grid-fichas { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 16px; }
-  .ficha-equipo { border: 1px solid ${colores.borde}; border-radius: 10px; padding: 14px; break-inside: avoid; }
-  .ficha-icono { font-size: 24px; margin-bottom: 6px; }
-  .ficha-titulo { font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: ${colores.textoSecundario}; }
-  .ficha-detalle { font-size: 14px; font-weight: 700; margin-top: 2px; }
-  .ficha-spec { font-size: 12px; color: ${colores.textoSecundario}; margin-top: 4px; }
-  .lista-componentes { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 16px; }
-  .lista-componentes li { font-size: 13px; display: flex; align-items: center; gap: 8px; }
-  .check-icono { font-size: 14px; }
+  /* Qué recibirás */
+  .paquete-nombre { font-size: 15px; color: ${colores.textoSecundario}; margin: 0 0 24px; }
+  .grid-fichas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 20px; }
+  .ficha-equipo { text-align: left; }
+  .visual-ficha { width: 64px; height: 64px; margin-bottom: 12px; }
+  .visual-ficha img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+  .visual-ficha svg { width: 100%; height: 100%; }
+  .ficha-titulo { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: ${colores.textoSecundario}; margin-bottom: 3px; }
+  .ficha-detalle { font-size: 14px; font-weight: 500; color: ${colores.tinta}; }
+  .lista-componentes-editorial { font-size: 12px; color: ${colores.textoSecundario}; border-top: 1px solid ${colores.borde}; padding-top: 16px; margin-top: 8px; }
 
   /* Beneficios */
-  .grid-beneficios { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
-  .beneficio { display: flex; align-items: center; gap: 10px; break-inside: avoid; }
-  .beneficio-icono { font-size: 20px; flex-shrink: 0; }
-  .beneficio-texto { font-size: 12.5px; line-height: 1.35; }
+  .lista-beneficios { display: flex; flex-direction: column; }
+  .beneficio { padding: 16px 0; border-bottom: 1px solid ${colores.borde}; }
+  .beneficio:first-child { padding-top: 0; }
+  .beneficio-titulo { font-family: ${FUENTE_DISPLAY}; font-size: 18px; color: ${colores.tinta}; }
+  .beneficio-detalle { font-size: 11.5px; color: ${colores.textoSecundario}; margin-top: 4px; }
 
-  /* Garantías */
-  .grid-garantias { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
-  .tarjeta-garantia { border: 1px solid ${colores.borde}; border-radius: 10px; padding: 16px; break-inside: avoid; }
-  .garantia-icono { font-size: 22px; }
-  .garantia-titulo { font-size: 13px; font-weight: 700; margin: 6px 0 10px; }
-  .tarjeta-garantia div:not(.garantia-titulo) { display: flex; justify-content: space-between; font-size: 12px; padding: 4px 0; border-top: 1px solid ${colores.borde}; }
-  .tarjeta-garantia div:first-of-type { border-top: none; }
-  .garantia-pendiente { color: ${colores.textoSecundario}; font-style: italic; font-size: 12px; }
+  /* Confianza */
+  .grid-confianza { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px 32px; }
+  .marca-confianza { border-left: 2px solid ${colores.acento}; padding-left: 14px; }
+  .marca-titulo { font-size: 13.5px; font-weight: 600; color: ${colores.tinta}; }
+  .marca-detalle { font-size: 11.5px; color: ${colores.textoSecundario}; margin-top: 3px; }
 
   /* Inversión */
-  .seccion-inversion { background: ${colores.fondoSuave}; }
-  table { width: 100%; border-collapse: collapse; margin-top: 4px; }
-  th { text-align: left; background: ${colores.superficie}; padding: 8px 10px; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: ${colores.textoSecundario}; border-bottom: 2px solid ${colores.borde}; }
-  td { padding: 8px 10px; border-bottom: 1px solid ${colores.borde}; }
-  .num { text-align: right; font-variant-numeric: tabular-nums; }
-  .pendiente { color: ${colores.textoSecundario}; font-size: 11px; }
-  .totales { margin-top: 14px; width: 280px; margin-left: auto; }
-  .totales div { display: flex; justify-content: space-between; padding: 4px 0; }
-  .totales .total { font-weight: 800; font-size: 18px; color: ${colores.acento}; border-top: 2px solid ${colores.acento}; padding-top: 8px; margin-top: 4px; }
-  .condiciones-grid { display: flex; gap: 24px; margin-top: 16px; }
+  .seccion-inversion { background: ${colores.papelCalido}; }
+  .lineas-inversion { margin-bottom: 4px; }
+  .linea-inversion { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid ${colores.borde}; font-size: 13px; }
+  .linea-inversion .num { font-variant-numeric: tabular-nums; }
+  .linea-inversion em { color: ${colores.textoSecundario}; font-style: italic; font-size: 11px; }
+  .totales { margin-top: 16px; width: 300px; margin-left: auto; }
+  .totales div { display: flex; justify-content: space-between; padding: 5px 0; }
+  .totales .total { font-family: ${FUENTE_DISPLAY}; font-weight: 400; font-size: 26px; color: ${colores.acento}; border-top: 1px solid ${colores.tinta}; padding-top: 12px; margin-top: 6px; }
+  .condiciones-grid { display: flex; gap: 32px; margin-top: 24px; }
   .condiciones-grid div { display: flex; flex-direction: column; gap: 2px; }
   .condiciones-grid span { font-size: 10px; text-transform: uppercase; color: ${colores.textoSecundario}; }
   .condiciones-grid strong { font-size: 13px; }
-  .condiciones { margin-top: 14px; font-size: 12px; color: ${colores.textoSecundario}; }
-
-  /* Técnica */
-  .tecnica-grid { display: flex; gap: 28px; flex-wrap: wrap; margin-bottom: 12px; }
-  .tecnica-grid div { display: flex; flex-direction: column; gap: 2px; }
-  .tecnica-grid span { font-size: 10px; text-transform: uppercase; color: ${colores.textoSecundario}; }
-  .aviso { padding: 10px 14px; background: ${colores.fondoSuave}; border-left: 3px solid ${colores.teal}; font-size: 11px; color: ${colores.textoSecundario}; border-radius: 0 6px 6px 0; }
+  .condiciones-texto { margin-top: 18px; font-size: 11.5px; color: ${colores.textoSecundario}; line-height: 1.5; }
 
   /* Footer */
-  .footer { display: flex; justify-content: space-between; align-items: center; padding: 24px 44px; background: ${colores.acento}; color: #ffffff; }
-  .footer-datos { font-size: 11.5px; line-height: 1.7; opacity: 0.92; }
-  .footer-empresa { font-weight: 700; font-size: 13px; margin-bottom: 4px; opacity: 1; }
-  .footer-qr { text-align: center; }
-  .footer-qr img { width: 64px; height: 64px; border-radius: 6px; background: #fff; padding: 4px; }
-  .footer-qr span { display: block; font-size: 9px; margin-top: 4px; opacity: 0.85; }
+  .footer { display: flex; justify-content: space-between; align-items: flex-end; padding: 36px 52px; background: ${colores.tinta}; color: #fdfdfb; }
+  .footer-empresa { font-family: ${FUENTE_DISPLAY}; font-size: 16px; margin-bottom: 4px; }
+  .footer-asesor { font-size: 12px; opacity: 0.85; margin-bottom: 10px; }
+  .footer-contacto { display: flex; gap: 16px; font-size: 11px; opacity: 0.75; margin-bottom: 16px; }
+  .footer-transparencia { font-size: 10px; opacity: 0.6; max-width: 380px; line-height: 1.5; margin: 0; }
+  .footer-qr img { width: 60px; height: 60px; border-radius: 4px; background: #fff; padding: 4px; }
 
-  @media print { .seccion { break-inside: avoid-page; } }
+  @media print { .pagina { break-inside: avoid-page; page-break-after: always; } .footer { page-break-after: avoid; } }
 </style>
 </head>
 <body>
-  ${_seccionPortada({ cotizacion, cliente, empresa, asesorNombre, pdfConfig, colores })}
-  ${_seccionResumenEjecutivo(resumenEjecutivo)}
-  ${_seccionSistemaRecomendado({ paquete, pdfConfig })}
+  ${_seccionPortada({ cotizacion, cliente, empresa, asesorNombre, pdfConfig, colores, imagenHero })}
+  ${_seccionPorQue({ resumenEjecutivo, pdfConfig })}
+  ${_seccionQueRecibiras({ paquete, colores })}
   ${_seccionBeneficios(pdfConfig)}
-  ${_seccionGarantias(paquete)}
+  ${_seccionConfianza({ paquete, pdfConfig })}
   ${_seccionInversion({ cotizacion, lineas })}
-  ${_seccionTecnica({ cotizacion, calculoDatosEntrada })}
   ${_footer({ empresa, asesorNombre, whatsappEmpresa, qrDataUri })}
 </body>
 </html>`;
 }
 
 /**
- * Genera el PDF de una cotización YA VALIDADA, lo sube al bucket privado y
- * guarda el path en cotizaciones.pdf_url. Lanza (nunca genera en silencio)
- * si la cotización no está lista para cotizar — mismo guard que Fase 2.
- *
- * @param {import('@supabase/supabase-js').SupabaseClient} supabase
- * @param {number} cotizacionId
- * @returns {Promise<{storageBucket: string, storagePath: string, cotizacion: Object}>}
- */
-/**
  * Reúne TODOS los datos que necesita construirHtmlCotizacion() a partir de
- * un cotizacionId — extraído aparte (no inline en generarPdfCotizacion())
- * para que cualquier caller (la propia generación del PDF, un script de
- * vista previa, una futura ruta de preview en el panel) arme exactamente
- * el mismo HTML que el PDF real, nunca una reconstrucción manual aparte
- * que se pueda desincronizar del original.
+ * un cotizacionId — para que cualquier caller (PDF real, script de vista
+ * previa, futura ruta de preview) arme exactamente el mismo HTML.
  *
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {number} cotizacionId
@@ -476,7 +440,7 @@ async function reunirDatosParaPdf(supabase, cotizacionId) {
   const [{ data: lineas }, { data: cliente }, { data: empresa }, { data: calculo }, { data: paquete }, { data: asesor }] = await Promise.all([
     supabase.from('cotizacion_lineas').select('*').eq('cotizacion_id', cotizacionId).order('orden'),
     supabase.from('clientes').select('nombre, empresa').eq('id', cotizacion.cliente_id).maybeSingle(),
-    supabase.from('companies').select('nombre, logo_url, color_acento, correo_contacto, sitio_web, industria_slug').eq('id', cotizacion.company_id).maybeSingle(),
+    supabase.from('companies').select('nombre, logo_url, color_acento, correo_contacto, sitio_web, industria_slug, imagen_hero_url').eq('id', cotizacion.company_id).maybeSingle(),
     supabase.from('calculos_ingenieria').select('resultados, datos_entrada, motor').eq('cotizacion_id', cotizacionId).order('version', { ascending: false }).limit(1).maybeSingle(),
     cotizacion.paquete_recomendado_id
       ? supabase.from('paquetes_solares').select('*').eq('id', cotizacion.paquete_recomendado_id).maybeSingle()
@@ -497,13 +461,25 @@ async function reunirDatosParaPdf(supabase, cotizacionId) {
   const whatsappEmpresa = await _channelRouter.resolverEndpointDeEmpresa(cotizacion.company_id).catch(() => null);
   const qrDataUri = whatsappEmpresa ? await generarQrDataUri(`https://wa.me/${whatsappEmpresa.replace(/\D/g, '')}`).catch(() => null) : null;
 
+  // Nivel 1 (empresa) → Nivel 2 (stock de la industria) → null (Nivel 3, editorial)
+  const imagenHero = resolverImagenBloque(empresa?.imagen_hero_url, plantilla?.imagenes_stock_default?.hero);
+
   return {
     cotizacion, lineas, cliente, empresa, paquete, resumenEjecutivo, pdfConfig,
     calculoDatosEntrada: calculo?.datos_entrada, asesorNombre: asesor?.nombre,
-    whatsappEmpresa, qrDataUri,
+    whatsappEmpresa, qrDataUri, imagenHero,
   };
 }
 
+/**
+ * Genera el PDF de una cotización YA VALIDADA, lo sube al bucket privado y
+ * guarda el path en cotizaciones.pdf_url. Lanza (nunca genera en silencio)
+ * si la cotización no está lista para cotizar — mismo guard que Fase 2.
+ *
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {number} cotizacionId
+ * @returns {Promise<{storageBucket: string, storagePath: string, cotizacion: Object}>}
+ */
 async function generarPdfCotizacion(supabase, cotizacionId) {
   const { puede, motivo } = await puedeEnviarCotizacion(supabase, cotizacionId);
   if (!puede) {
@@ -537,17 +513,14 @@ async function generarPdfCotizacion(supabase, cotizacionId) {
 }
 
 /**
- * Genera el PDF (con el guard de puedeEnviarCotizacion ya aplicado dentro
- * de generarPdfCotizacion) y lo envía por WhatsApp en una sola llamada —
- * el punto de entrada real que usará la bandeja de revisión. Si el envío
- * falla, el PDF ya generado NO se pierde (queda en pdf_url, se puede
- * reintentar el envío sin regenerar).
+ * Genera el PDF y lo envía por WhatsApp en una sola llamada. Si el envío
+ * falla, el PDF ya generado NO se pierde (queda en pdf_url).
  *
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {Object} datos
  * @param {number} datos.cotizacionId
  * @param {string} datos.destinatario
- * @returns {Promise<Object>} resultado de envios_documento (estado, message_id, etc.)
+ * @returns {Promise<Object>}
  */
 async function generarYEnviarCotizacion(supabase, { cotizacionId, destinatario }) {
   const { storageBucket, storagePath, cotizacion } = await generarPdfCotizacion(supabase, cotizacionId);
@@ -565,4 +538,7 @@ async function generarYEnviarCotizacion(supabase, { cotizacionId, destinatario }
   return envio;
 }
 
-module.exports = { BUCKET_COTIZACIONES_PDF, construirHtmlCotizacion, reunirDatosParaPdf, generarPdfCotizacion, generarYEnviarCotizacion };
+module.exports = {
+  BUCKET_COTIZACIONES_PDF, resolverImagenBloque, construirHtmlCotizacion,
+  reunirDatosParaPdf, generarPdfCotizacion, generarYEnviarCotizacion,
+};
