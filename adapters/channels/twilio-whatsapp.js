@@ -178,6 +178,35 @@ class TwilioWhatsAppAdapter extends ChannelAdapter {
   }
 
   /**
+   * Envía un documento — Fase 2 (Ingeniería y Cotización). Twilio exige una
+   * URL HTTPS pública que su infraestructura pueda descargar de forma
+   * asíncrona (a diferencia de sendProactive, no hay equivalente a subir el
+   * binario directo) — el caller (modules/envio-documentos.js) resuelve
+   * `url` como una URL firmada de Supabase Storage con duración
+   * configurable, nunca la de 60s de inbox-adjuntos.js (esa es para el
+   * navegador del asesor, no para que un proveedor externo la descargue
+   * async).
+   *
+   * @param {string} destinatario
+   * @param {{url: string, filename?: string, from?: string}} documento
+   * @returns {Promise<{proveedor: 'twilio', message_id: string}>}
+   */
+  async enviarDocumento(destinatario, { url, filename, from } = {}) {
+    if (!url) throw new Error('TwilioWhatsAppAdapter.enviarDocumento: falta url');
+    const numeroOrigen = (from || process.env.TWILIO_WHATSAPP_NUMBER || '').replace(/^whatsapp:/, '');
+    if (!numeroOrigen) throw new Error('enviarDocumento: no hay número de origen (from) ni TWILIO_WHATSAPP_NUMBER definido');
+
+    const mensaje = await this._client.messages.create({
+      from: `whatsapp:${numeroOrigen}`,
+      to: `whatsapp:${destinatario}`,
+      mediaUrl: [url],
+      ...(filename ? { body: filename } : {}),
+    });
+
+    return { proveedor: 'twilio', message_id: mensaje.sid };
+  }
+
+  /**
    * Descarga el binario de un adjunto entrante (Inbox Inteligente v0.4).
    * Las MediaUrl de Twilio no son públicas — exigen Basic Auth con las
    * mismas credenciales de cuenta usadas para enviar mensajes — y no se

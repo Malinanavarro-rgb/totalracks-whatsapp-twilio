@@ -242,6 +242,64 @@ class MetaCloudWhatsAppAdapter extends ChannelAdapter {
   }
 
   /**
+   * Envía un documento — Fase 2 (Ingeniería y Cotización). A diferencia de
+   * Twilio, Meta PREFIERE que el binario se suba primero a su propia
+   * plataforma (endpoint /media) y se envíe por `media_id` — más confiable
+   * que un `link` externo (Meta no siempre logra descargar de terceros a
+   * tiempo). Si el caller no manda `buffer` (por ejemplo, si solo tiene una
+   * URL), se cae a `document.link` como alternativa — documentado, no un
+   * silencio.
+   *
+   * @param {string} destinatario
+   * @param {{buffer?: Buffer, mimeType?: string, filename?: string, url?: string}} documento
+   * @returns {Promise<{proveedor: 'meta', message_id: string|null}>}
+   */
+  async enviarDocumento(destinatario, { buffer, mimeType, filename, url } = {}) {
+    if (!this._phoneNumberId || !this._accessToken) {
+      throw new Error('MetaCloudWhatsAppAdapter.enviarDocumento: faltan credenciales (phoneNumberId/accessToken) — resuelve la instancia vía meta-auth.js');
+    }
+    if (!buffer && !url) {
+      throw new Error('MetaCloudWhatsAppAdapter.enviarDocumento: falta buffer o url');
+    }
+
+    const version = process.env.META_GRAPH_API_VERSION || 'v19.0';
+    let documentPayload;
+
+    if (buffer) {
+      const form = new FormData();
+      form.append('messaging_product', 'whatsapp');
+      form.append('file', new Blob([buffer], { type: mimeType || 'application/pdf' }), filename || 'documento.pdf');
+
+      const respuestaSubida = await fetch(`https://graph.facebook.com/${version}/${this._phoneNumberId}/media`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${this._accessToken}` },
+        body: form,
+      });
+      if (!respuestaSubida.ok) {
+        const detalle = await respuestaSubida.text().catch(() => '');
+        throw new Error(`MetaCloudWhatsAppAdapter.enviarDocumento: falló la subida a Meta (${respuestaSubida.status}) — ${detalle}`);
+      }
+      const { id: mediaId } = await respuestaSubida.json();
+      documentPayload = { id: mediaId, filename: filename || undefined };
+    } else {
+      documentPayload = { link: url, filename: filename || undefined };
+    }
+
+    const numeroDestino = destinatario.replace(/^\+/, '');
+    const respuesta = await fetch(`https://graph.facebook.com/${version}/${this._phoneNumberId}/messages`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this._accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messaging_product: 'whatsapp', to: numeroDestino, type: 'document', document: documentPayload }),
+    });
+    if (!respuesta.ok) {
+      const detalle = await respuesta.text().catch(() => '');
+      throw new Error(`MetaCloudWhatsAppAdapter.enviarDocumento: Graph API respondió ${respuesta.status} — ${detalle}`);
+    }
+    const data = await respuesta.json();
+    return { proveedor: 'meta', message_id: data.messages?.[0]?.id || null };
+  }
+
+  /**
    * Descarga el binario de un adjunto entrante (Inbox Inteligente v0.4).
    * Meta no da una URL directa en el webhook — solo un media id — y la URL
    * temporal que devuelve Graph API expira en minutos, por eso el caller

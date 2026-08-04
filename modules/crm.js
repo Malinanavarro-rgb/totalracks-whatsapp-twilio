@@ -118,6 +118,7 @@ function requiereCrearOportunidad(mensajeCliente, intenciones) {
   const msg = mensajeCliente.toLowerCase();
   return TRIGGERS_OPORTUNIDAD.some(t => msg.includes(t)) ||
     intenciones.includes('solicitud_cotizacion') ||
+    intenciones.includes('solicitud_visita_tecnica') ||
     intenciones.includes('interes_compra');
 }
 

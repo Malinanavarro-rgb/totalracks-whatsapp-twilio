@@ -94,6 +94,27 @@ class ChannelAdapter {
   }
 
   /**
+   * Envía un documento (PDF, típicamente) — Fase 2 (Ingeniería y
+   * Cotización, Alina 2026-08-04). Cada proveedor lo resuelve distinto:
+   * Twilio necesita una URL HTTPS firmada temporal; Meta prefiere subir el
+   * binario a su propia plataforma primero y enviar por media_id. Por eso
+   * la firma acepta ambas formas — cada implementación usa la que necesita
+   * e ignora la otra.
+   *
+   * @param {string} destinatario - Identificador del destino (phone, user_id)
+   * @param {Object} documento
+   * @param {string} [documento.url]      - URL firmada temporal (usada por Twilio)
+   * @param {Buffer} [documento.buffer]    - binario del archivo (usado por Meta)
+   * @param {string} [documento.mimeType]  - requerido si se manda `buffer`
+   * @param {string} [documento.filename]
+   * @param {string} [documento.from]      - origen explícito, cuando el proveedor lo requiere
+   * @returns {Promise<{proveedor: string, message_id: string|null}>}
+   */
+  async enviarDocumento(destinatario, documento) {
+    throw new Error(`${this.constructor.name} debe implementar enviarDocumento()`);
+  }
+
+  /**
    * Maneja el handshake de verificación de webhook que algunos proveedores
    * exigen antes de aceptar el registro (ej. Meta Cloud API: GET con
    * hub.mode/hub.verify_token/hub.challenge). Opcional — el default no hace

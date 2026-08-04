@@ -908,6 +908,27 @@ function crearOrchestrator(overrides = {}) {
       });
     });
 
+    // Fase 2 — Ingeniería y Cotización (Alina, 2026-08-04): EXCEPCIÓN
+    // PUNTUAL DOCUMENTADA a ADR-005 — se agrega una entrada al registro de
+    // ActionRunner en esta misma zona de wiring (ya usada para esto, ver
+    // crear_ticket_soporte arriba), sin tocar la clase Orchestrator,
+    // _finalizarWorkflow, _ejecutarAcciones ni procesarMensaje. El handler
+    // vive en modules/cotizaciones.js (no Core) — aquí solo se registra.
+    // Se dispara desde el nodo final del workflow "Cotización directa —
+    // ingeniería solar" (migración 090). Deliberadamente NO se ramifica el
+    // resultado dentro del workflow (eso sí requeriría tocar Orchestrator,
+    // ver ADR-005 condición de reapertura) — el handler manda su propio
+    // mensaje de seguimiento proactivo, fuera de _finalizarWorkflow.
+    runner.registrar('ejecutar_motor_ingenieria', async (parametros, ctx) => {
+      const { correrCotizacionDesdeWorkflow } = require('./cotizaciones');
+      return correrCotizacionDesdeWorkflow(supabase, {
+        companyId: ctx.company_id,
+        clienteId: ctx.clienteRaw.id,
+        capturedFields: ctx.capturedFields || {},
+        destinatario: ctx.cliente?.identificador || null,
+      });
+    });
+
     return runner;
   })();
 

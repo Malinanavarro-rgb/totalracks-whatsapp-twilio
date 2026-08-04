@@ -29,7 +29,7 @@
 'use strict';
 
 const INTENCIONES_VALIDAS = [
-  'interes_compra', 'solicitud_cotizacion', 'soporte', 'seguimiento', 'cancelar_flujo', 'consulta_general',
+  'interes_compra', 'solicitud_cotizacion', 'solicitud_visita_tecnica', 'soporte', 'seguimiento', 'cancelar_flujo', 'consulta_general',
 ];
 
 const CAMPOS_WORKFLOW = ['nombre', 'descripcion', 'trigger_value', 'prioridad', 'activo'];

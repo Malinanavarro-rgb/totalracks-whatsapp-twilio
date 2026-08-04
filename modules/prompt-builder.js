@@ -248,7 +248,7 @@ Genera los campos EN ESTE ORDEN — "clasificacion_contexto" primero, "respuesta
   "clasificacion_contexto": "${tiposClasificacion}",
   "categoria_principal": "categoría universal del producto o servicio detectado, o 'Sin clasificar'",
   "datos_extraidos":     ${datosSchema},
-  "intenciones":         ["interes_compra" | "solicitud_cotizacion" | "soporte" | "seguimiento" | "cancelar_flujo" | "consulta_general"],
+  "intenciones":         ["interes_compra" | "solicitud_cotizacion" | "solicitud_visita_tecnica" | "soporte" | "seguimiento" | "cancelar_flujo" | "consulta_general"],
   "sentimiento":         "Positivo | Neutral | Negativo | Muy interesado",
   "etapa_sugerida":      "Nuevo | Calificacion | Negociacion | Cierre | Postventa",
   "acciones_propuestas": [{"tipo": ${tiposAccion}, "parametros": {}}],

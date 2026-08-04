@@ -48,7 +48,9 @@ Cualquier cambio a estos componentes, aun justificado, se documenta explícitame
 
 ## Excepciones documentadas (cambios posteriores a este freeze, con justificación)
 
-*(ninguna todavía — se agregan aquí conforme ocurran, mismo formato que ADR-005/ADR-007)*
+| Fecha | Cambio | Justificación |
+|---|---|---|
+| 2026-08-04 | `server.js::procesarMensajeEntrante` — paso nuevo después de la tubería ya congelada (descargar → subir → transcribir/describir → sustituir contenido): si el adjunto llega durante una sesión activa del workflow de cotización directa, se asocia el `mensajes.id` ya subido a `cotizacion_adjuntos` (`modules/cotizacion-adjuntos.js`). No reordena ni modifica ningún paso congelado, no vuelve a subir el archivo, no cambia `mensajes.adjunto_url`. Aditivo, dentro de un try/catch que no puede tumbar el turno. | Fase 2 del módulo Ingeniería y Cotización (Alina, 2026-08-04) — el recibo de CFE que el cliente manda a mitad de la captura técnica debe quedar trazable a su cotización sin duplicar el archivo en Storage. |
 
 ## Condición para reabrir
 

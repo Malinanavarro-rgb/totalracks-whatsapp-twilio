@@ -53,7 +53,7 @@ describe('workflow-admin', () => {
 
     test('INTENCIONES_VALIDAS expone el catálogo fijo (mismo que prompt-builder.js)', () => {
       expect(INTENCIONES_VALIDAS).toEqual([
-        'interes_compra', 'solicitud_cotizacion', 'soporte', 'seguimiento', 'cancelar_flujo', 'consulta_general',
+        'interes_compra', 'solicitud_cotizacion', 'solicitud_visita_tecnica', 'soporte', 'seguimiento', 'cancelar_flujo', 'consulta_general',
       ]);
     });
 

@@ -43,6 +43,8 @@ const { preguntar: preguntarOperador }  = require('./modules/operador-engine');
 const { resolverOCrearHilo, registrarMensaje, listarHilos, obtenerHilo, listarMensajesDeHilo, actualizarHilo } = require('./modules/inbox');
 const { analizarHilo, programarAnalisis, obtenerAnalisisHilo } = require('./modules/inbox-analisis');
 const { tipoContenidoDeMime, subirAdjunto, generarUrlFirmada } = require('./modules/inbox-adjuntos');
+const { asociarSiHaySesionDeCotizacionActiva, listarAdjuntosDeCotizacion } = require('./modules/cotizacion-adjuntos');
+const { marcarPredimensionamientoRevisado, marcarIngenieriaValidada, puedeEnviarCotizacion } = require('./modules/cotizaciones');
 const { transcribirAudio, describirImagen } = require('./modules/adjuntos-ia');
 const { esGerencial } = require('./modules/permisos');
 const {
@@ -259,12 +261,30 @@ async function procesarMensajeEntrante(message, enviar, proveedor = 'desconocido
       }
     }
 
-    await registrarMensaje(supabaseServicio, {
+    const mensajeGuardado = await registrarMensaje(supabaseServicio, {
       hilo_id: hilo.id, company_id: message.company_id, direccion: 'entrante', remitente_tipo: 'cliente',
       tipo_contenido: adjunto?.tipo_contenido || 'texto', contenido: message.content,
       adjunto_url: adjunto?.adjunto_url, adjunto_mime: adjunto?.adjunto_mime,
     });
     _programarAnalisisSiHayHilo(hilo, cliente.id, message.company_id);
+
+    // Fase 2 Ingeniería y Cotización (Alina, 2026-08-04) — excepción aditiva
+    // documentada a ADR-008 (adjuntos-multimedia-freeze): este bloque es un
+    // paso NUEVO después de la tubería ya congelada (descargar → subir →
+    // transcribir/describir → sustituir contenido), sin tocar ni reordenar
+    // nada de lo anterior. Si el cliente mandó un archivo real y tiene una
+    // sesión activa del workflow de cotización directa, se referencia el
+    // mensaje ya subido — nunca se vuelve a subir el archivo (ver
+    // modules/cotizacion-adjuntos.js). No debe tumbar el turno si falla.
+    if (adjunto && mensajeGuardado?.id) {
+      try {
+        await asociarSiHaySesionDeCotizacionActiva(supabaseServicio, {
+          companyId: message.company_id, clienteId: cliente.id, mensajeId: mensajeGuardado.id,
+        });
+      } catch (e) {
+        console.error('Inbox: error asociando adjunto a la cotización en curso:', e.message);
+      }
+    }
   } catch (e) {
     console.error('Inbox: error en escritura doble (mensaje entrante):', e.message);
   }
@@ -1826,6 +1846,74 @@ app.delete('/api/config/nodos/:id', requireAuth, soloGerencial, async (req, res)
     res.status(204).send();
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// ── COTIZACIONES — bandeja de revisión (Fase 2, Ingeniería y Cotización) ──────
+// Mínimo necesario para probar el flujo de aprobación humana de punta a
+// punta (escenario 5, Alina 2026-08-04): listar/ver + los dos estados de
+// aprobación distintos (predimensionamiento_revisado vs
+// ingenieria_validada_para_cotizar — este último ya rechaza solo si hay una
+// alerta de bloqueo activa, ver modules/cotizaciones.js). Ajustar líneas/
+// condiciones comerciales y el resto del CRUD quedan para cuando se
+// construya la pantalla (frontend), fuera del alcance de esta fase.
+// Scope: gerencial ve todas las cotizaciones de la empresa; un asesor no
+// gerencial solo ve las suyas o las que todavía no tienen ejecutivo
+// asignado (mismo criterio de alcance que modules/crm-ui.js).
+
+app.get('/api/cotizaciones', requireAuth, async (req, res) => {
+  try {
+    let query = req.supabase.from('cotizaciones').select('*').eq('company_id', req.usuario.company_id).order('created_at', { ascending: false });
+    if (!esGerencial(req.usuario.rol)) {
+      query = query.or(`ejecutivo_id.eq.${req.usuario.id},ejecutivo_id.is.null`);
+    }
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+    res.json(data || []);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/cotizaciones/:id', requireAuth, async (req, res) => {
+  try {
+    const { data: cotizacion, error } = await req.supabase.from('cotizaciones').select('*').eq('id', req.params.id).eq('company_id', req.usuario.company_id).maybeSingle();
+    if (error || !cotizacion) return res.status(404).json({ error: 'Cotización no encontrada' });
+
+    const [{ data: calculo }, adjuntos] = await Promise.all([
+      req.supabase.from('calculos_ingenieria').select('*').eq('cotizacion_id', cotizacion.id).order('version', { ascending: false }).limit(1).maybeSingle(),
+      listarAdjuntosDeCotizacion(req.supabase, cotizacion.id),
+    ]);
+
+    res.json({ cotizacion, calculo: calculo || null, adjuntos });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/cotizaciones/:id/revisar-predimensionamiento', requireAuth, async (req, res) => {
+  try {
+    const cotizacion = await marcarPredimensionamientoRevisado(req.supabase, { cotizacionId: req.params.id, usuarioId: req.usuario.id });
+    res.json(cotizacion);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/cotizaciones/:id/validar-ingenieria', requireAuth, async (req, res) => {
+  try {
+    const cotizacion = await marcarIngenieriaValidada(req.supabase, { cotizacionId: req.params.id, usuarioId: req.usuario.id });
+    res.json(cotizacion);
+  } catch (e) {
+    res.status(e.status || 409).json({ error: e.message });
+  }
+});
+
+app.get('/api/cotizaciones/:id/puede-enviar', requireAuth, async (req, res) => {
+  try {
+    res.json(await puedeEnviarCotizacion(req.supabase, req.params.id));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
