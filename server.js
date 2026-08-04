@@ -45,6 +45,8 @@ const { analizarHilo, programarAnalisis, obtenerAnalisisHilo } = require('./modu
 const { tipoContenidoDeMime, subirAdjunto, generarUrlFirmada } = require('./modules/inbox-adjuntos');
 const { asociarSiHaySesionDeCotizacionActiva, listarAdjuntosDeCotizacion } = require('./modules/cotizacion-adjuntos');
 const { marcarPredimensionamientoRevisado, marcarIngenieriaValidada, puedeEnviarCotizacion } = require('./modules/cotizaciones');
+const { listarLineas, agregarLinea, actualizarLinea, eliminarLinea, aplicarCalculoALineas } = require('./modules/cotizacion-lineas');
+const { generarPdfCotizacion, generarYEnviarCotizacion } = require('./modules/cotizacion-pdf');
 const { transcribirAudio, describirImagen } = require('./modules/adjuntos-ia');
 const { esGerencial } = require('./modules/permisos');
 const {
@@ -1914,6 +1916,91 @@ app.get('/api/cotizaciones/:id/puede-enviar', requireAuth, async (req, res) => {
     res.json(await puedeEnviarCotizacion(req.supabase, req.params.id));
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// ── COTIZACIONES — líneas y PDF (Fase 3, Ingeniería y Cotización) ────────────
+// Backend-first (Alina, 2026-08-04): sin pantalla todavía, API probada con
+// scripts contra la base real. El asesor ajusta líneas ANTES de validar la
+// ingeniería (punto 9 del flujo funcional) — estas rutas no verifican
+// ingenieria_validada_para_cotizar (eso es precisamente lo que se está
+// armando); solo /generar-pdf lo exige, vía el guard en cotizacion-pdf.js.
+
+app.get('/api/cotizaciones/:id/lineas', requireAuth, async (req, res) => {
+  try {
+    res.json(await listarLineas(req.supabase, req.params.id));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/cotizaciones/:id/lineas', requireAuth, async (req, res) => {
+  try {
+    const linea = await agregarLinea(req.supabase, { companyId: req.usuario.company_id, cotizacionId: req.params.id, ...req.body });
+    res.status(201).json(linea);
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message });
+  }
+});
+
+app.post('/api/cotizaciones/:id/lineas/aplicar-calculo', requireAuth, async (req, res) => {
+  try {
+    const lineas = await aplicarCalculoALineas(req.supabase, { companyId: req.usuario.company_id, cotizacionId: req.params.id });
+    res.status(201).json(lineas);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/cotizaciones/lineas/:lineaId', requireAuth, async (req, res) => {
+  try {
+    const linea = await actualizarLinea(req.supabase, { companyId: req.usuario.company_id, lineaId: req.params.lineaId, cambios: req.body });
+    res.json(linea);
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message });
+  }
+});
+
+app.delete('/api/cotizaciones/lineas/:lineaId', requireAuth, async (req, res) => {
+  try {
+    await eliminarLinea(req.supabase, { companyId: req.usuario.company_id, lineaId: req.params.lineaId });
+    res.status(204).send();
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message });
+  }
+});
+
+// Storage privado (cotizaciones-pdf) exige service_role — Storage tiene su
+// propia RLS interna (storage.objects), separada de la de nuestras tablas,
+// y no está configurada para aceptar el JWT de un usuario normal. Mismo
+// patrón ya establecido en GET /api/inbox/mensajes/:id/adjunto: la
+// AUTORIZACIÓN (¿la cotización es de la empresa del usuario?) se verifica
+// con req.supabase; la operación de Storage se hace con supabaseServicio.
+
+app.post('/api/cotizaciones/:id/generar-pdf', requireAuth, async (req, res) => {
+  try {
+    const { data: cotizacion, error } = await req.supabase.from('cotizaciones').select('id').eq('id', req.params.id).eq('company_id', req.usuario.company_id).maybeSingle();
+    if (error || !cotizacion) return res.status(404).json({ error: 'Cotización no encontrada' });
+
+    const resultado = await generarPdfCotizacion(supabaseServicio, req.params.id);
+    res.json(resultado);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/cotizaciones/:id/enviar', requireAuth, async (req, res) => {
+  try {
+    const { data: cotizacion, error } = await req.supabase.from('cotizaciones').select('cliente_id').eq('id', req.params.id).eq('company_id', req.usuario.company_id).maybeSingle();
+    if (error || !cotizacion) return res.status(404).json({ error: 'Cotización no encontrada' });
+
+    const { data: cliente } = await req.supabase.from('clientes').select('telefono').eq('id', cotizacion.cliente_id).maybeSingle();
+    if (!cliente?.telefono) return res.status(400).json({ error: 'El cliente de esta cotización no tiene teléfono registrado' });
+
+    const resultado = await generarYEnviarCotizacion(supabaseServicio, { cotizacionId: req.params.id, destinatario: cliente.telefono });
+    res.json(resultado);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
   }
 });
 
