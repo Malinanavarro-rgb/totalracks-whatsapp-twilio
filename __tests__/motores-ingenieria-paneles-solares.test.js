@@ -4,7 +4,7 @@ const {
   calcularConsumoAnual, calcularPotenciaRequerida, calcularNumeroPaneles, calcularPotenciaInstalada,
   seleccionarInversor, calcularStrings, calcularAreaRequerida, calcularProduccion, calcularCobertura,
   calcularAhorro, calcularPeriodoSimpleRecuperacion, calcularReduccionCO2, generarAlertas,
-  calcularPredimensionamiento,
+  calcularPredimensionamiento, resumenEjecutivoParaPdf,
 } = require('../modules/motores-ingenieria/paneles-solares');
 
 // ─── Datos de referencia reusados entre pruebas ────────────────────────────
@@ -358,5 +358,61 @@ describe('calcularPredimensionamiento() — 3 casos completos', () => {
     expect(resultado.estado_calculo).toBe('bloqueado');
     expect(resultado.alertas.some(a => a.tipo === 'ficha_tecnica_incompleta')).toBe(true);
     expect(resultado.resultados.strings).toBeNull(); // nunca se llega a calcular strings sin inversor
+  });
+});
+
+describe('resumenEjecutivoParaPdf() — PDF comercial (Alina, 2026-08-04)', () => {
+  test('con un resultado completo (CASO 1), todas las tarjetas quedan disponibles', () => {
+    const resultado = calcularPredimensionamiento({
+      infoTecnica: {
+        consumoMensualKwh: 600, pctCoberturaDeseado: 0.90, importePromedioRecibo: 2400,
+        tipoAlimentacion: 'monofasica', voltajeSitio: 220, areaDisponibleM2: 40, incluyeCargosFijos: false,
+      },
+      hsp: HSP_MONTERREY,
+      parametros: { performance_ratio: PR_DEFAULT, factor_separacion_filas: FACTOR_SEPARACION, ratio_dc_ac_objetivo: RATIO_DC_AC_OBJETIVO, factor_emision_co2: FACTOR_CO2 },
+      panelSeleccionado: PANEL_550W,
+      catalogoInversores: [INVERSOR_MONOFASICO_4KW, INVERSOR_TRIFASICO_40KW],
+      temperaturaMinSitio: 5,
+      inversionNeta: 95000,
+    });
+
+    const tarjetas = resumenEjecutivoParaPdf(resultado.resultados);
+    expect(tarjetas.every(t => t.disponible)).toBe(true);
+    expect(tarjetas.find(t => t.clave === 'numero_paneles').valorTexto).toBe('8 paneles');
+    expect(tarjetas.find(t => t.clave === 'retorno').valorTexto).toMatch(/años$/);
+    expect(tarjetas.find(t => t.clave === 'ahorro_mensual').valorTexto).toMatch(/^\$/);
+  });
+
+  test('sin inversionNeta (todavía no autorizada), la tarjeta de retorno queda no disponible — nunca un número inventado', () => {
+    const resultado = calcularPredimensionamiento({
+      infoTecnica: {
+        consumoMensualKwh: 600, pctCoberturaDeseado: 0.90, importePromedioRecibo: 2400,
+        tipoAlimentacion: 'monofasica', voltajeSitio: 220, areaDisponibleM2: 40, incluyeCargosFijos: false,
+      },
+      hsp: HSP_MONTERREY,
+      parametros: { performance_ratio: PR_DEFAULT, factor_separacion_filas: FACTOR_SEPARACION, ratio_dc_ac_objetivo: RATIO_DC_AC_OBJETIVO, factor_emision_co2: FACTOR_CO2 },
+      panelSeleccionado: PANEL_550W,
+      catalogoInversores: [INVERSOR_MONOFASICO_4KW, INVERSOR_TRIFASICO_40KW],
+      temperaturaMinSitio: 5,
+      inversionNeta: null, // asesor no ha autorizado precio todavía
+    });
+
+    const tarjetaRetorno = resumenEjecutivoParaPdf(resultado.resultados).find(t => t.clave === 'retorno');
+    expect(tarjetaRetorno.disponible).toBe(false);
+    expect(tarjetaRetorno.valorTexto).toBeNull();
+  });
+
+  test('resultados vacíos ({}) → todas las tarjetas no disponibles, nunca lanza', () => {
+    const tarjetas = resumenEjecutivoParaPdf({});
+    expect(tarjetas.every(t => t.disponible === false)).toBe(true);
+    expect(tarjetas.every(t => t.valorTexto === null)).toBe(true);
+  });
+
+  test('cada tarjeta trae etiqueta e icono no vacíos, incluso cuando no está disponible', () => {
+    const tarjetas = resumenEjecutivoParaPdf({});
+    for (const t of tarjetas) {
+      expect(t.etiqueta).toBeTruthy();
+      expect(t.icono).toBeTruthy();
+    }
   });
 });

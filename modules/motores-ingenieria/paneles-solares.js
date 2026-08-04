@@ -418,6 +418,78 @@ function calcularPredimensionamiento({ infoTecnica, hsp, parametros, panelSelecc
   };
 }
 
+// ── PDF comercial — resumen ejecutivo (Alina, 2026-08-04) ──────────────────
+// Traduce `resultados` (los mismos números técnicos de siempre, sin
+// recalcular nada) a tarjetas listas para mostrar en el PDF de venta.
+// Mecanismo genérico + contenido específico por industria: el renderer del
+// PDF (modules/cotizacion-pdf.js) solo sabe pintar un arreglo de tarjetas —
+// CADA motor de industria expone su propia resumenEjecutivoParaPdf() con
+// las suyas (mismo criterio que motores-ingenieria/index.js ya documenta).
+// Nunca inventa un valor: si un cálculo quedó incompleto (ahorro sin
+// importe de recibo, CO2 sin factor, retorno sin inversión capturada), la
+// tarjeta se marca `disponible: false` — el renderer decide cómo mostrarlo,
+// esta función nunca rellena con un placeholder numérico.
+
+function _formatoEntero(n) { return Math.round(n).toLocaleString('es-MX'); }
+function _formatoDecimal1(n) { return n.toLocaleString('es-MX', { minimumFractionDigits: 1, maximumFractionDigits: 1 }); }
+function _formatoMoneda(n) { return `$${Math.round(n).toLocaleString('es-MX')}`; }
+
+function resumenEjecutivoParaPdf(resultados) {
+  const tarjetas = [];
+
+  tarjetas.push({
+    clave: 'numero_paneles', etiqueta: 'Paneles recomendados', icono: '☀️',
+    disponible: resultados.numero_paneles?.valor != null,
+    valorTexto: resultados.numero_paneles?.valor != null ? `${resultados.numero_paneles.valor} paneles` : null,
+  });
+
+  tarjetas.push({
+    clave: 'potencia_instalada', etiqueta: 'Potencia instalada', icono: '⚡',
+    disponible: resultados.potencia_instalada_kwp != null,
+    valorTexto: resultados.potencia_instalada_kwp != null ? `${_formatoDecimal1(resultados.potencia_instalada_kwp)} kWp` : null,
+  });
+
+  tarjetas.push({
+    clave: 'produccion_anual', etiqueta: 'Producción estimada', icono: '🔋',
+    disponible: resultados.produccion?.anual != null,
+    valorTexto: resultados.produccion?.anual != null ? `${_formatoEntero(resultados.produccion.anual)} kWh/año` : null,
+  });
+
+  const ahorroDisponible = Boolean(resultados.ahorro && !resultados.ahorro.incompleto);
+  tarjetas.push({
+    clave: 'ahorro_mensual', etiqueta: 'Ahorro mensual estimado', icono: '💰',
+    disponible: ahorroDisponible,
+    valorTexto: ahorroDisponible ? _formatoMoneda(resultados.ahorro.ahorroMensualEstimado) : null,
+  });
+  tarjetas.push({
+    clave: 'ahorro_anual', etiqueta: 'Ahorro anual estimado', icono: '💵',
+    disponible: ahorroDisponible,
+    valorTexto: ahorroDisponible ? _formatoMoneda(resultados.ahorro.ahorroAnualEstimado) : null,
+  });
+
+  tarjetas.push({
+    clave: 'cobertura', etiqueta: 'Cobertura de tu consumo', icono: '📊',
+    disponible: resultados.cobertura_pct != null,
+    valorTexto: resultados.cobertura_pct != null ? `${_formatoDecimal1(resultados.cobertura_pct)}%` : null,
+  });
+
+  const co2Disponible = Boolean(resultados.reduccion_co2 && !resultados.reduccion_co2.incompleto);
+  tarjetas.push({
+    clave: 'reduccion_co2', etiqueta: 'Reducción de CO₂ al año', icono: '🌱',
+    disponible: co2Disponible,
+    valorTexto: co2Disponible ? `${_formatoEntero(resultados.reduccion_co2.valor)} kg` : null,
+  });
+
+  const retornoDisponible = Boolean(resultados.periodo_simple_recuperacion && !resultados.periodo_simple_recuperacion.incompleto);
+  tarjetas.push({
+    clave: 'retorno', etiqueta: 'Retorno aproximado de tu inversión', icono: '⏱️',
+    disponible: retornoDisponible,
+    valorTexto: retornoDisponible ? `${_formatoDecimal1(resultados.periodo_simple_recuperacion.valor)} años` : null,
+  });
+
+  return tarjetas;
+}
+
 module.exports = {
   MOTOR_VERSION,
   calcularConsumoAnual,
@@ -434,4 +506,5 @@ module.exports = {
   calcularReduccionCO2,
   generarAlertas,
   calcularPredimensionamiento,
+  resumenEjecutivoParaPdf,
 };
