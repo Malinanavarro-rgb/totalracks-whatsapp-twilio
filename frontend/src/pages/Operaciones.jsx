@@ -109,6 +109,10 @@ export default function Operaciones() {
   const dashboardConfig = sesion?.empresaActiva?.ui_config?.dashboard;
   const tieneRecomendacionesRicas = !!dashboardConfig;
   const layoutVentas = dashboardConfig?.layout === 'ventas';
+  // Nort Energy Operations (Alina 2026-09-09): mismo mecanismo opt-in que
+  // layoutVentas — dos niveles visuales, ejecutivo (KPIs) arriba y operativo
+  // (recomendaciones + estado de ventas) abajo, sin tocar ningún otro layout.
+  const layoutDosNiveles = dashboardConfig?.layout === 'operaciones_dos_niveles';
   const preguntasSugeridas = dashboardConfig?.preguntasSugeridas || [];
   const empresa = sesion?.empresaActiva?.nombre || 'tu empresa';
   // Si el usuario no tiene nombre configurado (solo email), se omite del
@@ -159,8 +163,8 @@ export default function Operaciones() {
             )}
           </div>
 
-          <h2 className="alertas-titulo alertas-titulo--secundario">Métricas</h2>
-          <div className="kpi-strip">
+          <h2 className="alertas-titulo alertas-titulo--secundario">{layoutDosNiveles ? 'Resumen ejecutivo' : 'Métricas'}</h2>
+          <div className={layoutDosNiveles ? 'kpi-strip kpi-strip--ejecutivo' : 'kpi-strip'}>
             {(metricas.kpis || []).map((k, i) => (
               <div className="kpi" key={i}>
                 <div className="kpi-valor">{k.valor ?? '—'}</div>
@@ -168,6 +172,52 @@ export default function Operaciones() {
               </div>
             ))}
           </div>
+
+          {tieneRecomendacionesRicas && layoutDosNiveles && (
+            <>
+              <h2 className="alertas-titulo alertas-titulo--secundario">Acciones rápidas</h2>
+              <div className="acciones-rapidas">
+                <Link to="/crm" className="accion-rapida-boton">+ Nuevo cliente</Link>
+                <Link to="/crm/pipeline" className="accion-rapida-boton">+ Nueva oportunidad</Link>
+                <Link to="/cotizaciones" className="accion-rapida-boton">+ Crear cotización</Link>
+                <Link to="/agenda" className="accion-rapida-boton">+ Agendar cita</Link>
+              </div>
+
+              <section className="dashboard-nivel-operativo">
+                <h2 className="alertas-titulo alertas-titulo--secundario">Centro operativo</h2>
+                <ListaRecomendaciones recomendaciones={metricas.recomendaciones} />
+                {metricas.panelVentas && metricas.panelVentas.length > 0 && (
+                  <>
+                    <h3 className="alertas-titulo alertas-titulo--secundario">Estado de ventas</h3>
+                    <ul className="panel-ventas-lista">
+                      {metricas.panelVentas.map((v, i) => (
+                        <li key={i} className="panel-ventas-fila">
+                          <div>
+                            <p className="panel-ventas-cliente">{v.cliente}</p>
+                            <p className="panel-ventas-estado">{v.estado}</p>
+                          </div>
+                          {v.monto != null && <span className="panel-ventas-monto">${Number(v.monto).toLocaleString('es-MX')}</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+
+                <h3 className="alertas-titulo alertas-titulo--secundario">Actividad reciente</h3>
+                {!metricas.actividadReciente || metricas.actividadReciente.length === 0 ? (
+                  <p className="operaciones-nota">Sin actividad reciente.</p>
+                ) : (
+                  <ul className="actividad-reciente-lista">
+                    {metricas.actividadReciente.map((ev, i) => (
+                      <li key={i} className={`actividad-item actividad-item--${ev.tipo}`}>
+                        <Link to={ev.recurso}>{ev.mensaje}</Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            </>
+          )}
 
           {tieneRecomendacionesRicas && layoutVentas && (
             <div className="dos-columnas">
@@ -196,7 +246,7 @@ export default function Operaciones() {
             </div>
           )}
 
-          {tieneRecomendacionesRicas && !layoutVentas && (
+          {tieneRecomendacionesRicas && !layoutVentas && !layoutDosNiveles && (
             <ListaRecomendaciones recomendaciones={metricas.recomendaciones} />
           )}
 
