@@ -36,7 +36,8 @@ async function obtenerMetricas(supabase, company_id) {
   // Motor Universal: empresas con una plantilla de industria que define
   // dashboard_kpis_seed reciben un tablero calculado por dashboard-engine.js
   // — el resto conserva el tablero genérico universal de siempre, sin
-  // ningún cambio de comportamiento.
+  // ningún cambio de comportamiento. (Override específico por empresa, si
+  // lo hay, ya viene resuelto dentro de obtenerPlantillaDeEmpresa().)
   const plantilla = await obtenerPlantillaDeEmpresa(supabase, company_id);
   if (plantilla?.dashboard_kpis_seed?.kpis?.length) {
     return obtenerMetricasGenerico(supabase, company_id, plantilla.dashboard_kpis_seed);

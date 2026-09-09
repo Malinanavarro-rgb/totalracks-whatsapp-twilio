@@ -66,6 +66,27 @@ function modulosParaEmpresa(empresaActiva) {
   return empresaActiva?.ui_config?.modulos || MODULOS;
 }
 
+// Navegación agrupada (Nort Energy Operations, Alina 2026-09-09) — un
+// `modulo` puede traer un campo opcional `grupo` (ej. "VENTAS",
+// "OPERACIONES") para juntarse bajo un encabezado de sección. 100%
+// retrocompatible: si NINGÚN módulo trae `grupo` (todas las empresas salvo
+// las que lo configuren explícitamente en su `nav_labels.modulos`), esto
+// devuelve un solo bloque sin encabezado — el render queda idéntico al de
+// siempre, byte a byte.
+function agruparModulos(modulos) {
+  const bloques = [];
+  let claveActual;
+  for (const m of modulos) {
+    const clave = m.grupo || null;
+    if (bloques.length === 0 || clave !== claveActual) {
+      bloques.push({ grupo: clave, items: [] });
+      claveActual = clave;
+    }
+    bloques[bloques.length - 1].items.push(m);
+  }
+  return bloques;
+}
+
 export default function Shell() {
   const { sesion, cerrarSesion } = useAuth();
   const location = useLocation();
@@ -102,18 +123,23 @@ export default function Shell() {
           </div>
         </div>
         <nav>
-          {modulos.map(m => (
-            m.habilitado ? (
-              <NavLink key={m.ruta} to={m.ruta} className="shell-nav-item">
-                <Icono nombre={m.icono} />
-                {m.etiqueta}
-              </NavLink>
-            ) : (
-              <span key={m.ruta} className="shell-nav-item shell-nav-item--deshabilitado">
-                <Icono nombre={m.icono} />
-                {m.etiqueta} <small>próximamente</small>
-              </span>
-            )
+          {agruparModulos(modulos).map((bloque, i) => (
+            <div key={i} className={bloque.grupo ? 'shell-nav-grupo' : undefined}>
+              {bloque.grupo && <div className="shell-nav-grupo-titulo">{bloque.grupo}</div>}
+              {bloque.items.map(m => (
+                m.habilitado ? (
+                  <NavLink key={m.ruta} to={m.ruta} className="shell-nav-item">
+                    <Icono nombre={m.icono} />
+                    {m.etiqueta}
+                  </NavLink>
+                ) : (
+                  <span key={m.ruta} className="shell-nav-item shell-nav-item--deshabilitado">
+                    <Icono nombre={m.icono} />
+                    {m.etiqueta} <small>próximamente</small>
+                  </span>
+                )
+              ))}
+            </div>
           ))}
         </nav>
         <SuscripcionIndicador />

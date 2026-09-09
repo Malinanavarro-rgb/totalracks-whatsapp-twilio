@@ -222,12 +222,23 @@ async function crearEmpresaConIndustria(supabase, { nombre, descripcionNegocio, 
  */
 async function obtenerPlantillaDeEmpresa(supabase, company_id) {
   const { data: company, error: errCompany } = await supabase
-    .from('companies').select('industria_slug').eq('id', company_id).maybeSingle();
+    .from('companies').select('industria_slug, nav_labels').eq('id', company_id).maybeSingle();
   if (errCompany || !company?.industria_slug) return null;
 
   const { data: plantilla, error: errPlantilla } = await supabase
     .from('plantillas_industria').select('*').eq('slug', company.industria_slug).maybeSingle();
-  if (errPlantilla) return null;
+  if (errPlantilla || !plantilla) return null;
+
+  // Override por empresa (Nort Energy Operations, Alina 2026-09-09): mismo
+  // criterio que `nav_labels` ya usa para sobreescribir `ui_config.modulos`
+  // en modules/auth.js — una empresa puede traer su propio
+  // `dashboard_kpis_seed` en `companies.nav_labels`, aislado por company_id.
+  // No toca ningún otro campo de la plantilla (cotizacion_config, ui_config,
+  // etc.) — otras empresas de la misma industria (GONDOR, Demo) siguen
+  // recibiendo exactamente la plantilla compartida sin cambio alguno.
+  if (company.nav_labels?.dashboard_kpis_seed) {
+    return { ...plantilla, dashboard_kpis_seed: company.nav_labels.dashboard_kpis_seed };
+  }
   return plantilla;
 }
 

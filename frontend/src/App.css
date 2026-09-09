@@ -287,6 +287,15 @@ body {
 .shell-nav-item--deshabilitado { color: #565b66; cursor: default; }
 .shell-nav-item--deshabilitado small { display: block; font-size: 0.7rem; }
 
+/* Navegación agrupada por secciones (Nort Energy Operations) — opcional,
+   solo aparece cuando un módulo trae `grupo`; el resto de empresas no
+   renderiza ningún .shell-nav-grupo-titulo y queda visualmente idéntico. */
+.shell-nav-grupo { margin-top: 0.9rem; }
+.shell-nav-grupo-titulo {
+  font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: #6b7280; padding: 0 0.7rem 0.35rem;
+}
+
 /* Indicador de suscripción — siempre al fondo del sidebar (margin-top:
    auto empuja contra .shell-sidebar, que ya es flex-column). */
 .suscripcion-indicador {
@@ -446,6 +455,24 @@ body {
 .kpi:not(:last-child)::after { content: ''; position: absolute; right: 0; top: 22%; bottom: 22%; width: 1px; background: var(--line); }
 .kpi-valor { font-family: var(--font-mono); font-size: 1.9rem; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--ink); }
 .kpi-etiqueta { font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.3rem; }
+
+/* Nivel ejecutivo (Nort Energy Operations) — mismos números, sin tarjeta ni
+   sombra (misma filosofía "estilo Stripe" de arriba), solo un acento sutil
+   en el borde para separarlo visualmente del resto de la pantalla. */
+.kpi-strip--ejecutivo { border-top-color: var(--acento); border-top-width: 2px; }
+
+/* Nivel operativo — agrupa recomendaciones + estado de ventas bajo un
+   encabezado propio; sin fondo ni sombra decorativa, solo espaciado. */
+.dashboard-nivel-operativo { margin-top: 0.5rem; }
+
+/* Acciones rápidas (Nort Energy Operations) — enlaces a flujos ya
+   existentes (Crm/CrmPipeline/Cotizaciones/Agenda), nunca lógica nueva. */
+.acciones-rapidas { display: flex; flex-wrap: wrap; gap: 0.6rem; margin: 0.75rem 0 0.25rem; }
+.accion-rapida-boton {
+  border: 1px solid var(--line); border-radius: 8px; padding: 0.5rem 0.9rem;
+  font-size: 0.85rem; color: var(--ink); text-decoration: none; background: transparent;
+}
+.accion-rapida-boton:hover { border-color: var(--acento); color: var(--acento); }
 
 .alertas-titulo { font-size: 1.1rem; margin: 1.5rem 0 0.75rem; }
 

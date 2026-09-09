@@ -92,6 +92,111 @@ const KPI_TIPOS = {
     const total = (error || !data) ? 0 : data.reduce((acc, fila) => acc + (Number(fila[campo]) || 0), 0);
     return formato === 'moneda' ? `$${total.toLocaleString('es-MX')}` : total;
   },
+
+  /**
+   * Conteo de cotizaciones (Panel de Cotizaciones, Alina 2026-08-10) — en un
+   * `estado` dado, o cualquiera si se omite; `desde: 'mes'` acota al mes en
+   * curso, sin `desde` cuenta el histórico completo.
+   */
+  async conteo_cotizaciones_por_estado(supabase, company_id, { estado, desde }, ahora) {
+    let query = supabase.from('cotizaciones').select('*', { count: 'exact', head: true }).eq('company_id', company_id);
+    if (estado) query = query.eq('estado', estado);
+    if (desde === 'mes') query = query.gte('created_at', _inicioMes(ahora));
+    const { count, error } = await query;
+    return error ? 0 : (count || 0);
+  },
+
+  /** Suma de cotizaciones.total — en un estado dado, o cualquiera; mismo criterio de `desde` que arriba. */
+  async suma_cotizaciones_monto(supabase, company_id, { estado, desde, formato }, ahora) {
+    let query = supabase.from('cotizaciones').select('total').eq('company_id', company_id);
+    if (estado) query = query.eq('estado', estado);
+    if (desde === 'mes') query = query.gte('created_at', _inicioMes(ahora));
+    const { data, error } = await query;
+    const total = (error || !data) ? 0 : data.reduce((acc, fila) => acc + (Number(fila.total) || 0), 0);
+    return formato === 'moneda' ? `$${total.toLocaleString('es-MX')}` : total;
+  },
+
+  /**
+   * Conteo de oportunidades cuyo `estado` NO está en `estados_excluidos`
+   * (ej. pipeline abierto: excluir los nombres de etapa que representan
+   * cierre — "Cerrado"/"Perdido", tal cual los tenga configurados cada
+   * empresa en pipeline_etapas, nunca hardcodeado aquí). Filtra en JS (no
+   * `.not(...,'in',...)` de PostgREST) porque los nombres de etapa pueden
+   * traer espacios ("Visita agendada") y complicar el escape del filtro.
+   */
+  async conteo_oportunidades_excluyendo_estado(supabase, company_id, { estados_excluidos }) {
+    const { data, error } = await supabase.from('oportunidades').select('estado').eq('company_id', company_id);
+    if (error || !data) return 0;
+    const excluidos = new Set(estados_excluidos || []);
+    return data.filter(o => !excluidos.has(o.estado)).length;
+  },
+
+  /** Suma de un campo numérico de oportunidades cuyo estado NO está en `estados_excluidos` — valor del pipeline abierto, sin acotar a un mes. */
+  async suma_oportunidades_excluyendo_estado(supabase, company_id, { estados_excluidos, campo, formato }) {
+    const { data, error } = await supabase.from('oportunidades').select(`estado, ${campo}`).eq('company_id', company_id);
+    if (error || !data) return formato === 'moneda' ? '$0' : 0;
+    const excluidos = new Set(estados_excluidos || []);
+    const total = data.filter(o => !excluidos.has(o.estado)).reduce((acc, fila) => acc + (Number(fila[campo]) || 0), 0);
+    return formato === 'moneda' ? `$${total.toLocaleString('es-MX')}` : total;
+  },
+
+  /** Conteo de oportunidades en un estado dado, acumuladas desde 'mes' (por updated_at) — mismo criterio que conteo_citas_por_estado_desde. */
+  async conteo_oportunidades_por_estado_desde(supabase, company_id, { estado, desde }, ahora) {
+    const desdeIso = desde === 'mes' ? _inicioMes(ahora) : _haceDias(ahora, 30);
+    const { count, error } = await supabase
+      .from('oportunidades').select('*', { count: 'exact', head: true })
+      .eq('company_id', company_id).eq('estado', estado).gte('updated_at', desdeIso);
+    return error ? 0 : (count || 0);
+  },
+
+  /** Citas futuras (desde ahora) en alguno de `estados`, dentro de una ventana de días hacia adelante. */
+  async conteo_citas_futuras(supabase, company_id, { estados, dias_ventana }, ahora) {
+    const { count, error } = await supabase
+      .from('citas').select('*', { count: 'exact', head: true })
+      .eq('company_id', company_id).in('estado', estados)
+      .gte('inicio', ahora.toISOString()).lte('inicio', _enHoras(ahora, dias_ventana * 24));
+    return error ? 0 : (count || 0);
+  },
+
+  /** Conteo de tareas en alguno de `estados` (ej. abierta/en_progreso — "pendientes"). */
+  async conteo_tareas_por_estado(supabase, company_id, { estados }) {
+    const { count, error } = await supabase
+      .from('tareas').select('*', { count: 'exact', head: true })
+      .eq('company_id', company_id).in('estado', estados);
+    return error ? 0 : (count || 0);
+  },
+
+  /**
+   * Oportunidades con `fecha_seguimiento` ya vencida (<= ahora) que no están
+   * en un estado de cierre — "seguimientos pendientes/atrasados". Filtra en
+   * JS por el mismo motivo de escape que conteo_oportunidades_excluyendo_estado.
+   */
+  async conteo_oportunidades_seguimiento_vencido(supabase, company_id, { estados_excluidos }, ahora) {
+    const { data, error } = await supabase
+      .from('oportunidades').select('estado, fecha_seguimiento').eq('company_id', company_id)
+      .not('fecha_seguimiento', 'is', null).lte('fecha_seguimiento', ahora.toISOString());
+    if (error || !data) return 0;
+    const excluidos = new Set(estados_excluidos || []);
+    return data.filter(o => !excluidos.has(o.estado)).length;
+  },
+
+  /**
+   * Tasa de conversión = oportunidades en `estado_ganado` / oportunidades en
+   * alguno de `estados_cierre` (Nort Energy Operations, Alina 2026-09-09).
+   * Reusable por cualquier industria con pipeline (no hardcodea nombres de
+   * etapa — los recibe por config). Sin oportunidades cerradas todavía
+   * (ganadas o perdidas) devuelve '—' en vez de fingir 0% — no hay tasa que
+   * calcular aún, no es lo mismo que "0% de conversión".
+   */
+  async tasa_conversion_oportunidades(supabase, company_id, { estado_ganado, estados_cierre }) {
+    const { data, error } = await supabase.from('oportunidades').select('estado').eq('company_id', company_id);
+    if (error || !data) return '—';
+    const cierre = new Set(estados_cierre || []);
+    const totalCerradas = data.filter(o => cierre.has(o.estado)).length;
+    if (totalCerradas === 0) return '—';
+    const ganadas = data.filter(o => o.estado === estado_ganado).length;
+    return `${Math.round((ganadas / totalCerradas) * 100)}%`;
+  },
 };
 
 // ── REGLA_TIPOS — cada uno devuelve un arreglo de recomendaciones ──────────
@@ -197,6 +302,71 @@ const REGLA_TIPOS = {
     }
     return recos;
   },
+
+  /** Tareas (migración 074) en alguno de `estados` — "pendientes" para el nivel operativo del dashboard. */
+  async tarea_pendiente(supabase, company_id, { estados, severidad }) {
+    const { data } = await supabase
+      .from('tareas').select('id, titulo, fecha_limite, cliente_id, clientes(nombre)')
+      .eq('company_id', company_id).in('estado', estados)
+      .order('fecha_limite', { ascending: true, nullsFirst: false });
+
+    return (data || []).map(t => ({
+      texto: t.clientes?.nombre ? `${t.titulo} — ${t.clientes.nombre}` : t.titulo,
+      detalle: t.fecha_limite ? `Vence: ${new Date(t.fecha_limite).toLocaleDateString('es-MX')}` : 'Sin fecha límite.',
+      accion: 'Ver tarea', recurso: t.cliente_id ? `/crm/clientes/${t.cliente_id}` : '/panel-accion', severidad,
+    }));
+  },
+
+  /**
+   * Versión "lista" de conteo_oportunidades_seguimiento_vencido — mismo
+   * criterio (fecha_seguimiento vencida, fuera de estados de cierre), pero
+   * devuelve una tarjeta de recomendación por oportunidad en vez de un
+   * conteo (Nort Energy Operations, Alina 2026-09-09).
+   */
+  async oportunidad_seguimiento_vencido(supabase, company_id, { estados_excluidos, severidad }, ahora) {
+    const { data } = await supabase
+      .from('oportunidades').select('id, cliente_id, estado, fecha_seguimiento, clientes(nombre)')
+      .eq('company_id', company_id).not('fecha_seguimiento', 'is', null)
+      .lte('fecha_seguimiento', ahora.toISOString()).order('fecha_seguimiento', { ascending: true });
+
+    const excluidos = new Set(estados_excluidos || []);
+    return (data || [])
+      .filter(o => !excluidos.has(o.estado))
+      .map(o => ({
+        texto: `Seguimiento vencido: ${o.clientes?.nombre || 'un cliente'}.`,
+        detalle: `Fecha de seguimiento: ${new Date(o.fecha_seguimiento).toLocaleDateString('es-MX')}.`,
+        accion: 'Ver oportunidad', recurso: `/crm/clientes/${o.cliente_id}`, severidad,
+      }));
+  },
+
+  /**
+   * Clientes tomados por un humano cuyo último mensaje registrado fue
+   * entrante (sin responder) en las últimas `horas` — mismo criterio que
+   * modules/dashboard._obtenerMensajesSinResponder() para el tablero
+   * genérico, expuesto aquí como tipo del Motor Universal para que
+   * cualquier industria (empezando por Nort Energy Operations, Alina
+   * 2026-09-09) lo use vía config, sin volver a escribir la query.
+   */
+  async mensaje_sin_responder(supabase, company_id, { horas, severidad }, ahora) {
+    const { data: humanos, error: errHumanos } = await supabase
+      .from('clientes').select('id').eq('company_id', company_id).eq('atendido_por', 'humano');
+    if (errHumanos || !humanos || humanos.length === 0) return [];
+
+    const { data, error } = await supabase
+      .from('mensajes_humanos')
+      .select('cliente_id, created_at, clientes(nombre)')
+      .eq('company_id', company_id).eq('direccion', 'entrante')
+      .in('cliente_id', humanos.map(c => c.id))
+      .gte('created_at', _enHoras(ahora, -horas))
+      .order('created_at', { ascending: false });
+
+    if (error || !data) return [];
+    return data.map(m => ({
+      texto: `Lead sin respuesta: ${m.clientes?.nombre || 'un cliente'}.`,
+      detalle: `Último mensaje: ${new Date(m.created_at).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' })}.`,
+      accion: 'Responder', recurso: `/conversaciones/${m.cliente_id}`, severidad,
+    }));
+  },
 };
 
 /** Últimas 3 oportunidades con actividad, con su monto — feature opcional por industria. */
@@ -251,6 +421,19 @@ async function obtenerMetricasGenerico(supabase, company_id, config) {
 
   if (config.panel_ventas) {
     resultado.panelVentas = await _panelVentas(supabase, company_id);
+  }
+
+  // Opt-in (Nort Energy Operations, Alina 2026-09-09): reusa el mismo feed
+  // de eventos accionables que ya arma el tablero genérico universal
+  // (modules/dashboard.js) — sin duplicar esa lógica. Require perezoso
+  // porque dashboard.js ya requiere este módulo arriba (obtenerMetricasGenerico);
+  // requerirlo aquí adentro, en tiempo de llamada y no de carga del módulo,
+  // evita el problema clásico de dependencia circular en Node.
+  if (config.actividad_reciente) {
+    const { obtenerActividadReciente } = require('./dashboard');
+    const hace24h = _haceDias(ahora, 1);
+    const en24h = _enHoras(ahora, 24);
+    resultado.actividadReciente = await obtenerActividadReciente(supabase, company_id, hace24h, ahora.toISOString(), en24h);
   }
 
   return resultado;
