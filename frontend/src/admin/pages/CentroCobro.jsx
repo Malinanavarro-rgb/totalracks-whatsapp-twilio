@@ -38,7 +38,7 @@ export default function CentroCobro() {
             <thead><tr><th>Empresa</th><th>Plan</th><th>Estado</th><th>Vence</th><th>Ingreso/mes</th><th>Costo IA</th><th>Margen</th></tr></thead>
             <tbody>
               {filas.map(f => (
-                <tr key={f.organizationId} onClick={() => navigate(`/admin/organizaciones/${f.organizationId}`)}>
+                <tr key={f.organizationId} onClick={() => navigate(`/superadmin/organizaciones/${f.organizationId}`)}>
                   <td>{f.nombre}</td>
                   <td>{f.plan || '—'}</td>
                   <td>{f.estadoSuscripcion ? <span className={`pm-pill ${ESTADO_CLASE[f.estadoSuscripcion]}`}><i />{ESTADO_ETIQUETA[f.estadoSuscripcion]}</span> : <span className="pm-nota-inline">Sin suscripción</span>}</td>

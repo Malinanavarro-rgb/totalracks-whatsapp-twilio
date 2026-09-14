@@ -2,13 +2,13 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { useAdminAuth } from './AdminAuthContext';
 
 const NAV = [
-  { ruta: '/admin', etiqueta: 'Analítica global', icono: '◆', fin: true },
-  { ruta: '/admin/tara', etiqueta: 'Pregúntale a TARA', icono: '✦' },
-  { ruta: '/admin/organizaciones', etiqueta: 'Organizaciones', icono: '▦' },
-  { ruta: '/admin/demo', etiqueta: 'Demo en Tiempo Real', icono: '●' },
-  { ruta: '/admin/centro-cobro', etiqueta: 'Centro de Cobro', icono: '$' },
-  { ruta: '/admin/planes', etiqueta: 'Planes', icono: '◈' },
-  { ruta: '/admin/auditoria', etiqueta: 'Auditoría', icono: '≡' },
+  { ruta: '/superadmin', etiqueta: 'Analítica global', icono: '◆', fin: true },
+  { ruta: '/superadmin/tara', etiqueta: 'Pregúntale a TARA', icono: '✦' },
+  { ruta: '/superadmin/organizaciones', etiqueta: 'Organizaciones', icono: '▦' },
+  { ruta: '/superadmin/demo', etiqueta: 'Demo en Tiempo Real', icono: '●' },
+  { ruta: '/superadmin/centro-cobro', etiqueta: 'Centro de Cobro', icono: '$' },
+  { ruta: '/superadmin/planes', etiqueta: 'Planes', icono: '◈' },
+  { ruta: '/superadmin/auditoria', etiqueta: 'Auditoría', icono: '≡' },
 ];
 
 export default function AdminShell() {

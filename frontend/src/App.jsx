@@ -50,7 +50,7 @@ export default function App() {
           />
 
           <Route
-            path="/admin/*"
+            path="/superadmin/*"
             element={
               <Suspense fallback={<div className="pantalla-cargando">Cargando…</div>}>
                 <AdminApp />

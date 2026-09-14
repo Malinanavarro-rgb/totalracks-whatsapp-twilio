@@ -24,7 +24,7 @@ export default function Organizaciones() {
         {organizaciones.map(org => {
           const company = org.companies?.[0];
           return (
-            <div className="pm-org-card" key={org.id} onClick={() => navigate(`/admin/organizaciones/${org.id}`)}>
+            <div className="pm-org-card" key={org.id} onClick={() => navigate(`/superadmin/organizaciones/${org.id}`)}>
               <div className="pm-org-card-top">
                 <div className="pm-org-card-id">
                   <span className="pm-org-avatar">{(org.nombre || '?').charAt(0).toUpperCase()}</span>

@@ -40,7 +40,7 @@ export default function AdminApp() {
           <Route path="auditoria" element={<Auditoria />} />
         </Route>
 
-        <Route path="*" element={<Navigate to="/admin" replace />} />
+        <Route path="*" element={<Navigate to="/superadmin" replace />} />
       </Routes>
     </AdminAuthProvider>
   );

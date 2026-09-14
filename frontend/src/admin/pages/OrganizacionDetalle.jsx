@@ -72,7 +72,7 @@ export default function OrganizacionDetalle() {
 
   return (
     <div>
-      <button className="pm-back" onClick={() => navigate('/admin/organizaciones')}>← Organizaciones</button>
+      <button className="pm-back" onClick={() => navigate('/superadmin/organizaciones')}>← Organizaciones</button>
 
       <div className="pm-detalle-head">
         <div className="pm-detalle-id">

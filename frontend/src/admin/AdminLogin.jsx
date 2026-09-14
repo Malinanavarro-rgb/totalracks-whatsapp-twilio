@@ -16,7 +16,7 @@ export default function AdminLogin() {
     setEnviando(true);
     try {
       await iniciarSesion(email, password);
-      navigate('/admin');
+      navigate('/superadmin');
     } catch (e) {
       setError(e.message || 'No se pudo iniciar sesión');
     } finally {

@@ -5,7 +5,7 @@ export default function RutaProtegidaAdmin({ children }) {
   const { admin, cargando } = useAdminAuth();
 
   if (cargando) return <div className="pantalla-cargando">Cargando…</div>;
-  if (!admin) return <Navigate to="/admin/login" replace />;
+  if (!admin) return <Navigate to="/superadmin/login" replace />;
 
   return children;
 }

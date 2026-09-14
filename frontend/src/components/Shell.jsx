@@ -101,7 +101,7 @@ export default function Shell() {
 
   async function salirDelModoSoporte() {
     await api.salirImpersonacion().catch(() => {});
-    window.location.href = '/admin';
+    window.location.href = '/superadmin';
   }
 
   return (
