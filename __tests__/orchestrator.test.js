@@ -1938,6 +1938,62 @@ describe('Orchestrator — ADR-012: obtenerEnriquecimientoCuenta (opcional, null
   });
 });
 
+describe('Orchestrator — TARA especialista solar: obtenerCatalogoTecnico (opcional, null-safe, auditoría Nort Energy 2026-09-15)', () => {
+  it('sin la dep inyectada, el flujo es idéntico a antes — no la llama ni rompe', async () => {
+    const deps = makeDeps();
+    expect(deps.obtenerCatalogoTecnico).toBeUndefined();
+    const orch = new Orchestrator(deps);
+    await expect(orch.procesarMensaje(makeMessage())).resolves.not.toThrow();
+  });
+
+  it('con la dep inyectada, se llama con (company_id, message.content)', async () => {
+    const obtenerCatalogoTecnico = jest.fn().mockResolvedValue('');
+    const deps = makeDeps({ obtenerCatalogoTecnico });
+    const orch = new Orchestrator(deps);
+
+    await orch.procesarMensaje(makeMessage({ content: '¿tienen inversor Growatt MIN 4000?' }));
+
+    expect(obtenerCatalogoTecnico).toHaveBeenCalledWith('company-uuid-001', '¿tienen inversor Growatt MIN 4000?');
+  });
+
+  it('sin match (string vacío), el prompt no cambia', async () => {
+    const obtenerCatalogoTecnico = jest.fn().mockResolvedValue('');
+    const deps = makeDeps({ obtenerCatalogoTecnico });
+    const orch = new Orchestrator(deps);
+
+    const logAISpy = jest.spyOn(deps.auditLogger, 'logAICall');
+    await orch.procesarMensaje(makeMessage());
+
+    const aiInputUsado = logAISpy.mock.calls[0][1];
+    expect(aiInputUsado.system_prompt).not.toContain('CATÁLOGO TÉCNICO REAL');
+  });
+
+  it('con match, el catálogo real llega al system_prompt que ve el modelo', async () => {
+    const obtenerCatalogoTecnico = jest.fn().mockResolvedValue(
+      '## CATÁLOGO TÉCNICO REAL (productos que coinciden con este mensaje)\n- Growatt MIN 4000TL-X (inversor). FICHA TÉCNICA CONFIRMADA. Datos conocidos: potencia_ac_nominal_kw: 4.'
+    );
+    const deps = makeDeps({ obtenerCatalogoTecnico });
+    const orch = new Orchestrator(deps);
+
+    const logAISpy = jest.spyOn(deps.auditLogger, 'logAICall');
+    await orch.procesarMensaje(makeMessage());
+
+    const aiInputUsado = logAISpy.mock.calls[0][1];
+    expect(aiInputUsado.system_prompt).toContain('CATÁLOGO TÉCNICO REAL');
+    expect(aiInputUsado.system_prompt).toContain('Growatt MIN 4000TL-X');
+  });
+
+  it('si la dep falla, el turno continúa sin romperse (mismo criterio que cualquier otro paso)', async () => {
+    const obtenerCatalogoTecnico = jest.fn().mockRejectedValue(new Error('Supabase caído'));
+    const deps = makeDeps({ obtenerCatalogoTecnico });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage());
+    expect(resultado.respuesta_texto).toBeDefined();
+    expect(resultado.respuesta_texto.length).toBeGreaterThan(0);
+  });
+});
+
 describe('Orchestrator — ADR-012: capacidades dinámicas por empresa (personalities.capacidades)', () => {
   it('sin personality.capacidades definidas, usa CAPACIDADES_FASE2 (sin cambio de comportamiento)', async () => {
     const deps = makeDeps();

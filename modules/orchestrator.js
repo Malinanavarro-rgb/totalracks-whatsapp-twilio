@@ -101,6 +101,13 @@ class Orchestrator {
     // quien escribe — nunca los inventa el modelo. Ver modules/cuenta-plataforma.js.
     this._obtenerEnriquecimientoCuenta = deps.obtenerEnriquecimientoCuenta || null;
 
+    // TARA especialista solar (Alina, 2026-09-15 — mismo patrón de ADR-012:
+    // opcional, null-safe, cero impacto en empresas que no lo usan).
+    // Resuelve productos reales (marca/modelo/specs) que coinciden con el
+    // mensaje actual, ANTES del turno de IA — nunca los inventa el modelo.
+    // Ver modules/catalogo-tecnico.js.
+    this._obtenerCatalogoTecnico = deps.obtenerCatalogoTecnico || null;
+
     // FASE 4B / ANEXO A (TA.4) — Action Runner (M8)
     this._actualizarScore  = deps.actualizarScore   || null;
     this._crearOportunidad = deps.crearOportunidad  || null;
@@ -177,6 +184,22 @@ class Orchestrator {
       if (enriquecimientoResult.ok && Array.isArray(enriquecimientoResult.value) && enriquecimientoResult.value.length > 0) {
         const extra = this._mapearKnowledge(enriquecimientoResult.value);
         empresaConf.knowledge_base = [empresaConf.knowledge_base, extra].filter(Boolean).join('\n\n');
+      }
+    }
+
+    // TARA especialista solar (Alina, 2026-09-15) — mismo criterio null-safe
+    // que ADR-012: si no está configurado, si falla, o si ningún producto
+    // real coincide con el mensaje (caso normal de la mayoría de turnos), el
+    // flujo sigue exactamente igual que hoy. Cierra el hueco de la
+    // auditoría: la conversación libre no tenía ningún acceso a la ficha
+    // técnica real de productos — solo el motor de ingeniería (que corre al
+    // completar un workflow) la usaba.
+    if (this._obtenerCatalogoTecnico) {
+      const catalogoResult = await this._paso('catalogo_tecnico', timings, () =>
+        this._obtenerCatalogoTecnico(company_id, message.content)
+      );
+      if (catalogoResult.ok && catalogoResult.value) {
+        empresaConf.knowledge_base = [empresaConf.knowledge_base, catalogoResult.value].filter(Boolean).join('\n\n');
       }
     }
 
@@ -1002,6 +1025,7 @@ function crearOrchestrator(overrides = {}) {
   const { obtenerProviderParaEmpresa } = require('./google-auth');
   const { MockCalendarProvider }   = require('../adapters/calendar/mock-calendar-provider');
   const { construirResumenCuentaParaKnowledge, crearTicket, resolverCuentaPorTelefono } = require('./cuenta-plataforma');
+  const { obtenerCatalogoTecnicoRelevante } = require('./catalogo-tecnico');
 
   // RLS: crearOrchestrator() se usa desde el webhook de Twilio (sin usuario
   // final) — usa supabaseServicio (bypassa RLS por diseño de Supabase).
@@ -1214,6 +1238,8 @@ function crearOrchestrator(overrides = {}) {
     guardarConversacion:  overrides.guardarConversacion  || guardarConversacion,
     obtenerEnriquecimientoCuenta: overrides.obtenerEnriquecimientoCuenta
       || ((companyId, telefono) => construirResumenCuentaParaKnowledge(supabase, companyId, telefono)),
+    obtenerCatalogoTecnico: overrides.obtenerCatalogoTecnico
+      || ((companyId, mensaje) => obtenerCatalogoTecnicoRelevante(supabase, companyId, mensaje)),
     actionRunner,
     actualizarScore:      overrides.actualizarScore      || actualizarScoreInteres,
   });
