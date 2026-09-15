@@ -1994,6 +1994,62 @@ describe('Orchestrator — TARA especialista solar: obtenerCatalogoTecnico (opci
   });
 });
 
+describe('Orchestrator — TARA experta en dudas/objeciones: obtenerFaqRelevante (opcional, null-safe, auditoría Nort Energy 2026-09-15)', () => {
+  it('sin la dep inyectada, el flujo es idéntico a antes — no la llama ni rompe', async () => {
+    const deps = makeDeps();
+    expect(deps.obtenerFaqRelevante).toBeUndefined();
+    const orch = new Orchestrator(deps);
+    await expect(orch.procesarMensaje(makeMessage())).resolves.not.toThrow();
+  });
+
+  it('con la dep inyectada, se llama con (company_id, message.content)', async () => {
+    const obtenerFaqRelevante = jest.fn().mockResolvedValue('');
+    const deps = makeDeps({ obtenerFaqRelevante });
+    const orch = new Orchestrator(deps);
+
+    await orch.procesarMensaje(makeMessage({ content: '¿con paneles ya no se va la luz?' }));
+
+    expect(obtenerFaqRelevante).toHaveBeenCalledWith('company-uuid-001', '¿con paneles ya no se va la luz?');
+  });
+
+  it('sin match (string vacío), el prompt no cambia', async () => {
+    const obtenerFaqRelevante = jest.fn().mockResolvedValue('');
+    const deps = makeDeps({ obtenerFaqRelevante });
+    const orch = new Orchestrator(deps);
+
+    const logAISpy = jest.spyOn(deps.auditLogger, 'logAICall');
+    await orch.procesarMensaje(makeMessage());
+
+    const aiInputUsado = logAISpy.mock.calls[0][1];
+    expect(aiInputUsado.system_prompt).not.toContain('PREGUNTAS FRECUENTES REALES');
+  });
+
+  it('con match, la FAQ real llega al system_prompt que ve el modelo', async () => {
+    const obtenerFaqRelevante = jest.fn().mockResolvedValue(
+      '## PREGUNTAS FRECUENTES REALES (coinciden con este mensaje)\nPREGUNTA: ¿Con paneles ya no se me va la luz?\nRESPUESTA SENCILLA: No necesariamente...'
+    );
+    const deps = makeDeps({ obtenerFaqRelevante });
+    const orch = new Orchestrator(deps);
+
+    const logAISpy = jest.spyOn(deps.auditLogger, 'logAICall');
+    await orch.procesarMensaje(makeMessage());
+
+    const aiInputUsado = logAISpy.mock.calls[0][1];
+    expect(aiInputUsado.system_prompt).toContain('PREGUNTAS FRECUENTES REALES');
+    expect(aiInputUsado.system_prompt).toContain('ya no se me va la luz');
+  });
+
+  it('si la dep falla, el turno continúa sin romperse (mismo criterio que cualquier otro paso)', async () => {
+    const obtenerFaqRelevante = jest.fn().mockRejectedValue(new Error('Supabase caído'));
+    const deps = makeDeps({ obtenerFaqRelevante });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage());
+    expect(resultado.respuesta_texto).toBeDefined();
+    expect(resultado.respuesta_texto.length).toBeGreaterThan(0);
+  });
+});
+
 describe('Orchestrator — ADR-012: capacidades dinámicas por empresa (personalities.capacidades)', () => {
   it('sin personality.capacidades definidas, usa CAPACIDADES_FASE2 (sin cambio de comportamiento)', async () => {
     const deps = makeDeps();

@@ -108,6 +108,12 @@ class Orchestrator {
     // Ver modules/catalogo-tecnico.js.
     this._obtenerCatalogoTecnico = deps.obtenerCatalogoTecnico || null;
 
+    // TARA experta en preguntas/dudas/objeciones (Alina, 2026-09-15 —
+    // mismo patrón, opcional y null-safe). Resuelve preguntas frecuentes
+    // reales (solar_faq) que coinciden con el mensaje actual. Ver
+    // modules/faq-solar.js.
+    this._obtenerFaqRelevante = deps.obtenerFaqRelevante || null;
+
     // FASE 4B / ANEXO A (TA.4) — Action Runner (M8)
     this._actualizarScore  = deps.actualizarScore   || null;
     this._crearOportunidad = deps.crearOportunidad  || null;
@@ -200,6 +206,20 @@ class Orchestrator {
       );
       if (catalogoResult.ok && catalogoResult.value) {
         empresaConf.knowledge_base = [empresaConf.knowledge_base, catalogoResult.value].filter(Boolean).join('\n\n');
+      }
+    }
+
+    // TARA experta en preguntas/dudas/objeciones (Alina, 2026-09-15) —
+    // mismo criterio null-safe. Objetivo: ENTENDER LA DUDA → EXPLICARLA
+    // FÁCIL → GENERAR CONFIANZA → DETECTAR NECESIDAD → SIGUIENTE PASO, con
+    // preguntas frecuentes reales editables en `solar_faq` en vez de
+    // escritas fijas en el prompt.
+    if (this._obtenerFaqRelevante) {
+      const faqResult = await this._paso('faq_solar', timings, () =>
+        this._obtenerFaqRelevante(company_id, message.content)
+      );
+      if (faqResult.ok && faqResult.value) {
+        empresaConf.knowledge_base = [empresaConf.knowledge_base, faqResult.value].filter(Boolean).join('\n\n');
       }
     }
 
@@ -1026,6 +1046,7 @@ function crearOrchestrator(overrides = {}) {
   const { MockCalendarProvider }   = require('../adapters/calendar/mock-calendar-provider');
   const { construirResumenCuentaParaKnowledge, crearTicket, resolverCuentaPorTelefono } = require('./cuenta-plataforma');
   const { obtenerCatalogoTecnicoRelevante } = require('./catalogo-tecnico');
+  const { obtenerFaqRelevante } = require('./faq-solar');
 
   // RLS: crearOrchestrator() se usa desde el webhook de Twilio (sin usuario
   // final) — usa supabaseServicio (bypassa RLS por diseño de Supabase).
@@ -1240,6 +1261,8 @@ function crearOrchestrator(overrides = {}) {
       || ((companyId, telefono) => construirResumenCuentaParaKnowledge(supabase, companyId, telefono)),
     obtenerCatalogoTecnico: overrides.obtenerCatalogoTecnico
       || ((companyId, mensaje) => obtenerCatalogoTecnicoRelevante(supabase, companyId, mensaje)),
+    obtenerFaqRelevante: overrides.obtenerFaqRelevante
+      || ((companyId, mensaje) => obtenerFaqRelevante(supabase, companyId, mensaje)),
     actionRunner,
     actualizarScore:      overrides.actualizarScore      || actualizarScoreInteres,
   });
