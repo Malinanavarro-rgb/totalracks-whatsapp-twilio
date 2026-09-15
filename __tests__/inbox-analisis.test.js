@@ -14,7 +14,7 @@ jest.mock('../modules/business-memory-core', () => ({
   resumenParaCliente: (...args) => mockResumenParaCliente(...args),
 }));
 
-const { analizarHilo, analizarConversacionPegada, programarAnalisis, DEBOUNCE_MS_DEFAULT } = require('../modules/inbox-analisis');
+const { analizarHilo, analizarConversacionPegada, analizarOportunidadParaCierre, programarAnalisis, DEBOUNCE_MS_DEFAULT } = require('../modules/inbox-analisis');
 
 function crearMockSupabase(resultadoUpsert = { error: null }) {
   const upsert = jest.fn().mockResolvedValue(resultadoUpsert);
@@ -233,6 +233,87 @@ describe('inbox-analisis', () => {
       expect(resultado.urgencia).toBe('baja');
       expect(resultado.aciertos_asesor).toEqual([]);
       expect(resultado.respuesta_recomendada).toBeNull();
+    });
+  });
+
+  describe('analizarOportunidadParaCierre() — "Ayúdame a cerrar"', () => {
+    const OPORTUNIDAD = {
+      id: 77, company_id: 'c1', cliente_id: 60, estado: 'Negociación',
+      descripcion: 'Sistema 6kW', presupuesto_estimado: 180000, presupuesto_confirmado: null,
+      proxima_accion: null, ciudad: 'Monterrey', kwp_estimado: 6.2,
+    };
+
+    function mockSupabaseOportunidad({ oportunidad = OPORTUNIDAD, errorOportunidad = null, cotizaciones = [], errorCotizaciones = null }) {
+      const oportunidadQuery = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        maybeSingle: jest.fn().mockResolvedValue({ data: oportunidad, error: errorOportunidad }),
+      };
+      const cotizacionesQuery = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockResolvedValue({ data: cotizaciones, error: errorCotizaciones }),
+      };
+      return {
+        from: jest.fn((tabla) => {
+          if (tabla === 'oportunidades') return oportunidadQuery;
+          if (tabla === 'cotizaciones') return cotizacionesQuery;
+          throw new Error(`tabla no mockeada en este test: ${tabla}`);
+        }),
+      };
+    }
+
+    test('arma el contexto con los datos de la oportunidad y prioriza el cierre en el prompt', async () => {
+      const supabase = mockSupabaseOportunidad({ cotizaciones: [{ estado: 'enviada', total: 175000, folio: 'NE-001' }] });
+      const openaiClient = { chat: { completions: { create: jest.fn().mockResolvedValue(respuestaIA({
+        respuesta_recomendada: '¿Te gustaría que agendemos la instalación esta semana?',
+      })) } } };
+
+      const resultado = await analizarOportunidadParaCierre({ supabase, openaiClient, company_id: 'c1', oportunidad_id: 77 });
+
+      const mensajeUsuario = openaiClient.chat.completions.create.mock.calls[0][0].messages[1].content;
+      expect(mensajeUsuario).toContain('CERRAR esta oportunidad');
+      expect(mensajeUsuario).toContain('Sistema 6kW');
+      expect(mensajeUsuario).toContain('Monterrey');
+      expect(mensajeUsuario).toContain('kWp estimado: 6.2');
+      expect(mensajeUsuario).toContain('folio NE-001');
+      expect(mensajeUsuario).toContain('Karla'); // viene de FICHA (mock global de obtenerFichaCliente)
+      expect(resultado.respuesta_recomendada).toBe('¿Te gustaría que agendemos la instalación esta semana?');
+    });
+
+    test('oportunidad no encontrada: lanza sin llamar a OpenAI', async () => {
+      const supabase = mockSupabaseOportunidad({ oportunidad: null });
+      const openaiClient = { chat: { completions: { create: jest.fn() } } };
+
+      await expect(analizarOportunidadParaCierre({ supabase, openaiClient, company_id: 'c1', oportunidad_id: 999 }))
+        .rejects.toThrow('oportunidad no encontrada');
+      expect(openaiClient.chat.completions.create).not.toHaveBeenCalled();
+    });
+
+    test('error de supabase consultando la oportunidad: lanza con el mensaje real', async () => {
+      const supabase = mockSupabaseOportunidad({ oportunidad: null, errorOportunidad: { message: 'fallo db' } });
+      const openaiClient = { chat: { completions: { create: jest.fn() } } };
+
+      await expect(analizarOportunidadParaCierre({ supabase, openaiClient, company_id: 'c1', oportunidad_id: 77 }))
+        .rejects.toThrow('fallo db');
+    });
+
+    test('sin cotizaciones todavía: lo dice explícitamente en el contexto en vez de omitirlo', async () => {
+      const supabase = mockSupabaseOportunidad({ cotizaciones: [] });
+      const openaiClient = { chat: { completions: { create: jest.fn().mockResolvedValue(respuestaIA({})) } } };
+
+      await analizarOportunidadParaCierre({ supabase, openaiClient, company_id: 'c1', oportunidad_id: 77 });
+
+      const mensajeUsuario = openaiClient.chat.completions.create.mock.calls[0][0].messages[1].content;
+      expect(mensajeUsuario).toContain('Sin cotizaciones formales todavía');
+    });
+
+    test('no persiste nada en analisis_hilo — es una consulta bajo demanda', async () => {
+      const supabase = mockSupabaseOportunidad({});
+      const openaiClient = { chat: { completions: { create: jest.fn().mockResolvedValue(respuestaIA({})) } } };
+
+      await analizarOportunidadParaCierre({ supabase, openaiClient, company_id: 'c1', oportunidad_id: 77 });
+
+      expect(supabase.from).not.toHaveBeenCalledWith('analisis_hilo');
     });
   });
 

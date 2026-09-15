@@ -24,6 +24,9 @@ export default function CrmClienteDetalle() {
   const [preguntaTara, setPreguntaTara] = useState('');
   const [respuestaTara, setRespuestaTara] = useState(null);
   const [preguntandoTara, setPreguntandoTara] = useState(false);
+  // Centro de Conocimiento, Fase 3 — "Ayúdame a cerrar" por oportunidad,
+  // keyed por id para poder tener varias abiertas a la vez sin pisarse.
+  const [ayudaCierre, setAyudaCierre] = useState({});
 
   function cargar() {
     Promise.all([api.fichaCliente(clienteId), api.seguimientos(clienteId)])
@@ -135,6 +138,16 @@ export default function CrmClienteDetalle() {
       cargar();
     } catch (e2) {
       setError(e2.message);
+    }
+  }
+
+  async function ayudameACerrar(oportunidadId) {
+    setAyudaCierre((prev) => ({ ...prev, [oportunidadId]: { cargando: true, resultado: null, error: null } }));
+    try {
+      const resultado = await api.ayudameACerrar(oportunidadId);
+      setAyudaCierre((prev) => ({ ...prev, [oportunidadId]: { cargando: false, resultado, error: null } }));
+    } catch (e2) {
+      setAyudaCierre((prev) => ({ ...prev, [oportunidadId]: { cargando: false, resultado: null, error: e2.message } }));
     }
   }
 
@@ -367,7 +380,28 @@ export default function CrmClienteDetalle() {
                 <select value={op.estado || 'Nuevo'} onChange={(e) => actualizarEstadoOportunidad(op.id, e.target.value)}>
                   {etapasPipeline.map((et) => <option key={et.id} value={et.nombre}>{et.nombre}</option>)}
                 </select>
+                <button onClick={() => ayudameACerrar(op.id)} disabled={ayudaCierre[op.id]?.cargando}>
+                  {ayudaCierre[op.id]?.cargando ? 'Analizando…' : 'Ayúdame a cerrar'}
+                </button>
                 <button onClick={() => eliminarOportunidad(op.id)}>Eliminar</button>
+
+                {ayudaCierre[op.id]?.error && (
+                  <p className="login-error">{ayudaCierre[op.id].error}</p>
+                )}
+                {ayudaCierre[op.id]?.resultado && (
+                  <div className="pregunta-tara-respuesta">
+                    <p>{ayudaCierre[op.id].resultado.resumen}</p>
+                    {ayudaCierre[op.id].resultado.riesgos?.length > 0 && (
+                      <p><strong>Riesgos:</strong> {ayudaCierre[op.id].resultado.riesgos.join(' · ')}</p>
+                    )}
+                    {ayudaCierre[op.id].resultado.proxima_accion && (
+                      <p><strong>Próxima acción:</strong> {ayudaCierre[op.id].resultado.proxima_accion}</p>
+                    )}
+                    {ayudaCierre[op.id].resultado.respuesta_recomendada && (
+                      <p><strong>Mensaje sugerido:</strong> {ayudaCierre[op.id].resultado.respuesta_recomendada}</p>
+                    )}
+                  </div>
+                )}
               </li>
             ))}
           </ul>

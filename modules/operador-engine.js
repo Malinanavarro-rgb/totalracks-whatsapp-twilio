@@ -142,4 +142,46 @@ async function preguntar({ supabase, openaiClient, pregunta, alcance, usuario, h
   };
 }
 
-module.exports = { preguntar, SYSTEM_PROMPT, MAX_ITERACIONES_TOOLS };
+// ── "Convertir en respuesta para cliente" (Centro de Conocimiento, Fase 3) ──
+// Toma una respuesta interna de Modo Operador (pensada para el equipo, puede
+// incluir profundidad técnica) y la traduce a un mensaje enviable a un
+// cliente — mismo cliente OpenAI, llamada simple sin tools, prompt distinto.
+// No requiere infraestructura nueva (auditoría, sección 6.3).
+
+const SYSTEM_PROMPT_RESPUESTA_CLIENTE = [
+  'Tu única tarea es traducir una respuesta interna de Modo Operador (pensada para el equipo de la empresa,',
+  'puede incluir profundidad técnica) a un mensaje que se le pueda enviar directamente a un CLIENTE:',
+  'lenguaje sencillo, tono consultivo y cordial, sin jerga interna.',
+  'Elimina SIEMPRE cualquier dato que un cliente nunca debería ver: costos de proveedor, costos internos,',
+  'márgenes, comisiones, nombres o datos de otros clientes, notas internas del equipo, o cualquier evaluación',
+  'del desempeño de un asesor. No agregues datos, cifras ni promesas que no estén ya en el texto original —',
+  'si después de quitar lo interno no queda nada seguro que compartir, dilo con honestidad en vez de inventar.',
+  'Responde ÚNICAMENTE con el mensaje final para el cliente, sin explicaciones ni texto adicional.',
+].join(' ');
+
+/**
+ * @param {Object} opciones
+ * @param {{chat: {completions: {create: Function}}}} opciones.openaiClient
+ * @param {string} opciones.textoInterno - la respuesta interna de Modo Operador a traducir
+ * @param {string} [opciones.modelo]
+ * @returns {Promise<string>} el mensaje listo para enviar al cliente
+ */
+async function convertirParaCliente({ openaiClient, textoInterno, modelo = MODELO_DEFAULT }) {
+  if (!textoInterno || !textoInterno.trim()) {
+    throw new Error('operador-engine.convertirParaCliente: textoInterno requerido');
+  }
+
+  const respuesta = await openaiClient.chat.completions.create({
+    model: modelo,
+    messages: [
+      { role: 'system', content: SYSTEM_PROMPT_RESPUESTA_CLIENTE },
+      { role: 'user', content: textoInterno },
+    ],
+    temperature: 0.3,
+    max_tokens: MAX_TOKENS_RESPUESTA,
+  });
+
+  return respuesta.choices[0]?.message?.content?.trim() || 'No pude generar una versión para cliente de este texto.';
+}
+
+module.exports = { preguntar, convertirParaCliente, SYSTEM_PROMPT, SYSTEM_PROMPT_RESPUESTA_CLIENTE, MAX_ITERACIONES_TOOLS };

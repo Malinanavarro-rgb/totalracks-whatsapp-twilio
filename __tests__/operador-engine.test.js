@@ -11,7 +11,7 @@ jest.mock('../modules/business-memory-core', () => ({
   obtenerResumenEjecutivo: (...args) => mockObtenerResumenEjecutivo(...args),
 }));
 
-const { preguntar, MAX_ITERACIONES_TOOLS, SYSTEM_PROMPT } = require('../modules/operador-engine');
+const { preguntar, convertirParaCliente, MAX_ITERACIONES_TOOLS, SYSTEM_PROMPT } = require('../modules/operador-engine');
 
 function respuestaTextoDirecta(texto, tokens = 100) {
   return {
@@ -175,6 +175,35 @@ describe('operador-engine', () => {
         const resultado = await preguntar({ supabase: {}, openaiClient, pregunta: 'x', alcance: ALCANCE_EMPRESA });
         expect(resultado.respuesta_texto).toBe('ok');
       });
+    });
+  });
+
+  describe('convertirParaCliente() — Centro de Conocimiento, Fase 3', () => {
+    test('llama a OpenAI con el texto interno y devuelve el mensaje traducido', async () => {
+      const openaiClient = { chat: { completions: { create: jest.fn().mockResolvedValue(
+        respuestaTextoDirecta('Claro, con gusto te comparto los detalles de tu sistema solar.')
+      ) } } };
+
+      const resultado = await convertirParaCliente({ openaiClient, textoInterno: 'El producto cuesta $15,000 costo proveedor, margen 40%, vender en $25,000.' });
+
+      expect(resultado).toBe('Claro, con gusto te comparto los detalles de tu sistema solar.');
+      const llamada = openaiClient.chat.completions.create.mock.calls[0][0];
+      expect(llamada.messages[1].content).toContain('costo proveedor');
+      expect(llamada.tools).toBeUndefined(); // llamada simple, sin tool-calling
+    });
+
+    test('sin textoInterno: lanza sin llamar a OpenAI', async () => {
+      const openaiClient = { chat: { completions: { create: jest.fn() } } };
+
+      await expect(convertirParaCliente({ openaiClient, textoInterno: '' })).rejects.toThrow('textoInterno requerido');
+      expect(openaiClient.chat.completions.create).not.toHaveBeenCalled();
+    });
+
+    test('respuesta vacía de la IA: devuelve un mensaje honesto en vez de string vacío', async () => {
+      const openaiClient = { chat: { completions: { create: jest.fn().mockResolvedValue(respuestaTextoDirecta('')) } } };
+
+      const resultado = await convertirParaCliente({ openaiClient, textoInterno: 'algo' });
+      expect(resultado).toBe('No pude generar una versión para cliente de este texto.');
     });
   });
 });

@@ -70,6 +70,9 @@ export default function Operaciones() {
   const [preguntaActiva, setPreguntaActiva] = useState(null);
   const [respuestaOperador, setRespuestaOperador] = useState(null);
   const [cargandoRespuesta, setCargandoRespuesta] = useState(false);
+  // Centro de Conocimiento, Fase 3 — "Convertir en respuesta para cliente".
+  const [respuestaCliente, setRespuestaCliente] = useState(null);
+  const [cargandoConversion, setCargandoConversion] = useState(false);
 
   // Modo Operador (modules/operador-engine.js) — IA real con acceso de solo
   // lectura a tareas/proyectos/decisiones/CRM de esta empresa, no el match
@@ -79,6 +82,7 @@ export default function Operaciones() {
     setPreguntaActiva(texto);
     setCargandoRespuesta(true);
     setRespuestaOperador(null);
+    setRespuestaCliente(null);
     try {
       const resultado = await api.preguntarOperador(texto);
       setRespuestaOperador(resultado.respuesta_texto);
@@ -100,6 +104,22 @@ export default function Operaciones() {
   function elegirSugerencia(p) {
     setPreguntaInput(p);
     preguntarleATara(p);
+  }
+
+  // Centro de Conocimiento, Fase 3 — traduce la respuesta interna de TARA a
+  // un mensaje listo para copiar y enviarle a un cliente.
+  async function convertirEnRespuestaParaCliente() {
+    if (!respuestaOperador) return;
+    setCargandoConversion(true);
+    setRespuestaCliente(null);
+    try {
+      const resultado = await api.convertirParaCliente(respuestaOperador);
+      setRespuestaCliente(resultado.respuesta_cliente);
+    } catch {
+      setRespuestaCliente('No pude generar la versión para cliente — intenta de nuevo.');
+    } finally {
+      setCargandoConversion(false);
+    }
   }
 
   // Motor Universal: el layout "recomendaciones ricas" (vs. alertas/actividad
@@ -157,9 +177,22 @@ export default function Operaciones() {
               </div>
             )}
             {preguntaActiva && (
-              <p className="pregunta-tara-respuesta">
-                {cargandoRespuesta ? 'TARA está pensando…' : respuestaOperador}
-              </p>
+              <>
+                <p className="pregunta-tara-respuesta">
+                  {cargandoRespuesta ? 'TARA está pensando…' : respuestaOperador}
+                </p>
+                {!cargandoRespuesta && respuestaOperador && (
+                  <button
+                    type="button" className="pregunta-tara-chip" onClick={convertirEnRespuestaParaCliente}
+                    disabled={cargandoConversion}
+                  >
+                    {cargandoConversion ? 'Traduciendo…' : 'Convertir en respuesta para cliente'}
+                  </button>
+                )}
+                {respuestaCliente && (
+                  <p className="pregunta-tara-respuesta pregunta-tara-respuesta--cliente">{respuestaCliente}</p>
+                )}
+              </>
             )}
           </div>
 

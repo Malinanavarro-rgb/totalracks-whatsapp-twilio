@@ -39,9 +39,9 @@ const { obtenerAgendaConfig, actualizarAgendaConfig } = require('./modules/agend
 const { calcularEstadoDelDia }           = require('./modules/agenda-engine');
 const { resolverEvento }                = require('./modules/agenda-engine/recomendaciones');
 const { calcularCambiosNombreEmpresa }  = require('./modules/nombre-cliente');
-const { preguntar: preguntarOperador }  = require('./modules/operador-engine');
+const { preguntar: preguntarOperador, convertirParaCliente } = require('./modules/operador-engine');
 const { resolverOCrearHilo, registrarMensaje, listarHilos, obtenerHilo, listarMensajesDeHilo, actualizarHilo } = require('./modules/inbox');
-const { analizarHilo, analizarConversacionPegada, programarAnalisis, obtenerAnalisisHilo } = require('./modules/inbox-analisis');
+const { analizarHilo, analizarConversacionPegada, analizarOportunidadParaCierre, programarAnalisis, obtenerAnalisisHilo } = require('./modules/inbox-analisis');
 const { tipoContenidoDeMime, subirAdjunto, generarUrlFirmada } = require('./modules/inbox-adjuntos');
 const { asociarSiHaySesionDeCotizacionActiva, listarAdjuntosDeCotizacion } = require('./modules/cotizacion-adjuntos');
 const { marcarPredimensionamientoRevisado, marcarIngenieriaValidada, puedeEnviarCotizacion, autorizarPrecioFinal } = require('./modules/cotizaciones');
@@ -1302,6 +1302,21 @@ app.post('/api/operador/preguntar', requireAuth, async (req, res) => {
   }
 });
 
+// Centro de Conocimiento, Fase 3 — botón "Convertir en respuesta para
+// cliente" sobre una respuesta ya dada por Modo Operador. Mismo acceso que
+// /api/operador/preguntar (cualquier persona autenticada de la empresa).
+app.post('/api/operador/convertir-para-cliente', requireAuth, async (req, res) => {
+  try {
+    const { texto } = req.body || {};
+    if (!texto || !texto.trim()) return res.status(400).json({ error: 'texto requerido' });
+
+    const respuestaCliente = await convertirParaCliente({ openaiClient: openai, textoInterno: texto.trim() });
+    res.json({ respuesta_cliente: respuestaCliente });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── PANEL DE ACCIÓN INTELIGENTE (Business Memory Core + KCE) ─────────────────
 // Superficie visual de lo que ya existe en modules/business-memory-core.js y
 // modules/kce.js (ambos ya probados) — estas rutas no agregan lógica de
@@ -1468,6 +1483,20 @@ app.delete('/api/crm/oportunidades/:id', requireAuth, async (req, res) => {
     res.status(204).send();
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// Centro de Conocimiento, Fase 3 — "Ayúdame a cerrar": Sales Coach con foco
+// en una oportunidad puntual (ver modules/inbox-analisis.js). No persiste,
+// es una consulta bajo demanda desde el CRM.
+app.post('/api/crm/oportunidades/:id/ayudame-a-cerrar', requireAuth, async (req, res) => {
+  try {
+    const analisis = await analizarOportunidadParaCierre({
+      supabase: supabaseServicio, openaiClient: openai, company_id: req.usuario.company_id, oportunidad_id: req.params.id,
+    });
+    res.json(analisis);
+  } catch (e) {
+    res.status(e.message?.includes('no encontrada') ? 404 : 500).json({ error: e.message });
   }
 });
 

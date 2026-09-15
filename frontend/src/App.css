@@ -553,6 +553,9 @@ body {
   margin: 0 0.5rem 0.6rem; padding: 0.9rem 1rem; border-radius: 12px;
   background: var(--surface); font-size: 0.9rem; color: var(--text-secondary); line-height: 1.55;
 }
+/* Centro de Conocimiento, Fase 3 — distingue visualmente el texto ya
+   traducido para cliente (saneado) del texto interno de Modo Operador. */
+.pregunta-tara-respuesta--cliente { border-left: 3px solid var(--acento); color: var(--text); }
 
 .actividad-reciente-lista { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.4rem; }
 .actividad-item {

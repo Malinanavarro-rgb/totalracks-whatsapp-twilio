@@ -103,6 +103,10 @@ export const api = {
     pedir(`/api/crm/clientes/${clienteId}/preguntar`, { method: 'POST', body: JSON.stringify({ pregunta }) }),
   preguntarOperador: (pregunta) =>
     pedir('/api/operador/preguntar', { method: 'POST', body: JSON.stringify({ pregunta }) }),
+  convertirParaCliente: (texto) =>
+    pedir('/api/operador/convertir-para-cliente', { method: 'POST', body: JSON.stringify({ texto }) }),
+  ayudameACerrar: (oportunidadId) =>
+    pedir(`/api/crm/oportunidades/${oportunidadId}/ayudame-a-cerrar`, { method: 'POST' }),
 
   // Panel de Acción Inteligente (Business Memory Core + KCE)
   resumenBmc:            () => pedir('/api/bmc/resumen'),

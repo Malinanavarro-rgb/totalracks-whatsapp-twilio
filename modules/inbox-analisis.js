@@ -76,6 +76,23 @@ function _armarContexto({ hilo, cliente, historial, citas, oportunidades, memori
   return partes.filter(Boolean).join('\n\n');
 }
 
+async function _llamarIAyNormalizar(openaiClient, contexto, modelo) {
+  const respuesta = await openaiClient.chat.completions.create({
+    model: modelo,
+    messages: [
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: contexto },
+    ],
+    response_format: { type: 'json_object' },
+    temperature: 0.3,
+  });
+
+  let analisisCrudo = {};
+  try { analisisCrudo = JSON.parse(respuesta.choices[0].message.content); } catch { /* queda con defaults */ }
+
+  return _normalizar(analisisCrudo);
+}
+
 function _normalizar(analisis) {
   const clamp = (n, min, max) => Math.max(min, Math.min(max, Number.isFinite(n) ? n : min));
   return {
@@ -118,20 +135,7 @@ async function analizarHilo({ supabase, openaiClient, company_id, hilo_id, clien
     hilo, cliente: ficha?.cliente, historial, citas: ficha?.citas, oportunidades: ficha?.oportunidades, memoriaEmpresarial,
   });
 
-  const respuesta = await openaiClient.chat.completions.create({
-    model: modelo,
-    messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
-      { role: 'user', content: contexto },
-    ],
-    response_format: { type: 'json_object' },
-    temperature: 0.3,
-  });
-
-  let analisisCrudo = {};
-  try { analisisCrudo = JSON.parse(respuesta.choices[0].message.content); } catch { /* queda con defaults */ }
-
-  const analisis = _normalizar(analisisCrudo);
+  const analisis = await _llamarIAyNormalizar(openaiClient, contexto, modelo);
 
   const { error } = await supabase.from('analisis_hilo').upsert(
     { hilo_id, ...analisis, generado_at: new Date().toISOString() },
@@ -171,20 +175,100 @@ async function analizarConversacionPegada({ openaiClient, texto, notaEquipo, mod
 
   const contexto = _armarContextoDesdeTexto({ texto, notaEquipo });
 
-  const respuesta = await openaiClient.chat.completions.create({
-    model: modelo,
-    messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
-      { role: 'user', content: contexto },
-    ],
-    response_format: { type: 'json_object' },
-    temperature: 0.3,
+  return _llamarIAyNormalizar(openaiClient, contexto, modelo);
+}
+
+// ── "Ayúdame a cerrar" — Sales Coach con foco en una oportunidad del CRM ────
+
+// Etiquetas de los campos de calificación solar (migración 103) — genérico a
+// propósito: en una empresa no-solar todos estos vienen null y se omiten,
+// mismo criterio que oportunidades.tipo_rack conviviendo con otras industrias.
+const _ETIQUETAS_CAMPOS_OPORTUNIDAD = [
+  ['tipo_propiedad', 'Tipo de propiedad'],
+  ['ciudad', 'Ciudad'],
+  ['colonia', 'Colonia'],
+  ['direccion', 'Dirección'],
+  ['propiedad_propia', 'Propiedad propia'],
+  ['consumo_mensual_kwh', 'Consumo mensual (kWh)'],
+  ['importe_promedio_recibo', 'Importe promedio del recibo'],
+  ['tarifa_cfe', 'Tarifa CFE'],
+  ['tipo_alimentacion', 'Tipo de alimentación'],
+  ['voltaje_sitio', 'Voltaje del sitio'],
+  ['pct_cobertura_deseado', '% de cobertura deseado'],
+  ['paneles_estimados', 'Paneles estimados'],
+  ['kwp_estimado', 'kWp estimado'],
+  ['fecha_visita', 'Fecha de visita'],
+  ['estado_visita', 'Estado de la visita'],
+  ['siguiente_accion', 'Siguiente acción registrada'],
+];
+
+function _formatearOportunidadParaCierre(oportunidad) {
+  const base = [
+    `Descripción: ${oportunidad.descripcion || oportunidad.tipo_rack || 'Sin descripción'}`,
+    `Estado: ${oportunidad.estado || 'Nuevo'}`,
+    oportunidad.presupuesto_estimado ? `Presupuesto estimado: $${oportunidad.presupuesto_estimado}` : null,
+    oportunidad.presupuesto_confirmado ? `Presupuesto confirmado: $${oportunidad.presupuesto_confirmado}` : null,
+    oportunidad.proxima_accion ? `Próxima acción ya registrada: ${oportunidad.proxima_accion}` : null,
+  ];
+  const detalle = _ETIQUETAS_CAMPOS_OPORTUNIDAD
+    .filter(([campo]) => oportunidad[campo] !== null && oportunidad[campo] !== undefined && oportunidad[campo] !== '')
+    .map(([campo, etiqueta]) => `${etiqueta}: ${oportunidad[campo]}`);
+  return [...base.filter(Boolean), ...detalle].join('\n');
+}
+
+function _armarContextoCierre({ oportunidad, cliente, cotizaciones, historial, memoriaEmpresarial }) {
+  const partes = [
+    'El equipo pidió ayuda específicamente para CERRAR esta oportunidad — en "recomendaciones",',
+    '"proxima_accion" y sobre todo "respuesta_recomendada", prioriza exactamente qué decir o hacer para',
+    'avanzarla a la siguiente etapa o cerrarla ya, no un diagnóstico general de la cuenta.',
+    `Cliente: ${cliente?.nombre || 'Sin nombre'}${cliente?.empresa ? ` (${cliente.empresa})` : ''}`,
+    `Oportunidad a cerrar:\n${_formatearOportunidadParaCierre(oportunidad)}`,
+    cotizaciones?.length
+      ? `Cotizaciones de esta oportunidad: ${cotizaciones.map(c => `${c.estado}${c.total ? ` ($${c.total})` : ''}${c.folio ? ` — folio ${c.folio}` : ''}`).join(', ')}`
+      : 'Sin cotizaciones formales todavía para esta oportunidad.',
+    memoriaEmpresarial ? `Memoria empresarial confirmada:\n${memoriaEmpresarial}` : null,
+    `Conversación con el cliente:\n${
+      historial?.length
+        ? historial.map(m => `${m.de === 'cliente' ? 'Cliente' : 'Negocio'}: ${m.texto}`).join('\n')
+        : '(sin conversación registrada — analiza solo con los datos de la oportunidad)'
+    }`,
+  ];
+  return partes.filter(Boolean).join('\n\n');
+}
+
+/**
+ * Variante de Sales Coach con foco en una oportunidad específica del CRM —
+ * mismo motor y schema de salida, pero el prompt le pide al modelo priorizar
+ * "cómo cerrar esta venta" en vez de un diagnóstico general del hilo. No
+ * persiste (igual criterio que `analizarConversacionPegada`): es una consulta
+ * bajo demanda desde el botón "Ayúdame a cerrar", no un análisis recurrente.
+ *
+ * @param {Object} opciones
+ * @param {import('@supabase/supabase-js').SupabaseClient} opciones.supabase
+ * @param {{chat: {completions: {create: Function}}}} opciones.openaiClient
+ * @param {string} opciones.company_id
+ * @param {number|string} opciones.oportunidad_id
+ * @param {string} [opciones.modelo]
+ * @returns {Promise<Object>} el análisis normalizado (mismo shape que analizarHilo, sin persistir)
+ */
+async function analizarOportunidadParaCierre({ supabase, openaiClient, company_id, oportunidad_id, modelo = MODELO_DEFAULT }) {
+  const { data: oportunidad, error: errorOportunidad } = await supabase
+    .from('oportunidades').select('*').eq('id', oportunidad_id).eq('company_id', company_id).maybeSingle();
+  if (errorOportunidad) throw new Error(`inbox-analisis.analizarOportunidadParaCierre: ${errorOportunidad.message}`);
+  if (!oportunidad) throw new Error('inbox-analisis.analizarOportunidadParaCierre: oportunidad no encontrada');
+
+  const [ficha, cotizacionesResultado, historial, memoriaEmpresarial] = await Promise.all([
+    oportunidad.cliente_id ? obtenerFichaCliente(supabase, company_id, oportunidad.cliente_id).catch(() => null) : Promise.resolve(null),
+    supabase.from('cotizaciones').select('*').eq('oportunidad_id', oportunidad_id),
+    oportunidad.cliente_id ? obtenerHistorial(supabase, company_id, oportunidad.cliente_id) : Promise.resolve([]),
+    oportunidad.cliente_id ? resumenParaCliente(supabase, company_id, oportunidad.cliente_id).catch(() => '') : Promise.resolve(''),
+  ]);
+
+  const contexto = _armarContextoCierre({
+    oportunidad, cliente: ficha?.cliente, cotizaciones: cotizacionesResultado?.data, historial, memoriaEmpresarial,
   });
 
-  let analisisCrudo = {};
-  try { analisisCrudo = JSON.parse(respuesta.choices[0].message.content); } catch { /* queda con defaults */ }
-
-  return _normalizar(analisisCrudo);
+  return _llamarIAyNormalizar(openaiClient, contexto, modelo);
 }
 
 // ── Debounce (en memoria, un solo proceso — igual criterio que enqueueForPhone en server.js) ──
@@ -226,4 +310,7 @@ async function obtenerAnalisisHilo(supabase, hilo_id) {
   return data;
 }
 
-module.exports = { analizarHilo, analizarConversacionPegada, programarAnalisis, obtenerAnalisisHilo, SYSTEM_PROMPT, DEBOUNCE_MS_DEFAULT };
+module.exports = {
+  analizarHilo, analizarConversacionPegada, analizarOportunidadParaCierre,
+  programarAnalisis, obtenerAnalisisHilo, SYSTEM_PROMPT, DEBOUNCE_MS_DEFAULT,
+};
