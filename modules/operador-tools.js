@@ -36,6 +36,9 @@ const {
 const {
   ejecutarKCE, listarAlertasPendientes, aplicarRefuerzo, fusionarAprendizajes, resolverAlerta,
 } = require('./kce');
+const { esGerencial } = require('./permisos');
+const { buscarProductosMencionados, formatearParaKnowledge: formatearCatalogoParaKnowledge } = require('./catalogo-tecnico');
+const { buscarFaqRelevante, formatearParaKnowledge: formatearFaqParaKnowledge } = require('./faq-solar');
 
 /**
  * Resuelve el alcance a una lista de company_id a filtrar, o `null` si no
@@ -143,6 +146,34 @@ async function buscarCliente(supabase, alcance, { nombre = '', limite = 10 } = {
   query = _aplicarFiltroCompany(query, companyIds);
   const { data, error } = await query.order('created_at', { ascending: false }).limit(limite);
   return error ? [] : (data || []);
+}
+
+// ── Centro de Conocimiento (Alina, 2026-09-15) — reusa TAL CUAL los mismos
+// módulos que ya alimentan al cliente por WhatsApp (catalogo-tecnico.js,
+// faq-solar.js): una sola base de datos real, dos formas de consumirla.
+// Deliberadamente por empresa (_exigirAlcanceEmpresa, mismo criterio que
+// BMC) — el catálogo/FAQ de una empresa no tiene sentido mezclado con el de
+// otra a nivel organización/plataforma. Devuelve SIEMPRE la versión ya
+// saneada (sin costo_proveedor/margen/costos internos) — Fase 1 no
+// construye todavía un tercer nivel de permisos "solo gerencial ve costos";
+// ver auditoría del Centro de Conocimiento, sección 4.
+
+async function consultarCatalogoTecnicoTool(supabase, alcance, { texto } = {}) {
+  _exigirAlcanceEmpresa(alcance);
+  const productos = await buscarProductosMencionados(supabase, alcance.company_id, texto || '');
+  if (!productos.length) {
+    return 'No se encontró ningún producto del catálogo que coincida con esa búsqueda — puede que no esté cargado todavía o que necesites confirmarlo con el proveedor.';
+  }
+  return formatearCatalogoParaKnowledge(productos);
+}
+
+async function consultarFaqSolarTool(supabase, alcance, { texto } = {}) {
+  _exigirAlcanceEmpresa(alcance);
+  const entradas = await buscarFaqRelevante(supabase, alcance.company_id, texto || '');
+  if (!entradas.length) {
+    return 'No hay ninguna pregunta frecuente cargada que coincida con eso.';
+  }
+  return formatearFaqParaKnowledge(entradas);
 }
 
 // ── Business Memory Core (BMC, Fase 2) — primeras tools de escritura ────────
@@ -299,6 +330,30 @@ const CATALOGO_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'consultar_catalogo_tecnico',
+      description: 'Busca en el catálogo real de productos de la empresa (marca, modelo, specs técnicas, ficha completa o pendiente de confirmar) — úsala para cualquier pregunta sobre qué equipo se tiene, compatibilidad técnica, o ficha técnica de un modelo específico. Nunca inventes specs que no vengan de esta tool.',
+      parameters: {
+        type: 'object',
+        properties: { texto: { type: 'string', description: 'marca, modelo, o descripción del producto a buscar' } },
+        required: ['texto'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'consultar_faq_solar',
+      description: 'Busca en la base de preguntas frecuentes/objeciones ya validadas de la empresa — úsala cuando te pregunten cómo responder una duda u objeción de un cliente.',
+      parameters: {
+        type: 'object',
+        properties: { texto: { type: 'string', description: 'la pregunta u objeción a buscar' } },
+        required: ['texto'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'registrar_aprendizaje_negocio',
       description: 'Propone un aprendizaje de negocio para la memoria empresarial permanente (BMC). SIEMPRE nace como propuesta pendiente de revisión — nunca queda confirmado automáticamente. Nunca inventes evidencia ni confianza: si no tienes una base real, no llames a esta tool.',
       parameters: {
@@ -438,6 +493,8 @@ const IMPLEMENTACIONES = {
   buscar_documentos:    buscarDocumentos,
   resumen_pipeline:     resumenPipeline,
   buscar_cliente:       buscarCliente,
+  consultar_catalogo_tecnico: consultarCatalogoTecnicoTool,
+  consultar_faq_solar:        consultarFaqSolarTool,
   registrar_aprendizaje_negocio:   registrarAprendizajeNegocio,
   listar_aprendizajes_pendientes:  listarAprendizajesPendientes,
   confirmar_aprendizaje:           confirmarAprendizajeTool,
@@ -449,6 +506,21 @@ const IMPLEMENTACIONES = {
   fusionar_aprendizajes:   fusionarAprendizajesTool,
   resolver_alerta_kce:     resolverAlertaKceTool,
 };
+
+// Centro de Conocimiento (Alina, 2026-09-15): Modo Operador se abrió más
+// allá de roles gerenciales (ver server.js, /api/operador/preguntar) para
+// que cualquier persona de la empresa pueda consultarlo — pero las tools de
+// Business Memory Core/KCE siguen siendo gerenciales-only, ahora
+// enforced AQUÍ (antes dependían solo del gate de la ruta, que ya no
+// existe). Memoria empresarial y consolidación de aprendizajes son
+// decisiones de negocio, no una consulta — mismo criterio que ya usaba el
+// comentario original de este archivo ("las tools de escritura de BMC
+// heredan esa misma restricción").
+const TOOLS_SOLO_GERENCIAL = new Set([
+  'registrar_aprendizaje_negocio', 'listar_aprendizajes_pendientes', 'confirmar_aprendizaje',
+  'rechazar_aprendizaje', 'marcar_aprendizaje_obsoleto', 'ejecutar_kce', 'listar_alertas_kce',
+  'aplicar_refuerzo_kce', 'fusionar_aprendizajes', 'resolver_alerta_kce',
+]);
 
 /**
  * Ejecuta una tool por nombre, aplicando el alcance calculado por el
@@ -466,6 +538,9 @@ const IMPLEMENTACIONES = {
 async function ejecutarTool(nombre, argumentos, supabase, alcance, usuario, openaiClient) {
   const fn = IMPLEMENTACIONES[nombre];
   if (!fn) throw new Error(`operador-tools.ejecutarTool: tool desconocida "${nombre}"`);
+  if (TOOLS_SOLO_GERENCIAL.has(nombre) && !esGerencial(usuario?.rol)) {
+    throw new Error(`No tienes permiso para usar "${nombre}" — memoria empresarial requiere un rol gerencial.`);
+  }
   return fn(supabase, alcance, argumentos || {}, usuario, openaiClient);
 }
 
@@ -476,6 +551,8 @@ module.exports = {
   buscarDocumentos,
   resumenPipeline,
   buscarCliente,
+  consultarCatalogoTecnicoTool,
+  consultarFaqSolarTool,
   registrarAprendizajeNegocio,
   listarAprendizajesPendientes,
   confirmarAprendizajeTool,
@@ -489,4 +566,5 @@ module.exports = {
   ejecutarTool,
   CATALOGO_TOOLS,
   IMPLEMENTACIONES,
+  TOOLS_SOLO_GERENCIAL,
 };

@@ -30,10 +30,11 @@ jest.mock('../modules/kce', () => ({
 
 const {
   tareasAbiertas, proyectosEnRiesgo, decisionesRecientes, buscarDocumentos,
-  resumenPipeline, buscarCliente, ejecutarTool, CATALOGO_TOOLS, IMPLEMENTACIONES,
+  resumenPipeline, buscarCliente, ejecutarTool, CATALOGO_TOOLS, IMPLEMENTACIONES, TOOLS_SOLO_GERENCIAL,
   registrarAprendizajeNegocio, listarAprendizajesPendientes,
   confirmarAprendizajeTool, rechazarAprendizajeTool, marcarAprendizajeObsoletoTool,
   ejecutarKceTool, listarAlertasKceTool, aplicarRefuerzoKceTool, fusionarAprendizajesTool, resolverAlertaKceTool,
+  consultarCatalogoTecnicoTool, consultarFaqSolarTool,
 } = require('../modules/operador-tools');
 
 // ─── Mock builder: registra cada llamada (.eq/.in/.or) para poder afirmar
@@ -206,6 +207,83 @@ describe('operador-tools', () => {
       for (const tool of CATALOGO_TOOLS) {
         expect(typeof IMPLEMENTACIONES[tool.function.name]).toBe('function');
       }
+    });
+  });
+
+  describe('Centro de Conocimiento (Alina, 2026-09-15) — consultar_catalogo_tecnico / consultar_faq_solar', () => {
+    const ALCANCE_EMPRESA = { nivel: 'empresa', company_id: COMPANY_A };
+
+    test('consultarCatalogoTecnicoTool exige alcance de empresa', async () => {
+      await expect(consultarCatalogoTecnicoTool({}, { nivel: 'plataforma' }, { texto: 'Growatt' }))
+        .rejects.toThrow('una empresa específica');
+    });
+
+    test('consultarCatalogoTecnicoTool sin match devuelve un texto honesto, nunca inventa', async () => {
+      const db = crearMockDb({ productos: () => ({ data: [], error: null }) });
+      const resultado = await consultarCatalogoTecnicoTool(db, ALCANCE_EMPRESA, { texto: 'marca inexistente' });
+      expect(resultado).toMatch(/no se encontró/i);
+    });
+
+    test('consultarCatalogoTecnicoTool con match devuelve el catálogo real formateado', async () => {
+      const db = crearMockDb({
+        productos: () => ({
+          data: [{ marca: 'Growatt', modelo: 'MIN 4000TL-X', tipo: 'inversor', activo: true, specs: { potencia_ac_nominal_kw: 4 }, ficha_tecnica_completa: true, costo_proveedor: 6000, margen: 3500 }],
+          error: null,
+        }),
+      });
+      const resultado = await consultarCatalogoTecnicoTool(db, ALCANCE_EMPRESA, { texto: 'Growatt MIN 4000TL-X' });
+      expect(resultado).toContain('Growatt');
+      expect(resultado).not.toContain('6000'); // costo_proveedor nunca sale de aquí
+    });
+
+    test('consultarFaqSolarTool exige alcance de empresa', async () => {
+      await expect(consultarFaqSolarTool({}, { nivel: 'organizacion', organization_id: 'org-1' }, { texto: 'apagones' }))
+        .rejects.toThrow('una empresa específica');
+    });
+
+    test('consultarFaqSolarTool sin match devuelve un texto honesto', async () => {
+      const db = crearMockDb({ solar_faq: () => ({ data: [], error: null }) });
+      const resultado = await consultarFaqSolarTool(db, ALCANCE_EMPRESA, { texto: 'algo sin relación' });
+      expect(resultado).toMatch(/no hay ninguna pregunta frecuente/i);
+    });
+
+    test('ambas tools están en CATALOGO_TOOLS y no exponen company_id', () => {
+      const nombres = CATALOGO_TOOLS.map((t) => t.function.name);
+      expect(nombres).toContain('consultar_catalogo_tecnico');
+      expect(nombres).toContain('consultar_faq_solar');
+    });
+  });
+
+  describe('TOOLS_SOLO_GERENCIAL — Modo Operador abierto a toda la empresa, memoria empresarial sigue gerencial-only', () => {
+    const ALCANCE_EMPRESA = { nivel: 'empresa', company_id: COMPANY_A };
+    const ASESOR = { id: 'user-2', rol: 'asesor' };
+    const GERENTE = { id: 'user-1', rol: 'owner' };
+
+    test.each([...TOOLS_SOLO_GERENCIAL])('%s rechaza a un usuario no gerencial sin tocar la implementación', async (nombreTool) => {
+      const db = crearMockDb({});
+      await expect(ejecutarTool(nombreTool, {}, db, ALCANCE_EMPRESA, ASESOR)).rejects.toThrow('rol gerencial');
+    });
+
+    test('una tool NO listada en TOOLS_SOLO_GERENCIAL (ej. tareas_abiertas) corre normal para un asesor', async () => {
+      const db = crearMockDb({ tareas: () => ({ data: [], error: null }) });
+      await expect(ejecutarTool('tareas_abiertas', {}, db, ALCANCE_EMPRESA, ASESOR)).resolves.toEqual([]);
+    });
+
+    test('consultar_catalogo_tecnico corre normal para un asesor (no es gerencial-only)', async () => {
+      const db = crearMockDb({ productos: () => ({ data: [], error: null }) });
+      await expect(ejecutarTool('consultar_catalogo_tecnico', { texto: 'Growatt' }, db, ALCANCE_EMPRESA, ASESOR))
+        .resolves.toMatch(/no se encontró/i);
+    });
+
+    test('sin usuario (undefined), una tool gerencial-only también se rechaza — nunca asume gerencial por default', async () => {
+      const db = crearMockDb({});
+      await expect(ejecutarTool('ejecutar_kce', {}, db, ALCANCE_EMPRESA, undefined)).rejects.toThrow('rol gerencial');
+    });
+
+    test('un gerente sigue pudiendo usar las tools de memoria empresarial (sin regresión)', async () => {
+      mockListarPropuestasPendientes.mockResolvedValue([]);
+      const db = crearMockDb({});
+      await expect(ejecutarTool('listar_aprendizajes_pendientes', {}, db, ALCANCE_EMPRESA, GERENTE)).resolves.toEqual([]);
     });
   });
 

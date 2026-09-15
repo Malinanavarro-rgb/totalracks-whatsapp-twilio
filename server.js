@@ -1264,14 +1264,17 @@ app.post('/api/crm/clientes/:id/preguntar', requireAuth, async (req, res) => {
 
 // Modo Operador — Nivel 3 (Empresa). El alcance SIEMPRE se calcula aquí, a
 // partir de la sesión ya autenticada — nunca viene del body de la petición.
-// Ver modules/operador-engine.js / modules/operador-tools.js. Gateado a
-// roles gerenciales, mismo criterio que Suscripción y Facturación.
+// Ver modules/operador-engine.js / modules/operador-tools.js.
+//
+// Centro de Conocimiento (Alina, 2026-09-15): antes gateado solo a roles
+// gerenciales — se abre a cualquier persona autenticada de la empresa
+// (asesores, instaladores, postventa) para que puedan consultar catálogo
+// técnico y FAQ igual que gerencia. Las tools sensibles de memoria
+// empresarial (Business Memory Core/KCE) siguen siendo gerenciales-only,
+// ahora enforced dentro de modules/operador-tools.js::ejecutarTool()
+// (TOOLS_SOLO_GERENCIAL) — no dependen ya de este gate de la ruta.
 app.post('/api/operador/preguntar', requireAuth, async (req, res) => {
   try {
-    if (!esGerencial(req.usuario.rol)) {
-      return res.status(403).json({ error: 'No tienes acceso a Modo Operador' });
-    }
-
     const { pregunta } = req.body || {};
     if (!pregunta || !pregunta.trim()) return res.status(400).json({ error: 'pregunta requerida' });
 
