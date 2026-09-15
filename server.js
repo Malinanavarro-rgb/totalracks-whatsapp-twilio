@@ -41,7 +41,7 @@ const { resolverEvento }                = require('./modules/agenda-engine/recom
 const { calcularCambiosNombreEmpresa }  = require('./modules/nombre-cliente');
 const { preguntar: preguntarOperador }  = require('./modules/operador-engine');
 const { resolverOCrearHilo, registrarMensaje, listarHilos, obtenerHilo, listarMensajesDeHilo, actualizarHilo } = require('./modules/inbox');
-const { analizarHilo, programarAnalisis, obtenerAnalisisHilo } = require('./modules/inbox-analisis');
+const { analizarHilo, analizarConversacionPegada, programarAnalisis, obtenerAnalisisHilo } = require('./modules/inbox-analisis');
 const { tipoContenidoDeMime, subirAdjunto, generarUrlFirmada } = require('./modules/inbox-adjuntos');
 const { asociarSiHaySesionDeCotizacionActiva, listarAdjuntosDeCotizacion } = require('./modules/cotizacion-adjuntos');
 const { marcarPredimensionamientoRevisado, marcarIngenieriaValidada, puedeEnviarCotizacion, autorizarPrecioFinal } = require('./modules/cotizaciones');
@@ -952,6 +952,21 @@ app.post('/api/inbox/hilos/:hiloId/analisis', requireAuth, async (req, res) => {
       supabase: supabaseServicio, openaiClient: openai, company_id: req.usuario.company_id,
       hilo_id: hilo.id, cliente_id: hilo.cliente_id, hilo,
     });
+    res.json(analisis);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Sales Coach (Centro de Conocimiento, Fase 2) — variante de análisis para una
+// conversación pegada manualmente por el equipo, sin hilo real en el sistema.
+// No persiste nada: el resultado se devuelve tal cual para mostrarse en pantalla.
+app.post('/api/inbox/analizar-texto', requireAuth, async (req, res) => {
+  try {
+    const { texto, notaEquipo } = req.body || {};
+    if (!texto || !texto.trim()) return res.status(400).json({ error: 'texto requerido' });
+
+    const analisis = await analizarConversacionPegada({ openaiClient: openai, texto, notaEquipo });
     res.json(analisis);
   } catch (e) {
     res.status(500).json({ error: e.message });

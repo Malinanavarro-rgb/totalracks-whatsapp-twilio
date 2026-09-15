@@ -28,7 +28,9 @@ const DEBOUNCE_MS_DEFAULT = 60 * 1000;
 const SYSTEM_PROMPT = [
   'Eres el Motor de Decisiones de TARA — analizas una conversación completa de un negocio con un cliente',
   'y piensas como lo haría el mejor gerente comercial de ese negocio: qué está pasando, qué tan urgente es,',
-  'y qué debería hacer el equipo humano a continuación.',
+  'y qué debería hacer el equipo humano a continuación. También eres el coach del asesor que atendió (o está',
+  'atendiendo) esta conversación — evalúas su desempeño como lo haría un gerente comercial experimentado',
+  'dando retroalimentación directa y útil, nunca genérica.',
   'Básate ÚNICAMENTE en la conversación y el contexto del cliente que se te da — nunca inventes datos,',
   'cifras, productos o promesas que no aparezcan explícitamente ahí.',
   'Responde SIEMPRE en este formato JSON exacto, sin texto fuera del JSON:',
@@ -40,9 +42,16 @@ const SYSTEM_PROMPT = [
   ' "riesgos": ["riesgo 1", ...] (vacío si no hay ninguno real),',
   ' "recomendaciones": ["recomendación breve y accionable", ...],',
   ' "proxima_accion": "la única acción más importante a seguir, en una frase",',
-  ' "tareas_sugeridas": ["tarea breve", ...] (vacío si no hace falta ninguna)}',
+  ' "tareas_sugeridas": ["tarea breve", ...] (vacío si no hace falta ninguna),',
+  ' "aciertos_asesor": ["qué hizo bien el asesor humano en esta conversación", ...] (vacío si el asesor',
+  '   todavía no ha participado o no hay nada real que destacar — nunca inventes un acierto para rellenar),',
+  ' "errores_asesor": ["qué hizo mal o pudo hacer mejor: preguntas innecesarias o repetidas, datos que no',
+  '   recolectó, promesas sin confirmar, tono, lentitud, etc.", ...] (vacío si no hay ninguno real),',
+  ' "respuesta_recomendada": "el siguiente mensaje que el asesor debería enviar ahora, listo para copiar y',
+  '   pegar tal cual — null si la conversación ya está cerrada/resuelta y no aplica un siguiente mensaje"}',
   'Si la conversación es demasiado corta para saber algo con certeza, dilo con honestidad dentro de',
-  '"resumen" en vez de inventar — probabilidad_compra puede ser baja y riesgos/recomendaciones pueden ir vacíos.',
+  '"resumen" en vez de inventar — probabilidad_compra puede ser baja y riesgos/recomendaciones/aciertos_asesor/',
+  'errores_asesor pueden ir vacíos y respuesta_recomendada puede ir null.',
 ].join(' ');
 
 function _armarContexto({ hilo, cliente, historial, citas, oportunidades, memoriaEmpresarial }) {
@@ -79,6 +88,9 @@ function _normalizar(analisis) {
     recomendaciones:     Array.isArray(analisis?.recomendaciones) ? analisis.recomendaciones.filter(r => typeof r === 'string') : [],
     proxima_accion:      typeof analisis?.proxima_accion === 'string' ? analisis.proxima_accion : null,
     tareas_sugeridas:     Array.isArray(analisis?.tareas_sugeridas) ? analisis.tareas_sugeridas.filter(t => typeof t === 'string') : [],
+    aciertos_asesor:     Array.isArray(analisis?.aciertos_asesor) ? analisis.aciertos_asesor.filter(a => typeof a === 'string') : [],
+    errores_asesor:      Array.isArray(analisis?.errores_asesor) ? analisis.errores_asesor.filter(e => typeof e === 'string') : [],
+    respuesta_recomendada: typeof analisis?.respuesta_recomendada === 'string' ? analisis.respuesta_recomendada : null,
   };
 }
 
@@ -130,6 +142,51 @@ async function analizarHilo({ supabase, openaiClient, company_id, hilo_id, clien
   return analisis;
 }
 
+function _armarContextoDesdeTexto({ texto, notaEquipo }) {
+  const partes = [
+    'Conversación pegada manualmente por el equipo — no proviene de un hilo real de hilos/mensajes,',
+    'así que no hay ficha de cliente, citas ni oportunidades del CRM disponibles: analiza únicamente',
+    'con lo que aparece en el texto.',
+    notaEquipo ? `Contexto adicional dado por quien pegó la conversación: ${notaEquipo}` : null,
+    `Conversación completa:\n${texto}`,
+  ];
+  return partes.filter(Boolean).join('\n\n');
+}
+
+/**
+ * Variante de `analizarHilo` para una conversación pegada manualmente (no
+ * ligada a un hilo real en `hilos`/`mensajes`) — mismo prompt, mismo motor,
+ * sin lookups de CRM y sin persistir en `analisis_hilo` (no hay `hilo_id`
+ * real al que asociar el resultado; el llamador decide qué hacer con él).
+ *
+ * @param {Object} opciones
+ * @param {{chat: {completions: {create: Function}}}} opciones.openaiClient
+ * @param {string} opciones.texto - la conversación pegada, tal cual
+ * @param {string} [opciones.notaEquipo] - contexto adicional opcional (p.ej. "es un cliente de Nort Energy interesado en 6kW")
+ * @param {string} [opciones.modelo]
+ * @returns {Promise<Object>} el análisis normalizado (mismo shape que analizarHilo, sin persistir)
+ */
+async function analizarConversacionPegada({ openaiClient, texto, notaEquipo, modelo = MODELO_DEFAULT }) {
+  if (!texto || !texto.trim()) throw new Error('inbox-analisis.analizarConversacionPegada: texto requerido');
+
+  const contexto = _armarContextoDesdeTexto({ texto, notaEquipo });
+
+  const respuesta = await openaiClient.chat.completions.create({
+    model: modelo,
+    messages: [
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: contexto },
+    ],
+    response_format: { type: 'json_object' },
+    temperature: 0.3,
+  });
+
+  let analisisCrudo = {};
+  try { analisisCrudo = JSON.parse(respuesta.choices[0].message.content); } catch { /* queda con defaults */ }
+
+  return _normalizar(analisisCrudo);
+}
+
 // ── Debounce (en memoria, un solo proceso — igual criterio que enqueueForPhone en server.js) ──
 
 const _timersPorHilo = new Map();
@@ -169,4 +226,4 @@ async function obtenerAnalisisHilo(supabase, hilo_id) {
   return data;
 }
 
-module.exports = { analizarHilo, programarAnalisis, obtenerAnalisisHilo, SYSTEM_PROMPT, DEBOUNCE_MS_DEFAULT };
+module.exports = { analizarHilo, analizarConversacionPegada, programarAnalisis, obtenerAnalisisHilo, SYSTEM_PROMPT, DEBOUNCE_MS_DEFAULT };

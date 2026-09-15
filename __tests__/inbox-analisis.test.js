@@ -14,7 +14,7 @@ jest.mock('../modules/business-memory-core', () => ({
   resumenParaCliente: (...args) => mockResumenParaCliente(...args),
 }));
 
-const { analizarHilo, programarAnalisis, DEBOUNCE_MS_DEFAULT } = require('../modules/inbox-analisis');
+const { analizarHilo, analizarConversacionPegada, programarAnalisis, DEBOUNCE_MS_DEFAULT } = require('../modules/inbox-analisis');
 
 function crearMockSupabase(resultadoUpsert = { error: null }) {
   const upsert = jest.fn().mockResolvedValue(resultadoUpsert);
@@ -85,6 +85,38 @@ describe('inbox-analisis', () => {
       expect(resultado.riesgos).toEqual([]);             // default si no es arreglo
     });
 
+    test('Sales Coach: guarda aciertos/errores del asesor y la respuesta recomendada', async () => {
+      const supabase = crearMockSupabase();
+      const openaiClient = { chat: { completions: { create: jest.fn().mockResolvedValue(respuestaIA({
+        aciertos_asesor: ['Confirmó el nombre del cliente de entrada'],
+        errores_asesor: ['Preguntó el mismo dato dos veces', 'No pidió la dirección'],
+        respuesta_recomendada: 'Claro, para armar tu cotización ¿me compartes tu dirección?',
+      })) } } };
+
+      const resultado = await analizarHilo({ supabase, openaiClient, company_id: 'c1', hilo_id: 'hilo-1', cliente_id: 60, hilo: HILO });
+
+      expect(resultado.aciertos_asesor).toEqual(['Confirmó el nombre del cliente de entrada']);
+      expect(resultado.errores_asesor).toEqual(['Preguntó el mismo dato dos veces', 'No pidió la dirección']);
+      expect(resultado.respuesta_recomendada).toBe('Claro, para armar tu cotización ¿me compartes tu dirección?');
+      expect(supabase._upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ errores_asesor: ['Preguntó el mismo dato dos veces', 'No pidió la dirección'] }),
+        { onConflict: 'hilo_id' }
+      );
+    });
+
+    test('Sales Coach: campos de coaching con tipo incorrecto caen a default seguro', async () => {
+      const supabase = crearMockSupabase();
+      const openaiClient = { chat: { completions: { create: jest.fn().mockResolvedValue(respuestaIA({
+        aciertos_asesor: 'no es un arreglo', errores_asesor: null, respuesta_recomendada: 12345,
+      })) } } };
+
+      const resultado = await analizarHilo({ supabase, openaiClient, company_id: 'c1', hilo_id: 'hilo-1', cliente_id: 60, hilo: HILO });
+
+      expect(resultado.aciertos_asesor).toEqual([]);
+      expect(resultado.errores_asesor).toEqual([]);
+      expect(resultado.respuesta_recomendada).toBeNull();
+    });
+
     test('respuesta de IA no es JSON válido: no lanza, usa defaults seguros', async () => {
       const supabase = crearMockSupabase();
       const openaiClient = { chat: { completions: { create: jest.fn().mockResolvedValue({ choices: [{ message: { content: 'esto no es json' } }] }) } } };
@@ -143,6 +175,64 @@ describe('inbox-analisis', () => {
       await analizarHilo({ supabase, openaiClient, company_id: 'c1', hilo_id: 'hilo-1', cliente_id: 60, hilo: HILO });
       const mensajeUsuario = openaiClient.chat.completions.create.mock.calls[0][0].messages[1].content;
       expect(mensajeUsuario).not.toContain('Memoria empresarial confirmada');
+    });
+  });
+
+  describe('analizarConversacionPegada() — Sales Coach, conversación pegada manualmente', () => {
+    test('arma el contexto desde el texto pegado (sin tocar CRM/historial) y devuelve el análisis normalizado', async () => {
+      const openaiClient = { chat: { completions: { create: jest.fn().mockResolvedValue(respuestaIA({
+        resumen: 'Cliente pregunta por instalación de 6kW, asesor no pidió dirección.',
+        probabilidad_compra: 55,
+        errores_asesor: ['No pidió la dirección del sitio'],
+        respuesta_recomendada: '¿Me compartes la dirección donde sería la instalación?',
+      })) } } };
+
+      const resultado = await analizarConversacionPegada({
+        openaiClient,
+        texto: 'Cliente: hola quiero un sistema de 6kW\nAsesor: claro, ¿qué presupuesto manejas?',
+      });
+
+      expect(mockObtenerHistorial).not.toHaveBeenCalled();
+      expect(mockObtenerFichaCliente).not.toHaveBeenCalled();
+
+      const mensajeUsuario = openaiClient.chat.completions.create.mock.calls[0][0].messages[1].content;
+      expect(mensajeUsuario).toContain('pegada manualmente');
+      expect(mensajeUsuario).toContain('Cliente: hola quiero un sistema de 6kW');
+
+      expect(resultado.probabilidad_compra).toBe(55);
+      expect(resultado.errores_asesor).toEqual(['No pidió la dirección del sitio']);
+      expect(resultado.respuesta_recomendada).toBe('¿Me compartes la dirección donde sería la instalación?');
+    });
+
+    test('incluye la nota adicional del equipo en el contexto cuando se proporciona', async () => {
+      const openaiClient = { chat: { completions: { create: jest.fn().mockResolvedValue(respuestaIA({})) } } };
+
+      await analizarConversacionPegada({
+        openaiClient,
+        texto: 'Cliente: hola',
+        notaEquipo: 'Es un lead de Nort Energy interesado en 6kW',
+      });
+
+      const mensajeUsuario = openaiClient.chat.completions.create.mock.calls[0][0].messages[1].content;
+      expect(mensajeUsuario).toContain('Es un lead de Nort Energy interesado en 6kW');
+    });
+
+    test('sin texto: lanza sin llamar a OpenAI', async () => {
+      const openaiClient = { chat: { completions: { create: jest.fn() } } };
+
+      await expect(analizarConversacionPegada({ openaiClient, texto: '' })).rejects.toThrow('texto requerido');
+      await expect(analizarConversacionPegada({ openaiClient, texto: '   ' })).rejects.toThrow('texto requerido');
+      expect(openaiClient.chat.completions.create).not.toHaveBeenCalled();
+    });
+
+    test('respuesta de IA no es JSON válido: no lanza, usa defaults seguros', async () => {
+      const openaiClient = { chat: { completions: { create: jest.fn().mockResolvedValue({ choices: [{ message: { content: 'no es json' } }] }) } } };
+
+      const resultado = await analizarConversacionPegada({ openaiClient, texto: 'Cliente: hola' });
+
+      expect(resultado.urgencia).toBe('baja');
+      expect(resultado.aciertos_asesor).toEqual([]);
+      expect(resultado.respuesta_recomendada).toBeNull();
     });
   });
 
