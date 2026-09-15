@@ -12,7 +12,7 @@
 
 'use strict';
 
-const { Orchestrator, RESPUESTA_EMERGENCIA, parsearHoraPreferida } = require('../modules/orchestrator');
+const { Orchestrator, RESPUESTA_EMERGENCIA, parsearHoraPreferida, resolverServicioDesdeTexto, esAcuseAmbiguo } = require('../modules/orchestrator');
 const { ContextBuilder }  = require('../modules/context-builder');
 const { PromptBuilder }   = require('../modules/prompt-builder');
 const { AIEngine }        = require('../modules/ai-engine');
@@ -682,6 +682,7 @@ describe('Orchestrator — acciones propuestas (stub FASE 4)', () => {
       'Rack Selectivo',    // aiOutput.categoria_principal (del mock de AI)
       expect.any(String),  // ctx.mensaje_actual
       expect.any(Array),   // aiOutput.intenciones
+      {},                  // ctx.capturedFields — sin workflow activo en este turno (Alina, 2026-09-15)
     );
   });
 
@@ -1194,7 +1195,30 @@ describe('Orchestrator + WorkflowEngine — sin_disponibilidad reabre sesión (T
     expect(wfEngine.iniciarSesion).toHaveBeenCalledWith('company-uuid-001', 42, null, 'wf-test-001');
   });
 
-  test('resultado exitoso (sin tipo sin_disponibilidad) no reabre sesión y conserva el texto de la IA', async () => {
+  test('auditoría Nort Energy (2026-09-15): resultado {tipo: faltan_datos} también reabre sesión (mismo criterio que sin_disponibilidad) — pregunta el dato, nunca confirma', async () => {
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoFinalConAccion),
+      avanzar:             jest.fn().mockResolvedValue({
+        sesion:         { ...sesionEnProceso, status: 'completado', captured_fields: { hora_preferida: '10:00' } },
+        completado:     true,
+        siguiente_nodo: null,
+      }),
+    });
+    const actionRunner = {
+      ejecutar: jest.fn().mockResolvedValue({ tipo: 'faltan_datos', campos: ['direccion'] }),
+    };
+    const deps = makeDeps({ workflowEngine: wfEngine, actionRunner });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage({ content: '10:00' }));
+
+    expect(resultado.respuesta_texto).toMatch(/dirección/i);
+    expect(resultado.respuesta_texto).not.toMatch(/quedó agendad/i);
+    expect(wfEngine.iniciarSesion).toHaveBeenCalledWith('company-uuid-001', 42, null, 'wf-test-001');
+  });
+
+  test('resultado exitoso (tipo agendada) no reabre sesión y no usa el texto de la IA — confirma desde la cita real', async () => {
     const wfEngine = makeWorkflowEngine({
       obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
       obtenerNodoActual:   jest.fn().mockResolvedValue(nodoFinalConAccion),
@@ -1204,7 +1228,13 @@ describe('Orchestrator + WorkflowEngine — sin_disponibilidad reabre sesión (T
         siguiente_nodo: null,
       }),
     });
-    const actionRunner = { ejecutar: jest.fn().mockResolvedValue({ tipo: 'agendada', cita: { id: 'cita-1' } }) };
+    const actionRunner = {
+      ejecutar: jest.fn().mockResolvedValue({
+        tipo: 'agendada',
+        cita: { id: 'cita-1', inicio: '2026-08-12T22:00:00.000Z' },
+        servicio: { nombre: 'Balayage' },
+      }),
+    };
     const deps = makeDeps({ workflowEngine: wfEngine, actionRunner });
     const orch = new Orchestrator(deps);
 
@@ -1212,6 +1242,33 @@ describe('Orchestrator + WorkflowEngine — sin_disponibilidad reabre sesión (T
 
     expect(wfEngine.iniciarSesion).not.toHaveBeenCalled();
     expect(resultado.respuesta_texto).not.toContain('Opciones libres');
+    // El texto viene de la cita real (servicio + fecha real), nunca de un
+    // texto libre del modelo que se generó antes de saber si se agendó.
+    expect(resultado.respuesta_texto).toContain('Balayage');
+    expect(resultado.respuesta_texto).toMatch(/agendada/);
+  });
+
+  test('resultado exitoso sin datos de cita (ej. otra acción distinta a agendar) sí conserva el texto de la IA', async () => {
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoFinalConAccion),
+      avanzar:             jest.fn().mockResolvedValue({
+        sesion:         { ...sesionEnProceso, status: 'completado' },
+        completado:     true,
+        siguiente_nodo: null,
+      }),
+    });
+    const actionRunner = { ejecutar: jest.fn().mockResolvedValue({ estado_calculo: 'completo' }) };
+    const deps = makeDeps({ workflowEngine: wfEngine, actionRunner });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage({ content: '10:00' }));
+
+    expect(wfEngine.iniciarSesion).not.toHaveBeenCalled();
+    expect(resultado.respuesta_texto).not.toContain('Opciones libres');
+    // Sin {tipo: 'agendada', cita} en el resultado, se conserva el texto que
+    // generó el AIEngine (MockProvider siempre lo prefija con "[MOCK]").
+    expect(resultado.respuesta_texto).toContain('[MOCK]');
   });
 
   test('captured_fields de la sesión completada llega al handler vía ctx.capturedFields', async () => {
@@ -1234,6 +1291,36 @@ describe('Orchestrator + WorkflowEngine — sin_disponibilidad reabre sesión (T
       nodoFinalConAccion.acciones[0],
       expect.objectContaining({ capturedFields: { hora_preferida: '11:00' } })
     );
+  });
+});
+
+// ── esAcuseAmbiguo() — auditoría Nort Energy, 2026-09-15 ─────────────────────
+
+describe('esAcuseAmbiguo()', () => {
+  test('"Ok" ante una pregunta con dos opciones explícitas → ambiguo', () => {
+    expect(esAcuseAmbiguo('Ok', '¿Te funciona jueves o viernes?')).toBe(true);
+  });
+
+  test('"Sí" ante una pregunta con dos opciones → ambiguo', () => {
+    expect(esAcuseAmbiguo('Sí', '¿Prefieres pagar de contado o financiado?')).toBe(true);
+  });
+
+  test('"Ok" ante una pregunta binaria de una sola lectura → NO ambiguo', () => {
+    expect(esAcuseAmbiguo('Ok', '¿Confirmamos tu cita para mañana a las 10am?')).toBe(false);
+  });
+
+  test('una respuesta con contenido real (no un acuse genérico) → NO ambiguo, aunque haya opciones', () => {
+    expect(esAcuseAmbiguo('Jueves', '¿Te funciona jueves o viernes?')).toBe(false);
+  });
+
+  test('mensaje vacío → NO ambiguo (lo maneja el guard de campo requerido, no este)', () => {
+    expect(esAcuseAmbiguo('', '¿Te funciona jueves o viernes?')).toBe(false);
+  });
+
+  test('variantes comunes de acuse (va, dale, claro, está bien) también cuentan', () => {
+    for (const acuse of ['va', 'dale', 'claro', 'está bien', 'de acuerdo']) {
+      expect(esAcuseAmbiguo(acuse, '¿Lo prefieres en efectivo o transferencia?')).toBe(true);
+    }
   });
 });
 
@@ -1275,6 +1362,72 @@ describe('parsearHoraPreferida()', () => {
   test('fin respeta duracionMinutos', () => {
     const { inicio, fin } = parsearHoraPreferida('10:00', { fecha: FECHA_BASE, duracionMinutos: 45 });
     expect(fin.getTime() - inicio.getTime()).toBe(45 * 60000);
+  });
+});
+
+// ── resolverServicioDesdeTexto() — bug real LUMÉ Hair Studio, 2026-08-11 ───────
+// agendar_cita_con_horario_solicitado nunca leía el servicio_elegido contra
+// el catálogo real — toda cita por WhatsApp quedaba con 30 min fijos.
+
+function crearSupabaseServicios(servicios) {
+  return {
+    from: jest.fn(() => ({
+      select: jest.fn().mockReturnThis(),
+      eq:     jest.fn().mockReturnThis(),
+      then:   (resolve) => resolve({ data: servicios, error: null }),
+    })),
+  };
+}
+
+describe('resolverServicioDesdeTexto()', () => {
+  const SERVICIOS_LUME = [
+    { id: 's1', nombre: 'Corte de cabello mujer', duracion_minutos: 60, precio: 450 },
+    { id: 's2', nombre: 'Corte + lavado + peinado', duracion_minutos: 90, precio: 650 },
+    { id: 's3', nombre: 'Balayage', duracion_minutos: 180, precio: 2500 },
+    { id: 's4', nombre: 'Retoque de raíz', duracion_minutos: 90, precio: 900 },
+  ];
+
+  test('match exacto por nombre completo', async () => {
+    const supabase = crearSupabaseServicios(SERVICIOS_LUME);
+    const resultado = await resolverServicioDesdeTexto(supabase, 'company-a', 'Balayage');
+    expect(resultado?.id).toBe('s3');
+    expect(resultado?.duracion_minutos).toBe(180);
+  });
+
+  test('match dentro de una frase natural del cliente', async () => {
+    const supabase = crearSupabaseServicios(SERVICIOS_LUME);
+    const resultado = await resolverServicioDesdeTexto(supabase, 'company-a', 'quiero hacerme un balayage por favor');
+    expect(resultado?.id).toBe('s3');
+  });
+
+  test('ignora acentos al comparar (raíz vs raiz)', async () => {
+    const supabase = crearSupabaseServicios(SERVICIOS_LUME);
+    const resultado = await resolverServicioDesdeTexto(supabase, 'company-a', 'retoque de raiz por favor');
+    expect(resultado?.id).toBe('s4');
+  });
+
+  test('elige el servicio con más palabras coincidentes cuando hay varios parecidos', async () => {
+    const supabase = crearSupabaseServicios(SERVICIOS_LUME);
+    const resultado = await resolverServicioDesdeTexto(supabase, 'company-a', 'corte lavado y peinado');
+    expect(resultado?.id).toBe('s2'); // 3 palabras en común, contra 1 de "Corte de cabello mujer"
+  });
+
+  test('texto vacío o null → null, nunca lanza', async () => {
+    const supabase = crearSupabaseServicios(SERVICIOS_LUME);
+    expect(await resolverServicioDesdeTexto(supabase, 'company-a', null)).toBeNull();
+    expect(await resolverServicioDesdeTexto(supabase, 'company-a', '')).toBeNull();
+  });
+
+  test('sin servicios configurados en la empresa → null', async () => {
+    const supabase = crearSupabaseServicios([]);
+    const resultado = await resolverServicioDesdeTexto(supabase, 'company-a', 'balayage');
+    expect(resultado).toBeNull();
+  });
+
+  test('ningún servicio coincide con el texto → null, nunca inventa', async () => {
+    const supabase = crearSupabaseServicios(SERVICIOS_LUME);
+    const resultado = await resolverServicioDesdeTexto(supabase, 'company-a', 'quiero un masaje relajante');
+    expect(resultado).toBeNull();
   });
 });
 
@@ -1550,6 +1703,50 @@ describe('Orchestrator — Bug #4: datos de turnos anteriores (captured_fields)'
       { empresa: 'Norte SA' }
     );
   });
+
+  test('auditoría Nort Energy (2026-09-15): el NODO ACTUAL también usa captured_fields ya guardado — no depende de que la IA re-extraiga el mismo dato de un mensaje sintético (ej. resumen de recibo CFE)', async () => {
+    // Escenario real: modules/recibo-cfe.js ya corrió ANTES del turno actual
+    // (server.js, síncrono) y guardó "empresa" en captured_fields vía
+    // preSalvarDatosExtraidos — pero el mensaje de este turno es la foto
+    // (reemplazada por un resumen sintético), y la IA no vuelve a extraer
+    // "empresa" de ese resumen (datos_extraidos vacío). Antes de este fix,
+    // avanzar() se llamaba con el mensaje crudo (el resumen sintético
+    // completo) como si fuera la respuesta — ahora debe usar el valor ya
+    // guardado.
+    const sesionConDatoPreGuardado = {
+      ...sesionEnProceso,
+      current_node:    'empresa', // mismo nodo que nodoIntermedio (campo: 'empresa')
+      captured_fields: { nombre_contacto: 'Luis', empresa: 'Norte SA' }, // ya guardado ESTE turno
+    };
+
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionConDatoPreGuardado),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoIntermedio), // campo: 'empresa'
+      avanzar: jest.fn().mockResolvedValue({
+        sesion:         { ...sesionConDatoPreGuardado, current_node: 'tipo_proyecto' },
+        completado:     false,
+        siguiente_nodo: { ...nodoIntermedio, nombre: 'tipo_proyecto', campo: 'tipo_proyecto', pregunta: '¿Qué van a almacenar?', siguiente_nodo: null },
+      }),
+    });
+
+    // La IA no extrajo "empresa" de este turno — el mensaje es un resumen sintético de un adjunto
+    const aiEngine = makeAIConIntenciones(['consulta_general'], 'Perfecto, ya tengo tus datos.');
+    aiEngine.procesar.mockResolvedValue({
+      ...(await aiEngine.procesar()),
+      datos_extraidos: {}, // vacío a propósito
+    });
+
+    const deps = makeDeps({ workflowEngine: wfEngine, aiEngine });
+    const orch = new Orchestrator(deps);
+
+    await orch.procesarMensaje(makeMessage({
+      content: 'El cliente envió su recibo de CFE. Datos leídos automáticamente del recibo: consumo aprox. 350 kWh/mes.',
+    }));
+
+    // avanzar() del nodo actual debe recibir el valor YA guardado ("Norte SA"),
+    // nunca el texto crudo del resumen sintético del adjunto.
+    expect(wfEngine.avanzar).toHaveBeenNthCalledWith(1, sesionConDatoPreGuardado, nodoIntermedio, 'Norte SA');
+  });
 });
 
 describe('Orchestrator — Bug #5: _extraerTransicion retorna máximo 1 oración', () => {
@@ -1779,5 +1976,178 @@ describe('Orchestrator — ADR-012: capacidades dinámicas por empresa (personal
 
     const aiInputUsado = logAISpy.mock.calls[0][1];
     expect(aiInputUsado.system_prompt).toContain('"crear_oportunidad"');
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Auditoría 2026-09-15 (Nort Energy) — acciones_propuestas nunca ejecuta ni
+// confirma fuera de las capacidades reales de la empresa
+// ═════════════════════════════════════════════════════════════════════════════
+describe('Orchestrator — acciones_propuestas filtradas por capacidades (auditoría Nort Energy)', () => {
+  function mockAIConAccion(tipo, respuesta_texto) {
+    return {
+      procesar: jest.fn().mockResolvedValue({
+        respuesta_texto,
+        categoria_principal: 'Sin clasificar',
+        datos_extraidos:     {},
+        intenciones:         ['consulta'],
+        sentimiento:         'Neutral',
+        etapa_sugerida:      null,
+        acciones_propuestas: [{ tipo, parametros: {} }],
+        confianza:           0.8,
+        tokens_entrada:      80,
+        tokens_salida:       40,
+        modelo_utilizado:    'mock',
+        proveedor_utilizado: 'mock',
+        latencia_ms:         5,
+      }),
+    };
+  }
+
+  it('empresa sin la capacidad habilitada: la acción NUNCA se ejecuta (ActionRunner.ejecutar no se llama)', async () => {
+    const mockAI = mockAIConAccion('agendar_cita_con_horario_solicitado', 'Tu visita quedó agendada para el jueves.');
+    const actionRunner = { ejecutar: jest.fn().mockResolvedValue({ tipo: 'agendada', cita: { inicio: new Date().toISOString() } }) };
+    const deps = makeDeps({ aiEngine: mockAI, actionRunner }); // personality.capacidades no definidas → default ['crear_oportunidad']
+    const orch = new Orchestrator(deps);
+
+    await orch.procesarMensaje(makeMessage());
+
+    expect(actionRunner.ejecutar).not.toHaveBeenCalled();
+  });
+
+  it('acción de agenda bloqueada: la respuesta NUNCA suena a confirmación sin respaldo — se reemplaza por texto honesto', async () => {
+    const mockAI = mockAIConAccion('agendar_cita_con_horario_solicitado', 'Tu visita quedó agendada para el jueves.');
+    const actionRunner = { ejecutar: jest.fn() };
+    const deps = makeDeps({ aiEngine: mockAI, actionRunner });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage());
+
+    expect(resultado.respuesta_texto).not.toBe('Tu visita quedó agendada para el jueves.');
+    expect(resultado.respuesta_texto).toMatch(/coordinar tu visita técnica/i);
+  });
+
+  it('acción NO sensible (fuera de capacidades) simplemente no corre — no reemplaza el texto del modelo', async () => {
+    const mockAI = mockAIConAccion('crear_ticket_soporte', 'Con gusto te ayudo con eso.');
+    const actionRunner = { ejecutar: jest.fn() };
+    const deps = makeDeps({ aiEngine: mockAI, actionRunner });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage());
+
+    expect(actionRunner.ejecutar).not.toHaveBeenCalled();
+    expect(resultado.respuesta_texto).toBe('Con gusto te ayudo con eso.');
+  });
+
+  it('empresa CON la capacidad habilitada y acción exitosa: confirma desde el resultado real, no desde el texto del modelo', async () => {
+    const empresaConCap = makeEmpresaRaw();
+    empresaConCap.personality.capacidades = ['crear_oportunidad', 'agendar_cita_con_horario_solicitado'];
+
+    const mockAI = mockAIConAccion('agendar_cita_con_horario_solicitado', 'Voy a checar disponibilidad y te aviso.');
+    const actionRunner = {
+      ejecutar: jest.fn().mockResolvedValue({
+        tipo: 'agendada',
+        cita: { inicio: '2026-09-18T16:00:00.000Z' },
+      }),
+    };
+    const deps = makeDeps({
+      aiEngine: mockAI, actionRunner,
+      obtenerConfigEmpresa: jest.fn().mockResolvedValue(empresaConCap),
+    });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage());
+
+    expect(actionRunner.ejecutar).toHaveBeenCalled();
+    expect(resultado.respuesta_texto).not.toBe('Voy a checar disponibilidad y te aviso.');
+    expect(resultado.respuesta_texto).toMatch(/quedó agendad/i);
+  });
+
+  it('empresa CON la capacidad habilitada pero faltan datos (faltan_datos): pregunta el dato, nunca confirma', async () => {
+    const empresaConCap = makeEmpresaRaw();
+    empresaConCap.personality.capacidades = ['crear_oportunidad', 'agendar_cita_con_horario_solicitado'];
+
+    const mockAI = mockAIConAccion('agendar_cita_con_horario_solicitado', 'Tu visita quedó agendada.');
+    const actionRunner = {
+      ejecutar: jest.fn().mockResolvedValue({ tipo: 'faltan_datos', campos: ['direccion'] }),
+    };
+    const deps = makeDeps({
+      aiEngine: mockAI, actionRunner,
+      obtenerConfigEmpresa: jest.fn().mockResolvedValue(empresaConCap),
+    });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage());
+
+    expect(resultado.respuesta_texto).not.toBe('Tu visita quedó agendada.');
+    expect(resultado.respuesta_texto).toMatch(/dirección/i);
+  });
+});
+
+describe('Orchestrator + WorkflowEngine — auditoría Nort Energy: acuse ambiguo ante nodo con varias opciones', () => {
+  test('"Ok" ante un nodo con pregunta de dos opciones → vuelve a preguntar, NO avanza ni captura "Ok" como respuesta', async () => {
+    const nodoConOpciones = {
+      nombre:         'preferencia_dia',
+      es_inicio:      false,
+      es_fin:         false,
+      pregunta:       '¿Te funciona jueves o viernes?',
+      campo:          'dia_preferido',
+      es_opcional:    false,
+      modo_respuesta: 'replace_ai',
+      siguiente_nodo: 'preguntar_hora',
+    };
+    const sesionSinDato = { ...sesionEnProceso, current_node: 'preferencia_dia', captured_fields: {} };
+
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionSinDato),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoConOpciones),
+    });
+
+    const aiEngine = makeAIConIntenciones(['consulta_general'], 'Perfecto.');
+    aiEngine.procesar.mockResolvedValue({
+      ...(await aiEngine.procesar()),
+      datos_extraidos: {}, // la IA no extrajo "jueves" ni "viernes" de "Ok"
+    });
+
+    const deps = makeDeps({ workflowEngine: wfEngine, aiEngine });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage({ content: 'Ok' }));
+
+    expect(wfEngine.avanzar).not.toHaveBeenCalled();
+    expect(resultado.respuesta_texto).toBe('¿Te funciona jueves o viernes?');
+  });
+
+  test('"Jueves" (respuesta real, no un acuse) ante el mismo nodo → SÍ avanza normalmente', async () => {
+    const nodoConOpciones = {
+      nombre:         'preferencia_dia',
+      es_inicio:      false,
+      es_fin:         false,
+      pregunta:       '¿Te funciona jueves o viernes?',
+      campo:          'dia_preferido',
+      es_opcional:    false,
+      modo_respuesta: 'replace_ai',
+      siguiente_nodo: null,
+    };
+    const sesionSinDato = { ...sesionEnProceso, current_node: 'preferencia_dia', captured_fields: {} };
+
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionSinDato),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoConOpciones),
+      avanzar: jest.fn().mockResolvedValue({
+        sesion: { ...sesionSinDato, captured_fields: { dia_preferido: 'Jueves' } },
+        completado: true, siguiente_nodo: null,
+      }),
+    });
+
+    const aiEngine = makeAIConIntenciones(['consulta_general'], 'Perfecto, jueves.');
+    aiEngine.procesar.mockResolvedValue({ ...(await aiEngine.procesar()), datos_extraidos: {} });
+
+    const deps = makeDeps({ workflowEngine: wfEngine, aiEngine });
+    const orch = new Orchestrator(deps);
+
+    await orch.procesarMensaje(makeMessage({ content: 'Jueves' }));
+
+    expect(wfEngine.avanzar).toHaveBeenCalledWith(sesionSinDato, nodoConOpciones, 'Jueves');
   });
 });

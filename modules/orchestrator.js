@@ -49,6 +49,12 @@ const RESPUESTA_EMERGENCIA = '¿Puedes repetir tu mensaje? Tuve un momento técn
 // FASE 4 (Action Runner) hará esto dinámico desde empresa_config.
 const CAPACIDADES_FASE2 = ['crear_oportunidad'];
 
+// Acciones cuyo texto de confirmación nunca debe salir del modelo sin que
+// la acción real haya corrido — si el modelo las propone fuera de las
+// capacidades de la empresa, el texto se reemplaza (ver
+// _textoDesdeResultadoDeAgenda), nunca se deja pasar la promesa sin respaldo.
+const ACCIONES_SENSIBLES_DE_AGENDA = ['agendar_cita', 'agendar_cita_con_horario_solicitado', 'reagendar_cita', 'cancelar_cita'];
+
 // ═════════════════════════════════════════════════════════════════════════════
 // ORCHESTRATOR
 // ═════════════════════════════════════════════════════════════════════════════
@@ -116,7 +122,8 @@ class Orchestrator {
           ctx.company_id,
           ctx.aiOutput.categoria_principal || null,
           ctx.mensaje_actual,
-          ctx.aiOutput.intenciones || []
+          ctx.aiOutput.intenciones || [],
+          ctx.capturedFields
         )
       );
     }
@@ -200,6 +207,15 @@ class Orchestrator {
     const historia = histResult.ok ? (histResult.value || []) : [];
 
     // ── 4. Context Builder ─────────────────────────────────────────────────
+    // ADR-012: capacidades por-empresa (personalities.capacidades) si la
+    // empresa las definió, si no, el default histórico — cero cambio de
+    // comportamiento para cualquier empresa que no lo configure. Se guarda
+    // en una variable propia (antes se recalculaba inline) porque el paso 9
+    // (auditoría 2026-09-15, Nort Energy) ahora también la necesita para
+    // validar acciones_propuestas antes de ejecutarlas — una sola fuente de
+    // verdad para "qué puede hacer el modelo libremente en esta empresa".
+    const capacidadesResueltas = empresaConf.capacidades.length > 0 ? empresaConf.capacidades : CAPACIDADES_FASE2;
+
     const ctxResult = this._pasoSync('context', timings, () =>
       this._ctx.construir({
         company_id,
@@ -211,10 +227,7 @@ class Orchestrator {
         historia_conversacion: historia,
         resumen_cliente:       null,   // FASE 6
         workflow_state:        null,   // FASE 5
-        // ADR-012: capacidades por-empresa (personalities.capacidades) si la
-        // empresa las definió, si no, el default histórico — cero cambio de
-        // comportamiento para cualquier empresa que no lo configure.
-        capacidades:           empresaConf.capacidades.length > 0 ? empresaConf.capacidades : CAPACIDADES_FASE2,
+        capacidades:           capacidadesResueltas,
       })
     );
     if (!ctxResult.ok) {
@@ -272,10 +285,45 @@ class Orchestrator {
       }
     }
 
-    // ── 9. Acciones propuestas (stub FASE 4B) ──────────────────────────────
-    await this._paso('acciones', timings, () =>
-      this._ejecutarAcciones(aiOutput.acciones_propuestas, ctx, clienteRaw, aiOutput, sessionId)
+    // ── 9. Acciones propuestas (fuera de un workflow) ──────────────────────
+    // Excepción puntual documentada a ADR-005 (Alina, 2026-09-15 — auditoría
+    // del workflow real de ventas de Nort Energy: el modelo confirmó una
+    // visita técnica por WhatsApp real sin que NINGUNA acción se hubiera
+    // ejecutado — ni loggeada — cero fila en `citas`). Dos correcciones:
+    //
+    // 1. El prompt (bloque_capacidades, prompt-builder.js) ya le SUGERÍA al
+    //    modelo qué acciones puede proponer, pero nada lo hacía cumplir del
+    //    lado del servidor — ActionRunner despacha por `tipo` contra un
+    //    registro GLOBAL compartido por todas las empresas. Se filtra aquí,
+    //    antes de ejecutar: una acción libre fuera de `capacidadesResueltas`
+    //    nunca corre. (nodo.acciones de un workflow completado, en
+    //    _finalizarWorkflow, NO pasa por este filtro — esas ya las configuró
+    //    explícitamente quien armó el flujo, no son una decisión libre del
+    //    modelo turno a turno.)
+    // 2. Si una acción de agenda sí corrió, el texto de confirmación debe
+    //    salir de su resultado REAL — mismo criterio que ya usa
+    //    _finalizarWorkflow/_confirmacionDeCita para el camino de workflow,
+    //    ahora factorizado en _textoDesdeResultadoDeAgenda() y reusado aquí
+    //    para el camino de conversación libre.
+    // 3. Si la acción bloqueada era justo una de agenda (agendar/reagendar/
+    //    cancelar), el texto que el modelo ya había escrito podía sonar a
+    //    confirmación aunque nada haya corrido — se reemplaza por un
+    //    mensaje honesto que no inventa fecha/hora, nunca se deja pasar tal
+    //    cual (esto es lo que le pasó a la clienta real del caso Nort
+    //    Energy: "tu visita quedó agendada" sin ninguna fila en `citas`).
+    const propuestas = aiOutput.acciones_propuestas || [];
+    const accionesAutorizadas = propuestas.filter(a => a?.tipo && capacidadesResueltas.includes(a.tipo));
+    const huboAgendaBloqueada = propuestas.some(a =>
+      a?.tipo && !capacidadesResueltas.includes(a.tipo) && ACCIONES_SENSIBLES_DE_AGENDA.includes(a.tipo)
     );
+
+    const accionesResult = await this._paso('acciones', timings, () =>
+      this._ejecutarAcciones(accionesAutorizadas, ctx, clienteRaw, aiOutput, sessionId)
+    );
+    if (accionesResult.ok) {
+      const textoReal = this._textoDesdeResultadoDeAgenda(accionesResult.value, huboAgendaBloqueada);
+      if (textoReal) aiOutput = { ...aiOutput, respuesta_texto: textoReal };
+    }
 
     // ── 10. Guardar conversación ───────────────────────────────────────────
     if (clienteRaw?.id) {
@@ -431,12 +479,46 @@ class Orchestrator {
         return nodo.pregunta;
       }
 
+      // Alina, 2026-09-15 (auditoría Nort Energy): "¿Te funciona jueves o
+      // viernes?" → "Ok" se capturaba tal cual como respuesta del nodo, sin
+      // saber a cuál de las dos opciones se refería. Si la IA no extrajo un
+      // valor limpio para este campo (ni hay uno pre-guardado) y la
+      // pregunta del nodo ofrece más de una opción explícita ("X o Y"), un
+      // acuse genérico ("ok", "sí", "va"...) no cuenta como respuesta —se
+      // vuelve a preguntar en vez de capturar el acuse como si fuera la
+      // elección.
+      const yaHayValorConfiable = nodo.campo && (
+        ((aiOutput.datos_extraidos || {})[nodo.campo] != null && String((aiOutput.datos_extraidos || {})[nodo.campo]).trim() !== '')
+        || (sesion.captured_fields?.[nodo.campo] != null && String(sesion.captured_fields[nodo.campo]).trim() !== '')
+      );
+      if (!yaHayValorConfiable && nodo.campo && !nodo.es_opcional && _esAcuseAmbiguo(mensajeCliente, nodo.pregunta)) {
+        return nodo.pregunta;
+      }
+
       // Punto 2: usar el valor extraído por la IA cuando el campo fue capturado explícitamente;
-      // fallback al mensaje crudo si no hay valor extraído o es null.
-      const valorExtraido = nodo.campo ? (aiOutput.datos_extraidos || {})[nodo.campo] : undefined;
+      // si no, el dato pre-guardado en esta misma sesión (ver abajo); si
+      // tampoco, fallback al mensaje crudo.
+      //
+      // Alina, 2026-09-15 (auditoría Nort Energy): cuando el turno actual es
+      // un adjunto (ej. foto de un recibo CFE), modules/recibo-cfe.js ya
+      // corrió ANTES de este punto (server.js, síncrono, awaited) y guardó
+      // los datos reales en sesion.captured_fields vía
+      // WorkflowEngine.preSalvarDatosExtraidos() — pero antes SOLO se usaban
+      // para saltar nodos FUTUROS (_avanzarSaltandoRespondidos, abajo); el
+      // nodo ACTUAL dependía de que la IA re-extrajera el mismo dato de su
+      // propio resumen sintético ("Datos leídos automáticamente del
+      // recibo:...") en una segunda pasada no determinística — si esa
+      // relectura no marcaba el campo con suficiente claridad, TARA volvía a
+      // preguntarlo. `sesion` se acaba de leer fresca de la DB (arriba,
+      // obtenerSesionActiva) en ESTE mismo turno, así que ya refleja
+      // cualquier preSalvarDatosExtraidos que acabe de correr.
+      const valorExtraido    = nodo.campo ? (aiOutput.datos_extraidos || {})[nodo.campo] : undefined;
+      const valorPreGuardado = nodo.campo ? sesion.captured_fields?.[nodo.campo] : undefined;
       const valorParaNodo = (valorExtraido != null && String(valorExtraido).trim() !== '')
         ? String(valorExtraido).trim()
-        : mensajeCliente.trim();
+        : (valorPreGuardado != null && String(valorPreGuardado).trim() !== '')
+          ? String(valorPreGuardado).trim()
+          : mensajeCliente.trim();
 
       const resultado = await this._workflow.avanzar(sesion, nodo, valorParaNodo);
 
@@ -598,21 +680,107 @@ class Orchestrator {
       nodo.acciones, ctx, clienteRaw, aiOutput, sessionId, sesionCompletada?.captured_fields
     );
 
-    const sinDisponibilidad = resultados.find(r => r?.tipo === 'sin_disponibilidad');
-    if (!sinDisponibilidad) return aiOutput.respuesta_texto;
-
-    try {
-      await this._workflow.iniciarSesion(company_id, clienteRaw.id, null, workflowId);
-    } catch (err) {
-      console.warn(`⚠️  no se pudo reabrir sesión tras sin_disponibilidad: ${err.message}`);
+    // Mismo criterio que ya existía para 'sin_disponibilidad' (TA.9 v2):
+    // reabre una sesión para que el cliente pueda retomar la conversación
+    // en vez de quedar sin workflow activo. Alina, 2026-09-15 (auditoría
+    // Nort Energy): 'faltan_datos' se agrega al mismo mecanismo — si no se
+    // reabriera, la respuesta del cliente con el dato que faltaba caería en
+    // conversación libre, donde agendar_cita_con_horario_solicitado puede
+    // no estar autorizado (ver capacidadesResueltas) y nunca se completaría
+    // el agendamiento. Limitación conocida y ya aceptada en 'sin_disponibilidad':
+    // reabrir reinicia el workflow desde su nodo de inicio, no desde donde
+    // quedó — mismo trade-off, no uno nuevo.
+    const necesitaReabrir = resultados.some(r => r?.tipo === 'sin_disponibilidad' || r?.tipo === 'faltan_datos');
+    if (necesitaReabrir) {
+      try {
+        await this._workflow.iniciarSesion(company_id, clienteRaw.id, null, workflowId);
+      } catch (err) {
+        console.warn(`⚠️  no se pudo reabrir sesión tras sin_disponibilidad/faltan_datos: ${err.message}`);
+      }
     }
 
-    const opciones = (sinDisponibilidad.alternativas || [])
-      .map(a => a.inicio.toLocaleString('es-MX', { timeZone: 'America/Monterrey', hour: '2-digit', minute: '2-digit' }))
-      .join(', ');
-    return opciones
-      ? `Esa hora ya no está disponible. Opciones libres: ${opciones}. ¿Cuál prefieres?`
-      : 'Esa hora ya no está disponible y no encontramos otro horario libre pronto. ¿Quieres intentar con otro día?';
+    return this._textoDesdeResultadoDeAgenda(resultados) || aiOutput.respuesta_texto;
+  }
+
+  /**
+   * Traduce el resultado REAL de una acción de agenda a texto — mismo
+   * criterio en los dos caminos que pueden disparar
+   * agendar_cita_con_horario_solicitado (nodo de workflow recién completado,
+   * vía _finalizarWorkflow, o acción libre que el modelo propuso en
+   * conversación normal, vía el paso 9 de procesarMensaje): la confirmación
+   * SIEMPRE sale de lo que de verdad pasó en SchedulingEngine, nunca del
+   * texto que el modelo escribió antes de saber si la acción funcionó.
+   *
+   * Excepción puntual documentada a ADR-005 (Alina, 2026-08-11 para el caso
+   * 'agendada'/'sin_disponibilidad'; 2026-09-15, auditoría Nort Energy, para
+   * 'faltan_datos' y para reusarlo también en conversación libre — antes el
+   * modelo podía confirmar una visita real sin que la acción se hubiera ni
+   * intentado).
+   *
+   * @returns {string|null} null si ningún resultado amerita reemplazar
+   *   aiOutput.respuesta_texto (ej. ejecutar_motor_ingenieria,
+   *   crear_oportunidad, crear_ticket_soporte — sin cambio).
+   */
+  _textoDesdeResultadoDeAgenda(resultados, huboAgendaBloqueada = false) {
+    const faltanDatos = resultados.find(r => r?.tipo === 'faltan_datos');
+    if (faltanDatos) return this._preguntaPorDatoFaltante(faltanDatos.campos);
+
+    const sinDisponibilidad = resultados.find(r => r?.tipo === 'sin_disponibilidad');
+    if (sinDisponibilidad) {
+      const opciones = (sinDisponibilidad.alternativas || [])
+        .map(a => a.inicio.toLocaleString('es-MX', { timeZone: 'America/Monterrey', hour: '2-digit', minute: '2-digit' }))
+        .join(', ');
+      return opciones
+        ? `Esa hora ya no está disponible. Opciones libres: ${opciones}. ¿Cuál prefieres?`
+        : 'Esa hora ya no está disponible y no encontramos otro horario libre pronto. ¿Quieres intentar con otro día?';
+    }
+
+    const agendada = resultados.find(r => r?.tipo === 'agendada' && r?.cita?.inicio);
+    if (agendada) return this._confirmacionDeCita(agendada);
+
+    // Alina, 2026-09-15: la acción de agenda que el modelo propuso estaba
+    // fuera de las capacidades de la empresa y nunca se ejecutó — el texto
+    // que el modelo ya había escrito no se envía tal cual (podía sonar a
+    // confirmación). Mensaje honesto, sin fecha/hora inventada.
+    if (huboAgendaBloqueada) {
+      return 'Voy a coordinar tu visita técnica con nuestro equipo y te confirmo la fecha y hora en breve.';
+    }
+
+    return null;
+  }
+
+  /**
+   * Pregunta natural por el primer dato faltante que bloqueó
+   * agendar_cita_con_horario_solicitado — nunca confirma nada, solo pide lo
+   * que falta (Alina, 2026-09-15: "TARA NO puede marcar una visita como
+   * confirmada si no existe dirección/fecha/hora/nombre").
+   */
+  _preguntaPorDatoFaltante(campos) {
+    const PREGUNTAS = {
+      direccion: '¿me compartes la dirección completa — calle, número y colonia — donde sería la visita?',
+      fecha:     '¿qué día te gustaría que fuera el técnico?',
+      hora:      '¿en qué horario te queda bien?',
+      nombre:    '¿con quién tengo el gusto?',
+    };
+    const primero = (campos || [])[0];
+    return PREGUNTAS[primero] || 'me falta un dato para poder agendar tu visita técnica — ¿me lo compartes?';
+  }
+
+  /**
+   * Confirmación de cita agendada, generada desde el resultado REAL de
+   * SchedulingEngine.agendarCita() — nunca desde texto libre del modelo.
+   * Agnóstica de giro: usa el nombre del servicio si el handler lo resolvió
+   * (ver _resolverServicioDesdeTexto), si no, un texto genérico.
+   */
+  _confirmacionDeCita({ cita, servicio }) {
+    const fecha = new Date(cita.inicio).toLocaleString('es-MX', {
+      timeZone: 'America/Monterrey', weekday: 'long', day: 'numeric', month: 'long',
+    });
+    const hora = new Date(cita.inicio).toLocaleString('es-MX', {
+      timeZone: 'America/Monterrey', hour: 'numeric', minute: '2-digit', hour12: true,
+    });
+    const nombreServicio = servicio?.nombre ? ` para ${servicio.nombre}` : '';
+    return `¡Listo! Tu cita${nombreServicio} quedó agendada para el ${fecha} a las ${hora}.`;
   }
 
   /**
@@ -715,6 +883,26 @@ class Orchestrator {
   }
 }
 
+// Acuses genéricos que NO cuentan como respuesta a una pregunta con varias
+// opciones explícitas (Alina, 2026-09-15, auditoría Nort Energy).
+const _REGEX_ACUSE_GENERICO = /^(ok(ay)?|va|dale|sale|claro|de acuerdo|est[aá] bien|correcto|perfecto|efectivamente|s[ií])[.,!¡¿? ]*$/i;
+// "X o Y" en la pregunta del nodo — heurística deliberadamente simple (no
+// distingue tipo de pregunta), la misma idea que ya usa _extraerTransicion
+// para no sobre-construir un parser de lenguaje natural completo.
+const _REGEX_PREGUNTA_CON_OPCIONES = /\b\S+\s+o\s+\S+\b/i;
+
+/**
+ * Un acuse genérico ("ok", "sí", "va"...) solo cuenta como respuesta válida
+ * cuando la pregunta del nodo tiene una única lectura binaria clara — si la
+ * pregunta nombra explícitamente dos o más opciones ("¿jueves o viernes?"),
+ * un acuse no dice a cuál se refiere y se trata como respuesta ambigua.
+ */
+function _esAcuseAmbiguo(mensajeCliente, pregunta) {
+  const texto = (mensajeCliente || '').trim();
+  if (!texto || !_REGEX_ACUSE_GENERICO.test(texto)) return false;
+  return _REGEX_PREGUNTA_CON_OPCIONES.test(pregunta || '');
+}
+
 /**
  * ANEXO A (TA.9 v2) — parseo simple de "hora_preferida" (ej. "10:00", "16:30")
  * para agendar_cita_con_horario_solicitado. No es un parser de lenguaje
@@ -749,6 +937,46 @@ function _parsearHoraPreferida(texto, parametros = {}) {
   const inicio = horaLocalAUTC(base, horaHHMM, zona);
   const fin    = new Date(inicio.getTime() + duracion * 60000);
   return { inicio, fin };
+}
+
+/**
+ * Resuelve el texto libre que el cliente dio para "servicio_elegido" contra
+ * el catálogo real de `servicios` de la empresa — por conteo simple de
+ * palabras en común (mismo criterio que detectarIndustria() en
+ * plantillas-industria.js), sin IA ni dependencias nuevas.
+ *
+ * Bug real (Alina, 2026-08-11, diagnóstico LUMÉ Hair Studio):
+ * agendar_cita_con_horario_solicitado nunca leía esto — toda cita agendada
+ * por WhatsApp quedaba con 30 minutos fijos sin importar el servicio (un
+ * balayage de 180 min se agendaba igual que un corte de 60), y
+ * servicio_id/precio_cobrado nunca se llenaban desde este camino. Sin match
+ * (servicio no reconocible, o la empresa no tiene servicios configurados),
+ * devuelve null — nunca inventa una duración o un precio.
+ *
+ * @returns {Promise<{id, nombre, duracion_minutos, precio}|null>}
+ */
+async function _resolverServicioDesdeTexto(supabase, companyId, textoServicio) {
+  if (!textoServicio) return null;
+
+  const { data: servicios } = await supabase
+    .from('servicios').select('id, nombre, duracion_minutos, precio')
+    .eq('company_id', companyId).eq('activo', true);
+  if (!servicios || servicios.length === 0) return null;
+
+  const normalizar = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const textoNorm = normalizar(textoServicio);
+
+  let mejor = null;
+  let mejorScore = 0;
+  for (const servicio of servicios) {
+    const palabrasServicio = normalizar(servicio.nombre).split(/\s+/).filter(p => p.length > 2);
+    const score = palabrasServicio.filter(p => textoNorm.includes(p)).length;
+    if (score > mejorScore) {
+      mejorScore = score;
+      mejor = servicio;
+    }
+  }
+  return mejor;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -818,7 +1046,8 @@ function crearOrchestrator(overrides = {}) {
         ctx.company_id,
         ctx.aiOutput.categoria_principal || null,
         ctx.mensaje_actual,
-        ctx.aiOutput.intenciones || []
+        ctx.aiOutput.intenciones || [],
+        ctx.capturedFields
       )
     );
 
@@ -865,8 +1094,34 @@ function crearOrchestrator(overrides = {}) {
     // expresó preferencia de asesor (captured_fields.asesora_preferida), se
     // intenta honrar por nombre; sin match, se asigna automático como siempre.
     runner.registrar('agendar_cita_con_horario_solicitado', async (parametros, ctx) => {
+      // Precondiciones (Alina, 2026-09-15, auditoría Nort Energy: una
+      // clienta real recibió "tu visita quedó agendada para el jueves" sin
+      // que nunca se le pidiera dirección — cero fila en `citas`). DATA, no
+      // "if industria": qué campos son obligatorios antes de poder agendar
+      // lo decide el `parametros.camposRequeridos` que cada nodo de
+      // workflow configura (ver workflow_nodes.acciones) — una empresa cuyo
+      // servicio ocurre en su propio local (ej. un salón de belleza) no
+      // declara 'direccion' como requerido y sigue exactamente igual que
+      // antes; Nort Energy sí, porque el técnico visita el domicilio del
+      // cliente. Mismo criterio de "nunca confirmar sin datos" que ya pedía
+      // el flujo — ahora enforced aquí, antes de tocar SchedulingEngine.
+      const camposFaltantes = (parametros.camposRequeridos || [])
+        .filter(campo => !String(ctx.capturedFields?.[campo] || '').trim());
+      if (camposFaltantes.length > 0) {
+        return { tipo: 'faltan_datos', campos: camposFaltantes };
+      }
+
       const scheduling = await schedulingEngineParaEmpresa(ctx.company_id);
-      const { inicio, fin } = _parsearHoraPreferida(ctx.capturedFields?.hora_preferida, parametros);
+
+      // Servicio real (Alina, 2026-08-11 — LUMÉ Hair Studio): resuelve el
+      // texto libre contra el catálogo antes de calcular inicio/fin, para
+      // que la duración de la cita sea la del servicio, no un default fijo.
+      const servicio = await _resolverServicioDesdeTexto(supabase, ctx.company_id, ctx.capturedFields?.servicio_elegido);
+      const parametrosConServicio = (servicio && !parametros.duracionMinutos)
+        ? { ...parametros, duracionMinutos: servicio.duracion_minutos }
+        : parametros;
+
+      const { inicio, fin } = _parsearHoraPreferida(ctx.capturedFields?.hora_preferida, parametrosConServicio);
       const asesorId = parametros.asesorId
         || await scheduling.buscarAsesorPorNombre(ctx.company_id, ctx.capturedFields?.asesora_preferida)
         || undefined;
@@ -875,10 +1130,25 @@ function crearOrchestrator(overrides = {}) {
         const cita = await scheduling.agendarCita(ctx.company_id, {
           clienteId: ctx.clienteRaw.id, asesorId, inicio, fin,
         });
-        return { tipo: 'agendada', cita };
+
+        // SchedulingEngine (Core congelado) no conoce servicio_id/precio_cobrado
+        // — mismo patrón ya documentado en modules/agenda.js::crearCita: UPDATE
+        // directo después del insert del Core, nunca modificando SchedulingEngine.
+        if (servicio) {
+          const { error: errServicio } = await supabase
+            .from('citas')
+            .update({ servicio_id: servicio.id, precio_cobrado: servicio.precio })
+            .eq('id', cita.id);
+          if (!errServicio) {
+            cita.servicio_id = servicio.id;
+            cita.precio_cobrado = servicio.precio;
+          }
+        }
+
+        return { tipo: 'agendada', cita, servicio: servicio || null };
       } catch (err) {
         const alternativas = await scheduling.consultarDisponibilidad(ctx.company_id, {
-          fecha: inicio, duracionMinutos: parametros.duracionMinutos || 30,
+          fecha: inicio, duracionMinutos: parametrosConServicio.duracionMinutos || 30,
         });
         return { tipo: 'sin_disponibilidad', alternativas: alternativas.slice(0, 3), motivo: err.message };
       }
@@ -949,4 +1219,9 @@ function crearOrchestrator(overrides = {}) {
   });
 }
 
-module.exports = { Orchestrator, crearOrchestrator, RESPUESTA_EMERGENCIA, parsearHoraPreferida: _parsearHoraPreferida };
+module.exports = {
+  Orchestrator, crearOrchestrator, RESPUESTA_EMERGENCIA,
+  parsearHoraPreferida: _parsearHoraPreferida,
+  resolverServicioDesdeTexto: _resolverServicioDesdeTexto,
+  esAcuseAmbiguo: _esAcuseAmbiguo,
+};
