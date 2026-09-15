@@ -557,6 +557,13 @@ body {
    traducido para cliente (saneado) del texto interno de Modo Operador. */
 .pregunta-tara-respuesta--cliente { border-left: 3px solid var(--acento); color: var(--text); }
 
+/* Centro de Conocimiento, Fase 4 — pantalla dedicada. */
+.centro-conocimiento-categorias { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.6rem 0 0.4rem; }
+.pregunta-tara-chip--activo { background: var(--acento); color: #fff; border-color: var(--acento); }
+.centro-conocimiento-historial { display: flex; flex-direction: column; gap: 1rem; }
+.centro-conocimiento-item { padding-bottom: 0.6rem; border-bottom: 1px solid var(--line); }
+.centro-conocimiento-pregunta { font-weight: 600; margin: 0 0.5rem 0.4rem; }
+
 .actividad-reciente-lista { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.4rem; }
 .actividad-item {
   padding: 0.6rem 1rem; border-radius: 8px; font-size: 0.85rem;

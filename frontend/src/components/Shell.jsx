@@ -19,6 +19,7 @@ const ICONOS = {
   catalogo:      <path d="M3 8l9-5 9 5-9 5-9-5zm0 0v8l9 5 9-5V8"/>,
   configuracion: <><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.2-1.6l2-1.5-2-3.4-2.3.9a7 7 0 00-2.7-1.6L13.4 2h-2.8l-.4 2.8a7 7 0 00-2.7 1.6l-2.3-.9-2 3.4 2 1.5A7 7 0 005 12c0 .5 0 1.1.2 1.6l-2 1.5 2 3.4 2.3-.9c.8.7 1.7 1.3 2.7 1.6l.4 2.8h2.8l.4-2.8c1-.3 1.9-.9 2.7-1.6l2.3.9 2-3.4-2-1.5c.1-.5.2-1 .2-1.6z"/></>,
   panelAccion:   <><path d="M9 18h6M10 21h4M12 3a6 6 0 00-3.5 10.9c.5.4.8 1 .8 1.6v.5h5.4v-.5c0-.6.3-1.2.8-1.6A6 6 0 0012 3z"/></>,
+  centroConocimiento: <><path d="M4 5c3-1.5 6-1.5 8 0v14c-2-1.5-5-1.5-8 0V5z"/><path d="M20 5c-3-1.5-6-1.5-8 0v14c2-1.5 5-1.5 8 0V5z"/></>,
 };
 
 function IconoHamburguesa() {
@@ -52,6 +53,7 @@ const MODULOS = [
   { ruta: '/inbox',          etiqueta: 'Inbox',                 icono: 'inbox',          habilitado: true },
   { ruta: '/agenda',         etiqueta: 'Agenda TARA',           icono: 'agenda',         habilitado: true },
   { ruta: '/crm',            etiqueta: 'Ventas',                icono: 'ventas',         habilitado: true },
+  { ruta: '/centro-conocimiento', etiqueta: 'Centro de Conocimiento', icono: 'centroConocimiento', habilitado: true },
   { ruta: '/panel-accion',   etiqueta: 'Panel de Acción',       icono: 'panelAccion',    habilitado: true, soloGerencial: true },
   { ruta: '/configuracion',  etiqueta: 'Configuración',         icono: 'configuracion',  habilitado: true },
   { ruta: '/reportes',       etiqueta: 'Reportes',              icono: 'catalogo',       habilitado: false },
