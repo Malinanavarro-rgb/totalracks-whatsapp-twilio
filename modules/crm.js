@@ -150,13 +150,49 @@ async function _primeraEtapaPipeline(companyId) {
   }
 }
 
+// Auditoría Nort Energy, Alina 2026-09-15: los datos de calificación que el
+// workflow captura (captured_fields) solo vivían en workflow_sessions y se
+// perdían de vista en cuanto la sesión se completaba — nadie los volvía a
+// ver desde el CRM. Mapeo explícito (nunca "guarda todo lo que venga") a
+// las columnas aditivas de migrations/103_oportunidades_campos_solares.sql
+// — mismos nombres de `campo` que ya usan workflow_nodes de paneles
+// solares, cero mapeo adicional. Genérico (no es un "if industria"): una
+// empresa cuyo captured_fields no tenga ninguna de estas claves
+// simplemente no agrega nada — comportamiento idéntico a hoy.
+const MAPA_CAMPOS_OPORTUNIDAD = {
+  tipo_propiedad:          'tipo_propiedad',
+  ciudad:                  'ciudad',
+  colonia:                 'colonia',
+  direccion:               'direccion',
+  importe_promedio_recibo: 'importe_promedio_recibo',
+  consumo_mensual_kwh:     'consumo_mensual_kwh',
+  tipo_alimentacion:       'tipo_alimentacion',
+  voltaje_sitio:           'voltaje_sitio',
+  pct_cobertura_deseado:   'pct_cobertura_deseado',
+  hora_preferida:          'hora_visita',
+};
+
+function _mapearCapturedFieldsAOportunidad(capturedFields) {
+  if (!capturedFields) return {};
+  const payload = {};
+  for (const [campo, columna] of Object.entries(MAPA_CAMPOS_OPORTUNIDAD)) {
+    const valor = capturedFields[campo];
+    if (valor != null && String(valor).trim() !== '') payload[columna] = valor;
+  }
+  if (capturedFields.importe_promedio_recibo != null || capturedFields.consumo_mensual_kwh != null) {
+    payload.recibo_cfe_recibido = true;
+  }
+  return payload;
+}
+
 /**
  * @param {number}   clienteId
  * @param {string}   categoriaPrincipal  - categoría universal del producto/servicio
  * @param {string}   mensajeCliente
  * @param {string[]} intenciones
+ * @param {Object}   [capturedFields]    - workflow_sessions.captured_fields, si el turno viene de un workflow (Alina, 2026-09-15)
  */
-async function crearOportunidadSiCorresponde(clienteId, companyId, categoriaPrincipal, mensajeCliente, intenciones) {
+async function crearOportunidadSiCorresponde(clienteId, companyId, categoriaPrincipal, mensajeCliente, intenciones, capturedFields) {
   if (!requiereCrearOportunidad(mensajeCliente, intenciones)) return;
   try {
     const { data: existentes } = await supabase
@@ -165,6 +201,8 @@ async function crearOportunidadSiCorresponde(clienteId, companyId, categoriaPrin
       .eq('cliente_id', clienteId)
       .neq('estado', 'Perdido')
       .limit(1);
+
+    const camposSolares = _mapearCapturedFieldsAOportunidad(capturedFields);
 
     if (!existentes || existentes.length === 0) {
       const estadoInicial = await _primeraEtapaPipeline(companyId);
@@ -175,8 +213,14 @@ async function crearOportunidadSiCorresponde(clienteId, companyId, categoriaPrin
         estado:       estadoInicial,
         probabilidad: 45,
         descripcion:  `Cliente interesado en ${categoriaPrincipal}`,
+        ...camposSolares,
       }]);
       console.log(`✅ Oportunidad creada: ${categoriaPrincipal} (etapa: ${estadoInicial})`);
+    } else if (Object.keys(camposSolares).length > 0) {
+      // Ya existe una oportunidad abierta (mismo criterio de dedup de
+      // arriba) — se actualiza con los datos reales de calificación en vez
+      // de dejarlos solo en captured_fields, invisibles para el CRM.
+      await supabase.from('oportunidades').update(camposSolares).eq('id', existentes[0].id);
     }
   } catch (e) {
     console.error('Error creando oportunidad:', e);

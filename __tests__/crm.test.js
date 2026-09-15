@@ -8,6 +8,7 @@ function mockCrearBuilder(resultado) {
   return {
     select:      jest.fn().mockReturnThis(),
     insert:      jest.fn().mockReturnThis(),
+    update:      jest.fn().mockReturnThis(),
     eq:          jest.fn().mockReturnThis(),
     neq:         jest.fn().mockReturnThis(),
     order:       jest.fn().mockReturnThis(),
@@ -128,5 +129,75 @@ describe('crm.crearOportunidadSiCorresponde() — Fase Demo Comercial', () => {
 
     const builderInsert = mockFrom.mock.results[2].value;
     expect(builderInsert.insert).toHaveBeenCalledWith([expect.objectContaining({ estado: 'Calificado' })]);
+  });
+});
+
+// Auditoría Nort Energy, Alina 2026-09-15: los datos de calificación del
+// workflow (captured_fields) deben quedar visibles en la oportunidad, no
+// solo en workflow_sessions.
+describe('crm.crearOportunidadSiCorresponde() — sincroniza captured_fields a oportunidades (auditoría Nort Energy)', () => {
+  test('oportunidad NUEVA: los campos solares reconocidos se incluyen en el INSERT', async () => {
+    prepararResultados(
+      { data: [], error: null },
+      { data: { nombre: 'Nuevo' }, error: null },
+      { data: null, error: null },
+    );
+
+    const capturedFields = {
+      tipo_propiedad: 'casa', ciudad: 'Cd. Victoria', colonia: 'Del Prado',
+      direccion: 'Calle Falsa 123', importe_promedio_recibo: 1800,
+      consumo_mensual_kwh: 420, tipo_alimentacion: 'bifásica', voltaje_sitio: '220',
+      pct_cobertura_deseado: 90, hora_preferida: '10am',
+      campo_desconocido_que_no_deberia_pasar: 'x',
+    };
+
+    await crearOportunidadSiCorresponde(1, COMPANY_A, 'Energía solar', 'quiero una cotización', [], capturedFields);
+
+    const builderInsert = mockFrom.mock.results[2].value;
+    expect(builderInsert.insert).toHaveBeenCalledWith([expect.objectContaining({
+      tipo_propiedad: 'casa', ciudad: 'Cd. Victoria', colonia: 'Del Prado',
+      direccion: 'Calle Falsa 123', importe_promedio_recibo: 1800,
+      consumo_mensual_kwh: 420, tipo_alimentacion: 'bifásica', voltaje_sitio: '220',
+      pct_cobertura_deseado: 90, hora_visita: '10am', recibo_cfe_recibido: true,
+    })]);
+    const payloadInsertado = builderInsert.insert.mock.calls[0][0][0];
+    expect(payloadInsertado.campo_desconocido_que_no_deberia_pasar).toBeUndefined();
+  });
+
+  test('oportunidad YA existente: los campos solares se aplican con UPDATE, no se duplica el INSERT', async () => {
+    prepararResultados(
+      { data: [{ id: 77 }], error: null }, // ya existe oportunidad abierta
+      { data: null, error: null },          // update
+    );
+
+    await crearOportunidadSiCorresponde(1, COMPANY_A, 'Energía solar', 'quiero una cotización', [], { direccion: 'Calle Falsa 123' });
+
+    expect(mockLlamadas).toEqual(['oportunidades', 'oportunidades']);
+    const builderUpdate = mockFrom.mock.results[1].value;
+    expect(builderUpdate.update).toHaveBeenCalledWith({ direccion: 'Calle Falsa 123' });
+    expect(builderUpdate.eq).toHaveBeenCalledWith('id', 77);
+  });
+
+  test('oportunidad YA existente, sin captured_fields: no hace ningún UPDATE (comportamiento idéntico a antes)', async () => {
+    prepararResultados({ data: [{ id: 77 }], error: null });
+
+    await crearOportunidadSiCorresponde(1, COMPANY_A, 'Uniformes', 'quiero una cotización', []);
+
+    expect(mockLlamadas).toEqual(['oportunidades']);
+  });
+
+  test('sin captured_fields en una oportunidad nueva: el INSERT no agrega ninguna columna solar (comportamiento idéntico a antes)', async () => {
+    prepararResultados(
+      { data: [], error: null },
+      { data: { nombre: 'Nuevo' }, error: null },
+      { data: null, error: null },
+    );
+
+    await crearOportunidadSiCorresponde(1, COMPANY_A, 'Uniformes', 'quiero una cotización', []);
+
+    const builderInsert = mockFrom.mock.results[2].value;
+    const payload = builderInsert.insert.mock.calls[0][0][0];
+    expect(payload.direccion).toBeUndefined();
+    expect(payload.recibo_cfe_recibido).toBeUndefined();
   });
 });
