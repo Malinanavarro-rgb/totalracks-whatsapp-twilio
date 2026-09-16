@@ -53,7 +53,7 @@ export default function DocumentosProveedorTab() {
     const datos = confirmando[id] || {};
     try {
       await api.confirmarDocumentoProveedor(id, {
-        producto_id: datos.producto_id ? Number(datos.producto_id) : undefined,
+        producto_id: datos.producto_id?.trim() || undefined,
         esFichaCompleta: !!datos.esFichaCompleta,
       });
       setConfirmando((prev) => ({ ...prev, [id]: undefined }));
@@ -98,7 +98,7 @@ export default function DocumentosProveedorTab() {
             <a href={api.urlArchivoDocumentoProveedor(d.id)} target="_blank" rel="noreferrer">Ver archivo</a>
 
             {d.confirmado_en ? (
-              <p className="operaciones-nota">Confirmado ✓{d.producto_id ? ` — enlazado a producto #${d.producto_id}` : ''}</p>
+              <p className="operaciones-nota">Confirmado ✓{d.producto_id ? ` — enlazado a producto ${d.producto_id}` : ''}</p>
             ) : d.datos_extraidos ? (
               <div className="pregunta-tara-respuesta">
                 <p><strong>Borrador (sin confirmar todavía):</strong></p>
@@ -106,7 +106,7 @@ export default function DocumentosProveedorTab() {
                 {d.datos_extraidos.es_ficha_tecnica ? (
                   <div className="config-form-inline">
                     <input
-                      type="number" placeholder="ID de producto a enlazar (opcional)"
+                      type="text" placeholder="ID de producto a enlazar (opcional)"
                       value={confirmando[d.id]?.producto_id || ''}
                       onChange={(e) => setConfirmando((prev) => ({ ...prev, [d.id]: { ...prev[d.id], producto_id: e.target.value } }))}
                     />

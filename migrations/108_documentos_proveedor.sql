@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS documentos_proveedor (
   tipo_documento   text        NOT NULL DEFAULT 'ficha_tecnica',
   archivo_url      text        NOT NULL,
   nombre_archivo   text,
-  producto_id      bigint      REFERENCES productos(id),
+  producto_id      uuid        REFERENCES productos(id),
   datos_extraidos  jsonb,
   procesado_en     timestamptz,
   confirmado_por   uuid        REFERENCES usuarios(id),
