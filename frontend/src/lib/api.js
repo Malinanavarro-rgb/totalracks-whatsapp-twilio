@@ -108,6 +108,14 @@ export const api = {
   ayudameACerrar: (oportunidadId) =>
     pedir(`/api/crm/oportunidades/${oportunidadId}/ayudame-a-cerrar`, { method: 'POST' }),
 
+  // Centro de Conocimiento, Fase 5 — aprendizaje del equipo
+  crearSolicitudConocimiento: (datos) => pedir('/api/knowledge-requests', { method: 'POST', body: JSON.stringify(datos) }),
+  solicitudesConocimiento: (estado) => pedir(`/api/knowledge-requests${estado ? `?estado=${estado}` : ''}`),
+  responderSolicitudConocimiento: (id, respuesta_validada) =>
+    pedir(`/api/knowledge-requests/${id}/responder`, { method: 'PATCH', body: JSON.stringify({ respuesta_validada }) }),
+  rechazarSolicitudConocimiento: (id, razon) =>
+    pedir(`/api/knowledge-requests/${id}/rechazar`, { method: 'PATCH', body: JSON.stringify({ razon }) }),
+
   // Panel de Acción Inteligente (Business Memory Core + KCE)
   resumenBmc:            () => pedir('/api/bmc/resumen'),
   aprendizajesPendientes: () => pedir('/api/bmc/aprendizajes?estado=propuesto'),

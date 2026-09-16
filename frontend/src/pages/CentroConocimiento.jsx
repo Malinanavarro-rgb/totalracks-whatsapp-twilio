@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../lib/api';
 import LogoTara from '../components/LogoTara';
@@ -71,7 +71,21 @@ export default function CentroConocimiento() {
   const [categoriaActiva, setCategoriaActiva] = useState(categorias[0]?.id || null);
   const [preguntaInput, setPreguntaInput] = useState('');
   const [cargando, setCargando] = useState(false);
-  const [historial, setHistorial] = useState([]); // [{ id, pregunta, respuesta, respuestaCliente, cargandoConversion }], más reciente primero — solo de esta sesión, no se persiste
+  const [historial, setHistorial] = useState([]); // [{ id, pregunta, respuesta, respuestaCliente, cargandoConversion, reportado }], más reciente primero — solo de esta sesión, no se persiste
+
+  // Fase 5 — "Solicitudes del equipo": solo gerencia revisa/responde/rechaza
+  // lo que el equipo reportó como conocimiento faltante.
+  const [solicitudes, setSolicitudes] = useState([]);
+  const [borradorRespuesta, setBorradorRespuesta] = useState({}); // { [solicitudId]: texto }
+
+  function cargarSolicitudes() {
+    api.solicitudesConocimiento('pendiente').then(setSolicitudes).catch(() => {});
+  }
+
+  useEffect(() => {
+    if (esGerencial) cargarSolicitudes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [esGerencial]);
 
   async function preguntar(texto) {
     const pregunta = texto.trim();
@@ -105,6 +119,39 @@ export default function CentroConocimiento() {
   function enviarPregunta(e) {
     e.preventDefault();
     preguntar(preguntaInput);
+  }
+
+  // Fase 5 — "¿No encontraste lo que buscabas? Repórtalo": convierte una
+  // pregunta ya hecha en una knowledge_request pendiente de revisión.
+  async function reportarFaltante(item) {
+    try {
+      await api.crearSolicitudConocimiento({ question: item.pregunta, category: categoriaActiva });
+      setHistorial((prev) => prev.map((h) => (h.id === item.id ? { ...h, reportado: true } : h)));
+    } catch {
+      // silencioso a propósito — no es una acción crítica, no vale la pena una alerta bloqueante
+    }
+  }
+
+  async function responderSolicitud(id) {
+    const texto = (borradorRespuesta[id] || '').trim();
+    if (!texto) return;
+    try {
+      await api.responderSolicitudConocimiento(id, texto);
+      setBorradorRespuesta((prev) => ({ ...prev, [id]: '' }));
+      cargarSolicitudes();
+    } catch {
+      // se queda el borrador escrito para reintentar
+    }
+  }
+
+  async function rechazarSolicitud(id) {
+    try {
+      await api.rechazarSolicitudConocimiento(id, borradorRespuesta[id] || '');
+      setBorradorRespuesta((prev) => ({ ...prev, [id]: '' }));
+      cargarSolicitudes();
+    } catch {
+      // no bloqueante
+    }
   }
 
   const categoria = categorias.find((c) => c.id === categoriaActiva);
@@ -169,6 +216,38 @@ export default function CentroConocimiento() {
                 {h.respuestaCliente && (
                   <p className="pregunta-tara-respuesta pregunta-tara-respuesta--cliente">{h.respuestaCliente}</p>
                 )}
+                {' '}
+                {h.reportado ? (
+                  <span className="operaciones-nota">Reportado al equipo ✓</span>
+                ) : (
+                  <button type="button" className="pregunta-tara-chip" onClick={() => reportarFaltante(h)}>
+                    ¿No encontraste lo que buscabas? Repórtalo
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {esGerencial && solicitudes.length > 0 && (
+        <>
+          <h2 className="alertas-titulo alertas-titulo--secundario">Solicitudes del equipo</h2>
+          <div className="centro-conocimiento-historial">
+            {solicitudes.map((s) => (
+              <div key={s.id} className="centro-conocimiento-item">
+                <p className="centro-conocimiento-pregunta">{s.question}</p>
+                {s.category && <p className="operaciones-nota">Categoría: {s.category}</p>}
+                <textarea
+                  placeholder="Respuesta validada (se guarda como resuelto) o motivo de rechazo…"
+                  value={borradorRespuesta[s.id] || ''}
+                  onChange={(e) => setBorradorRespuesta((prev) => ({ ...prev, [s.id]: e.target.value }))}
+                />
+                <div>
+                  <button type="button" onClick={() => responderSolicitud(s.id)}>Marcar como respondida</button>
+                  {' '}
+                  <button type="button" onClick={() => rechazarSolicitud(s.id)}>Rechazar</button>
+                </div>
               </div>
             ))}
           </div>

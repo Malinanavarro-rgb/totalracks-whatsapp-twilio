@@ -70,7 +70,21 @@ async function buscarFaqRelevante(supabase, companyId, texto, limite = 2) {
     .filter((r) => r.score > 0)
     .sort((a, b) => b.score - a.score);
 
-  return conScore.slice(0, limite).map((r) => r.entrada);
+  const seleccionadas = conScore.slice(0, limite).map((r) => r.entrada);
+
+  // Fase 5 — analítica de frecuencia: este es el único chokepoint real donde
+  // una entrada ya se considera "usada" (alimenta tanto al motor
+  // conversacional de clientes como a la tool de Modo Operador) — se cuenta
+  // aquí en vez de inferirlo con una heurística aparte. Fire-and-forget: un
+  // simple +1 por fila (no un contador exacto bajo concurrencia extrema, que
+  // no hace falta para una métrica de frecuencia) que nunca debe bloquear ni
+  // tumbar la respuesta real por un fallo de conteo.
+  for (const entrada of seleccionadas) {
+    supabase.from('solar_faq').update({ times_asked: (entrada.times_asked || 0) + 1 }).eq('id', entrada.id)
+      .then(() => {}, () => {});
+  }
+
+  return seleccionadas;
 }
 
 /**

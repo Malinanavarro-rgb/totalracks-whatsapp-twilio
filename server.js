@@ -50,6 +50,7 @@ const { generarPdfCotizacion, generarYEnviarCotizacion } = require('./modules/co
 const { listarPaquetes, crearPaquete, actualizarPaquete, desactivarPaquete, eliminarPaquete } = require('./modules/paquetes-solares');
 const { transcribirAudio, describirImagen } = require('./modules/adjuntos-ia');
 const { esGerencial } = require('./modules/permisos');
+const { crearSolicitud: crearSolicitudConocimiento, listarSolicitudes: listarSolicitudesConocimiento, responderSolicitud: responderSolicitudConocimiento, rechazarSolicitud: rechazarSolicitudConocimiento } = require('./modules/knowledge-requests');
 const {
   confirmarAprendizaje, rechazarAprendizaje, marcarObsoleto,
   listarPropuestasPendientes, listarAprendizajesConfirmados, obtenerResumenEjecutivo,
@@ -1435,6 +1436,55 @@ app.post('/api/kce/alertas/:id/resolver', requireAuth, async (req, res) => {
     res.json(alerta);
   } catch (e) {
     res.status(400).json({ error: e.message });
+  }
+});
+
+// Centro de Conocimiento, Fase 5 — "aprendizaje del equipo": cualquier
+// persona autenticada puede reportar que no encontró respuesta a algo;
+// revisar/responder/rechazar es gerencial (mismo criterio que BMC/KCE).
+app.post('/api/knowledge-requests', requireAuth, async (req, res) => {
+  try {
+    const { question, category, source_needed } = req.body || {};
+    const solicitud = await crearSolicitudConocimiento(req.supabase, req.usuario.company_id, {
+      question, category, source_needed, employee_id: req.usuario.id,
+    });
+    res.status(201).json(solicitud);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.get('/api/knowledge-requests', requireAuth, async (req, res) => {
+  try {
+    if (!esGerencial(req.usuario.rol)) return res.status(403).json({ error: 'No tienes acceso a esta sección' });
+    const solicitudes = await listarSolicitudesConocimiento(req.supabase, req.usuario.company_id, req.query.estado);
+    res.json(solicitudes);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/knowledge-requests/:id/responder', requireAuth, async (req, res) => {
+  try {
+    if (!esGerencial(req.usuario.rol)) return res.status(403).json({ error: 'No tienes acceso a esta sección' });
+    const solicitud = await responderSolicitudConocimiento(req.supabase, req.usuario.company_id, req.params.id, {
+      respuesta_validada: req.body?.respuesta_validada, validado_por: req.usuario.id,
+    });
+    res.json(solicitud);
+  } catch (e) {
+    res.status(e.message?.includes('no encontrada') ? 404 : 400).json({ error: e.message });
+  }
+});
+
+app.patch('/api/knowledge-requests/:id/rechazar', requireAuth, async (req, res) => {
+  try {
+    if (!esGerencial(req.usuario.rol)) return res.status(403).json({ error: 'No tienes acceso a esta sección' });
+    const solicitud = await rechazarSolicitudConocimiento(req.supabase, req.usuario.company_id, req.params.id, {
+      razon: req.body?.razon, validado_por: req.usuario.id,
+    });
+    res.json(solicitud);
+  } catch (e) {
+    res.status(e.message?.includes('no encontrada') ? 404 : 400).json({ error: e.message });
   }
 });
 

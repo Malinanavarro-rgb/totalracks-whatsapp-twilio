@@ -22,6 +22,10 @@ function crearBuilder(resultado = { data: null, error: null }) {
   return {
     select: jest.fn().mockReturnThis(),
     eq:     jest.fn().mockReturnThis(),
+    // Fase 5: buscarFaqRelevante() incrementa times_asked (fire-and-forget)
+    // sobre cada entrada que matchea — mismo builder thenable sirve para
+    // el select() de búsqueda y el update() de conteo.
+    update: jest.fn().mockReturnThis(),
     then:   (resolve) => resolve(resultado),
   };
 }
@@ -87,6 +91,45 @@ describe('buscarFaqRelevante()', () => {
     const db = crearMockDb({ data: null, error: new Error('boom') });
     const resultado = await buscarFaqRelevante(db, COMPANY_A, 'con paneles ya no se va la luz');
     expect(resultado).toEqual([]);
+  });
+
+  describe('Fase 5 — analítica de frecuencia (times_asked)', () => {
+    test('incrementa times_asked de cada entrada que matchea (+1 sobre su valor actual)', async () => {
+      const db = crearMockDb({ data: [faqBase({ times_asked: 4 })], error: null });
+      await buscarFaqRelevante(db, COMPANY_A, 'con paneles ya no se me va la luz?');
+
+      expect(db.from).toHaveBeenCalledWith('solar_faq');
+      const builder = db.from.mock.results[1].value; // [0]=búsqueda, [1]=update de conteo
+      expect(builder.update).toHaveBeenCalledWith({ times_asked: 5 });
+      expect(builder.eq).toHaveBeenCalledWith('id', 'f1');
+    });
+
+    test('sin times_asked previo (undefined): arranca en 1, no en NaN', async () => {
+      const db = crearMockDb({ data: [faqBase({ times_asked: undefined })], error: null });
+      await buscarFaqRelevante(db, COMPANY_A, 'con paneles ya no se me va la luz?');
+
+      const builder = db.from.mock.results[1].value;
+      expect(builder.update).toHaveBeenCalledWith({ times_asked: 1 });
+    });
+
+    test('sin ningún match: solo la consulta de búsqueda, ningún update de conteo', async () => {
+      const db = crearMockDb({ data: [faqBase()], error: null });
+      await buscarFaqRelevante(db, COMPANY_A, 'quiero cancelar mi pedido de zapatos');
+      expect(db.from).toHaveBeenCalledTimes(1); // solo el select de búsqueda — cero entradas matchearon, cero updates
+    });
+
+    test('si el update falla, nunca lanza ni afecta el resultado ya devuelto', async () => {
+      const builderConFalloEnUpdate = {
+        select: jest.fn().mockReturnThis(),
+        eq:     jest.fn().mockReturnThis(),
+        update: jest.fn(() => ({ eq: () => Promise.reject(new Error('fallo de conteo')) })),
+        then:   (resolve) => resolve({ data: [faqBase()], error: null }),
+      };
+      const db = { from: jest.fn(() => builderConFalloEnUpdate) };
+
+      const resultado = await buscarFaqRelevante(db, COMPANY_A, 'con paneles ya no se me va la luz?');
+      expect(resultado).toHaveLength(1); // el fallo de conteo nunca tumba la búsqueda real
+    });
   });
 
   test('respeta el límite de resultados', async () => {
