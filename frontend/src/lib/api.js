@@ -116,6 +116,32 @@ export const api = {
   rechazarSolicitudConocimiento: (id, razon) =>
     pedir(`/api/knowledge-requests/${id}/rechazar`, { method: 'PATCH', body: JSON.stringify({ razon }) }),
 
+  // Especialista Solar, Fase 6 — documentos de proveedor (fichas técnicas)
+  documentosProveedor: (filtros = {}) => {
+    const params = new URLSearchParams(Object.entries(filtros).filter(([, v]) => v !== '' && v != null));
+    const qs = params.toString();
+    return pedir(`/api/documentos-proveedor${qs ? `?${qs}` : ''}`);
+  },
+  // No es un pedir(): FormData necesita que el navegador ponga su propio
+  // Content-Type con el boundary del multipart — nunca forzar JSON aquí.
+  subirDocumentoProveedor: async (archivo, { proveedor, tipo_documento } = {}) => {
+    const formData = new FormData();
+    formData.append('archivo', archivo);
+    if (proveedor) formData.append('proveedor', proveedor);
+    if (tipo_documento) formData.append('tipo_documento', tipo_documento);
+    const respuesta = await fetch('/api/documentos-proveedor', { method: 'POST', credentials: 'include', body: formData });
+    const cuerpo = await respuesta.json().catch(() => ({}));
+    if (!respuesta.ok) {
+      const error = new Error(cuerpo.error || `Error ${respuesta.status}`);
+      error.status = respuesta.status;
+      throw error;
+    }
+    return cuerpo;
+  },
+  procesarDocumentoProveedor: (id) => pedir(`/api/documentos-proveedor/${id}/procesar`, { method: 'POST' }),
+  confirmarDocumentoProveedor: (id, datos) => pedir(`/api/documentos-proveedor/${id}/confirmar`, { method: 'POST', body: JSON.stringify(datos) }),
+  urlArchivoDocumentoProveedor: (id) => `/api/documentos-proveedor/${id}/archivo`,
+
   // Panel de Acción Inteligente (Business Memory Core + KCE)
   resumenBmc:            () => pedir('/api/bmc/resumen'),
   aprendizajesPendientes: () => pedir('/api/bmc/aprendizajes?estado=propuesto'),

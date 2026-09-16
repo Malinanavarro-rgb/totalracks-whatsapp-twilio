@@ -12,6 +12,7 @@ import PipelineTab from './configuracion/PipelineTab';
 import CanalesTab from './configuracion/CanalesTab';
 import WorkflowsTab from './configuracion/WorkflowsTab';
 import SuscripcionTab from './configuracion/SuscripcionTab';
+import DocumentosProveedorTab from './configuracion/DocumentosProveedorTab';
 
 // Mismo set que `soloGerencial` en server.js (owner/administrador — SIN
 // supervisor, a diferencia del ROLES_GERENCIALES más amplio que usan
@@ -19,6 +20,10 @@ import SuscripcionTab from './configuracion/SuscripcionTab';
 // middleware real de /api/billing/*, para no mostrar un tab que luego
 // falla con 403.
 const ROLES_CON_ACCESO_A_BILLING = ['owner', 'administrador'];
+// Mismo criterio que modules/permisos.js::esGerencial() en el backend —
+// duplicado a propósito en el frontend (mismo patrón ya usado en
+// Shell.jsx/CrmClienteDetalle.jsx), más amplio que ROLES_CON_ACCESO_A_BILLING.
+const ROLES_GERENCIALES = ['owner', 'administrador', 'supervisor'];
 
 const TABS = [
   { id: 'personalidad',  etiqueta: 'Personalidad',    Componente: PersonalidadTab },
@@ -31,6 +36,7 @@ const TABS = [
   { id: 'pipeline',      etiqueta: 'Proceso comercial', Componente: PipelineTab },
   { id: 'canales',       etiqueta: 'Canales',          Componente: CanalesTab },
   { id: 'workflows',     etiqueta: 'Guion de atención', Componente: WorkflowsTab },
+  { id: 'documentos-proveedor', etiqueta: 'Fichas Técnicas', Componente: DocumentosProveedorTab, soloGerencialAmplio: true },
   // Única excepción consciente a "ningún tab se oculta por rol": este
   // expone precio/facturación de la empresa — el resto de Configuración no
   // muestra información financiera, así que no aplica la misma regla.
@@ -40,7 +46,8 @@ const TABS = [
 export default function Configuracion() {
   const { sesion } = useAuth();
   const esGerencial = ROLES_CON_ACCESO_A_BILLING.includes(sesion?.empresaActiva?.rol);
-  const tabsVisibles = TABS.filter((t) => !t.soloGerencial || esGerencial);
+  const esGerencialAmplio = ROLES_GERENCIALES.includes(sesion?.empresaActiva?.rol);
+  const tabsVisibles = TABS.filter((t) => (!t.soloGerencial || esGerencial) && (!t.soloGerencialAmplio || esGerencialAmplio));
 
   // Deep-link (?tab=suscripcion) — usado por el banner/indicador de
   // suscripción del panel para llevar directo al tab correcto, en vez de

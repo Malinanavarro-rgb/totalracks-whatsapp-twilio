@@ -11,6 +11,7 @@ require('dotenv').config();
 const express      = require('express');
 const path         = require('path');
 const cookieParser = require('cookie-parser');
+const multer       = require('multer');
 
 const { supabase, supabaseServicio, crearClienteConSesion, twilioClient, stripe, openai } = require('./modules/clients');
 const { obtenerConfigEmpresa }          = require('./modules/config');
@@ -51,6 +52,7 @@ const { listarPaquetes, crearPaquete, actualizarPaquete, desactivarPaquete, elim
 const { transcribirAudio, describirImagen } = require('./modules/adjuntos-ia');
 const { esGerencial } = require('./modules/permisos');
 const { crearSolicitud: crearSolicitudConocimiento, listarSolicitudes: listarSolicitudesConocimiento, responderSolicitud: responderSolicitudConocimiento, rechazarSolicitud: rechazarSolicitudConocimiento } = require('./modules/knowledge-requests');
+const { subirDocumento: subirDocumentoProveedor, procesarDocumento: procesarDocumentoProveedor, listarDocumentos: listarDocumentosProveedor, confirmarDocumento: confirmarDocumentoProveedor, generarUrlFirmadaDocumento } = require('./modules/documentos-proveedor');
 const {
   confirmarAprendizaje, rechazarAprendizaje, marcarObsoleto,
   listarPropuestasPendientes, listarAprendizajesConfirmados, obtenerResumenEjecutivo,
@@ -1485,6 +1487,75 @@ app.patch('/api/knowledge-requests/:id/rechazar', requireAuth, async (req, res) 
     res.json(solicitud);
   } catch (e) {
     res.status(e.message?.includes('no encontrada') ? 404 : 400).json({ error: e.message });
+  }
+});
+
+// Especialista Solar, Fase 6 — ingesta de documentos de proveedor (ficha
+// técnica en PDF/imagen). Datos de catálogo/proveedor — gerencial-only,
+// mismo criterio que Suscripción y Facturación en Configuración.
+const uploadDocumentoProveedor = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+
+app.post('/api/documentos-proveedor', requireAuth, uploadDocumentoProveedor.single('archivo'), async (req, res) => {
+  try {
+    if (!esGerencial(req.usuario.rol)) return res.status(403).json({ error: 'No tienes acceso a esta sección' });
+    if (!req.file) return res.status(400).json({ error: 'archivo requerido' });
+
+    const documento = await subirDocumentoProveedor(supabaseServicio, {
+      company_id: req.usuario.company_id, proveedor: req.body?.proveedor, tipo_documento: req.body?.tipo_documento,
+      buffer: req.file.buffer, mimeType: req.file.mimetype, nombre_archivo: req.file.originalname, subido_por: req.usuario.id,
+    });
+    res.status(201).json(documento);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.get('/api/documentos-proveedor', requireAuth, async (req, res) => {
+  try {
+    if (!esGerencial(req.usuario.rol)) return res.status(403).json({ error: 'No tienes acceso a esta sección' });
+    const documentos = await listarDocumentosProveedor(req.supabase, req.usuario.company_id, {
+      tipo_documento: req.query.tipo_documento, sin_confirmar: req.query.sin_confirmar === 'true',
+    });
+    res.json(documentos);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/documentos-proveedor/:id/procesar', requireAuth, async (req, res) => {
+  try {
+    if (!esGerencial(req.usuario.rol)) return res.status(403).json({ error: 'No tienes acceso a esta sección' });
+    const documento = await procesarDocumentoProveedor(openai, supabaseServicio, req.usuario.company_id, req.params.id);
+    res.json(documento);
+  } catch (e) {
+    res.status(e.message?.includes('no encontrado') ? 404 : 400).json({ error: e.message });
+  }
+});
+
+app.post('/api/documentos-proveedor/:id/confirmar', requireAuth, async (req, res) => {
+  try {
+    if (!esGerencial(req.usuario.rol)) return res.status(403).json({ error: 'No tienes acceso a esta sección' });
+    const documento = await confirmarDocumentoProveedor(req.supabase, req.usuario.company_id, req.params.id, {
+      producto_id: req.body?.producto_id, usuario_id: req.usuario.id, esFichaCompleta: !!req.body?.esFichaCompleta,
+    });
+    res.json(documento);
+  } catch (e) {
+    res.status(e.message?.includes('no encontrado') ? 404 : 400).json({ error: e.message });
+  }
+});
+
+app.get('/api/documentos-proveedor/:id/archivo', requireAuth, async (req, res) => {
+  try {
+    if (!esGerencial(req.usuario.rol)) return res.status(403).json({ error: 'No tienes acceso a esta sección' });
+    const { data: documento, error } = await req.supabase
+      .from('documentos_proveedor').select('archivo_url').eq('id', req.params.id).eq('company_id', req.usuario.company_id).maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!documento) return res.status(404).json({ error: 'Documento no encontrado' });
+
+    const url = await generarUrlFirmadaDocumento(supabaseServicio, documento.archivo_url);
+    res.redirect(url);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
