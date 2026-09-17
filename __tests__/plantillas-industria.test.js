@@ -22,7 +22,7 @@ jest.mock('../modules/organizaciones', () => ({
   crearOrganizacionConCompany: (...args) => mockCrearOrganizacionConCompany(...args),
 }));
 
-const { detectarIndustria, aplicarPlantilla, crearEmpresaConIndustria, obtenerPlantillaDeEmpresa } = require('../modules/plantillas-industria');
+const { detectarIndustria, aplicarPlantilla, crearEmpresaConIndustria, obtenerPlantillaDeEmpresa, generarReglaDisambiguacion } = require('../modules/plantillas-industria');
 
 // ─── Mock Builder (para las queries directas: companies, personalities, plantillas_industria) ──
 
@@ -116,6 +116,29 @@ describe('plantillas-industria', () => {
     });
   });
 
+  describe('generarReglaDisambiguacion() (Alina, 2026-08-10 — desambiguación de catálogo por industria)', () => {
+    test('genera texto genérico a partir de nombre_visible y palabras_clave (máximo 5), etapas vacío = aplica siempre', () => {
+      const regla = generarReglaDisambiguacion(PLANTILLA_SALON);
+      expect(regla.texto).toContain('Salón de belleza / uñas');
+      expect(regla.texto).toContain('uñas, manicure, pedicure, salón');
+      expect(regla.etapas).toEqual([]);
+    });
+
+    test('nunca hardcodea nombre de industria — el texto cambia según la plantilla recibida', () => {
+      const reglaSalon  = generarReglaDisambiguacion(PLANTILLA_SALON);
+      const reglaSoccer = generarReglaDisambiguacion(PLANTILLA_SOCCER);
+      expect(reglaSalon.texto).not.toBe(reglaSoccer.texto);
+      expect(reglaSoccer.texto).toContain('Uniformes deportivos personalizados');
+    });
+
+    test('más de 5 palabras clave → solo toma las primeras 5 (evita un prompt inflado)', () => {
+      const plantillaConMuchas = { nombre_visible: 'X', palabras_clave: ['a', 'b', 'c', 'd', 'e', 'f', 'g'] };
+      const regla = generarReglaDisambiguacion(plantillaConMuchas);
+      const listaTerminos = regla.texto.split('por ejemplo: ')[1].split(')')[0];
+      expect(listaTerminos).toBe('a, b, c, d, e');
+    });
+  });
+
   describe('aplicarPlantilla()', () => {
     test('inserta personalidad y reusa crearKnowledgeBase/crearServicio/crearPipelineEtapa/crearWorkflow/crearNodo', async () => {
       const db = crearMockDb({ error: null }); // insert personalities
@@ -132,6 +155,33 @@ describe('plantillas-industria', () => {
       expect(mockCrearPipelineEtapa).toHaveBeenCalledWith(db, COMPANY_A, PLANTILLA_SALON.pipeline_etapas_seed[0]);
       expect(mockCrearWorkflow).toHaveBeenCalledWith(db, COMPANY_A, expect.objectContaining({ trigger_value: 'solicitud_cotizacion' }));
       expect(mockCrearNodo).toHaveBeenCalledWith(db, COMPANY_A, 'wf1', PLANTILLA_SALON.workflow_seed.nodos[0]);
+    });
+
+    test('la personalidad insertada incluye la regla de desambiguación generada de la plantilla, primero en la lista', async () => {
+      const db = crearMockDb({ error: null });
+
+      await aplicarPlantilla(db, COMPANY_A, PLANTILLA_SALON);
+
+      const builderPersonalidad = db.from.mock.results[0].value;
+      const filaInsertada = builderPersonalidad.insert.mock.calls[0][0][0];
+      expect(filaInsertada.reglas[0].texto).toContain('Salón de belleza / uñas');
+      expect(filaInsertada.reglas[0].etapas).toEqual([]);
+    });
+
+    test('si la plantilla ya trae reglas propias, la regla de desambiguación se antepone sin perderlas', async () => {
+      const plantillaConReglas = {
+        ...PLANTILLA_SOCCER,
+        personalidad: { ...PLANTILLA_SOCCER.personalidad, reglas: [{ texto: 'Regla propia del giro', etapas: [] }] },
+      };
+      const db = crearMockDb({ error: null });
+
+      await aplicarPlantilla(db, COMPANY_A, plantillaConReglas);
+
+      const builderPersonalidad = db.from.mock.results[0].value;
+      const filaInsertada = builderPersonalidad.insert.mock.calls[0][0][0];
+      expect(filaInsertada.reglas).toHaveLength(2);
+      expect(filaInsertada.reglas[0].texto).toContain('Uniformes deportivos personalizados');
+      expect(filaInsertada.reglas[1].texto).toBe('Regla propia del giro');
     });
 
     test('no llama a crearServicio si la plantilla no requiere agenda', async () => {

@@ -33,7 +33,7 @@ const {
 const { obtenerOCrearCliente }           = require('./modules/crm');
 const {
   listarAsesores, listarAsesoresConfig, crearAsesor, actualizarAsesor, eliminarAsesor,
-  listarCitas, consultarDisponibilidad, obtenerOCrearClienteManual,
+  listarCitas, obtenerCita, consultarDisponibilidad, obtenerOCrearClienteManual,
   crearCita, reagendarCita, cancelarCita, marcarNoShow, vincularUsuarioAAsesor,
 }                                        = require('./modules/agenda');
 const { obtenerAgendaConfig, actualizarAgendaConfig } = require('./modules/agenda-config');
@@ -45,11 +45,12 @@ const { resolverOCrearHilo, registrarMensaje, listarHilos, obtenerHilo, listarMe
 const { analizarHilo, analizarConversacionPegada, analizarOportunidadParaCierre, programarAnalisis, obtenerAnalisisHilo } = require('./modules/inbox-analisis');
 const { tipoContenidoDeMime, subirAdjunto, generarUrlFirmada } = require('./modules/inbox-adjuntos');
 const { asociarSiHaySesionDeCotizacionActiva, listarAdjuntosDeCotizacion } = require('./modules/cotizacion-adjuntos');
-const { marcarPredimensionamientoRevisado, marcarIngenieriaValidada, puedeEnviarCotizacion, autorizarPrecioFinal } = require('./modules/cotizaciones');
+const { marcarPredimensionamientoRevisado, marcarIngenieriaValidada, puedeEnviarCotizacion, autorizarPrecioFinal, listarCotizaciones, obtenerCotizacion, correrCotizacionDesdeWorkflow, crearCotizacionBorrador, correrCalculoCotizacionManual, listarProductosPorTipo } = require('./modules/cotizaciones');
 const { listarLineas, agregarLinea, actualizarLinea, eliminarLinea, aplicarCalculoALineas } = require('./modules/cotizacion-lineas');
-const { generarPdfCotizacion, generarYEnviarCotizacion } = require('./modules/cotizacion-pdf');
-const { listarPaquetes, crearPaquete, actualizarPaquete, desactivarPaquete, eliminarPaquete } = require('./modules/paquetes-solares');
+const { generarPdfCotizacion, generarYEnviarCotizacion, BUCKET_COTIZACIONES_PDF } = require('./modules/cotizacion-pdf');
+const { listarPaquetes, crearPaquete, actualizarPaquete, desactivarPaquete, eliminarPaquete, listarPaquetesConCotizaciones } = require('./modules/paquetes-solares');
 const { transcribirAudio, describirImagen } = require('./modules/adjuntos-ia');
+const { procesarReciboCFE } = require('./modules/recibo-cfe');
 const { esGerencial } = require('./modules/permisos');
 const { crearSolicitud: crearSolicitudConocimiento, listarSolicitudes: listarSolicitudesConocimiento, responderSolicitud: responderSolicitudConocimiento, rechazarSolicitud: rechazarSolicitudConocimiento } = require('./modules/knowledge-requests');
 const { subirDocumento: subirDocumentoProveedor, procesarDocumento: procesarDocumentoProveedor, listarDocumentos: listarDocumentosProveedor, confirmarDocumento: confirmarDocumentoProveedor, generarUrlFirmadaDocumento } = require('./modules/documentos-proveedor');
@@ -62,7 +63,7 @@ const {
 } = require('./modules/kce');
 const { interpretarComando, confirmarComando, cancelarComando } = require('./modules/agenda-comandos');
 const {
-  listarClientes, obtenerFichaCliente, actualizarCliente, eliminarCliente,
+  listarClientes, obtenerFichaCliente, actualizarCliente, eliminarCliente, eliminarClienteConHistorial,
   listarSeguimientos, crearSeguimiento, actualizarSeguimiento,
   listarOportunidades, crearOportunidad, actualizarOportunidad, eliminarOportunidad,
 }                                        = require('./modules/crm-ui');
@@ -107,6 +108,7 @@ const {
   crearSesionDemo, resolverSesionDemoActiva, finalizarSesionDemo, listarSesionesActivas, listarEmpresasDemo,
   obtenerEstadoSesionDemo,
 } = require('./modules/plataforma-demo');
+const { resolverContextoDeLead, registrarAtribucion } = require('./modules/lead-atribucion');
 
 const app           = express();
 const adapter       = new TwilioWhatsAppAdapter(twilioClient);
@@ -216,6 +218,60 @@ function _programarAnalisisSiHayHilo(hilo, cliente_id, company_id) {
   programarAnalisis(hilo.id, () => analizarHilo({ supabase: supabaseServicio, openaiClient: openai, company_id, hilo_id: hilo.id, cliente_id, hilo }));
 }
 
+// Enrutamiento por atribución de leads (Alina, 2026-08-14): un mismo número
+// de WhatsApp puede atender más de un contexto de negocio (ej. TARA-OS
+// informativo vs. Nort Energy / paneles solares) — la empresa real se
+// decide por metadata verificable de campaña, nunca solo por palabras del
+// mensaje (ver modules/lead-atribucion.js — jerarquía completa ahí). Corre
+// DESPUÉS de resolver el company_id real del endpoint (ChannelRouter, sin
+// tocar) y ANTES de Modo Demo, que siempre debe poder ganar la última
+// palabra si está activo. Nunca debe tumbar el turno si falla — cae al
+// company_id ya resuelto por ChannelRouter.
+// Devuelve el id de la fila de atribucion_leads recién creada (o null si no
+// hubo decisión nueva, o si algo falló) — el caller lo usa para completar
+// hilo_id/cliente_id (_completarAtribucionConHilo) una vez que existan,
+// cosa que en este punto todavía no pasa (procesarMensajeEntrante() es
+// quien los crea).
+async function _aplicarAtribucionDeLead(message, reqBody, proveedor) {
+  try {
+    const resultado = await resolverContextoDeLead(supabaseServicio, {
+      telefono: message.from, reqBody, proveedor, mensajeTexto: message.content,
+      companyIdFallback: message.company_id,
+    });
+
+    message.company_id = resultado.companyId;
+
+    if (!resultado.esNuevaDecision) return null;
+    const fila = await registrarAtribucion(supabaseServicio, { ...resultado, telefono: message.from, mensajeTexto: message.content });
+    return fila?.id || null;
+  } catch (e) {
+    console.error('Error resolviendo atribución de lead (se mantiene el company_id ya resuelto):', e.message);
+    return null;
+  }
+}
+
+// Completa hilo_id/cliente_id en la fila de atribución ya creada, ahora que
+// procesarMensajeEntrante() ya resolvió/creó el cliente y el hilo reales.
+// Best-effort — nunca debe tumbar la respuesta ya enviada al cliente.
+async function _completarAtribucionConHilo(atribucionId, telefono, companyId) {
+  if (!atribucionId) return;
+  try {
+    const { data: cliente } = await supabaseServicio
+      .from('clientes').select('id').eq('company_id', companyId).eq('telefono', telefono).maybeSingle();
+    if (!cliente) return;
+
+    const { data: hilo } = await supabaseServicio
+      .from('hilos').select('id').eq('company_id', companyId).eq('cliente_id', cliente.id)
+      .order('ultimo_mensaje_at', { ascending: false }).limit(1).maybeSingle();
+
+    await supabaseServicio.from('atribucion_leads')
+      .update({ cliente_id: cliente.id, hilo_id: hilo?.id || null })
+      .eq('id', atribucionId);
+  } catch (e) {
+    console.error('Error completando hilo_id/cliente_id en atribucion_leads:', e.message);
+  }
+}
+
 async function procesarMensajeEntrante(message, enviar, proveedor = 'desconocido', descargarMedia = null) {
   // FASE 5 (Fase 3 — intervención humana): si un humano ya tomó esta
   // conversación, TARA no responde. Se resuelve el cliente aquí (capa de
@@ -255,9 +311,32 @@ async function procesarMensajeEntrante(message, enviar, proveedor = 'desconocido
           if (adjunto.tipo_contenido === 'audio') {
             const transcripcion = await transcribirAudio(openai, buffer, mimeType);
             if (transcripcion) message.content = transcripcion;
-          } else if (adjunto.tipo_contenido === 'imagen') {
-            const descripcion = await describirImagen(openai, buffer, mimeType);
-            if (descripcion) message.content = descripcion;
+          } else if (adjunto.tipo_contenido === 'imagen' || mimeType === 'application/pdf') {
+            // Recibo CFE (Alina, 2026-08-10, modules/recibo-cfe.js): antes de
+            // la descripción genérica de imagen, se intenta la extracción
+            // específica de recibo — solo actúa si hay una sesión activa del
+            // workflow "Cotización directa" (mismo guard que ya usa
+            // asociarSiHaySesionDeCotizacionActiva, abajo). Si no aplica
+            // (otra empresa, otro workflow, o el archivo no es un recibo
+            // legible), cae al mismo describirImagen() genérico de siempre —
+            // comportamiento sin cambio para todo lo demás.
+            const resultadoRecibo = await procesarReciboCFE(openai, supabaseServicio, {
+              buffer, mimeType, companyId: message.company_id, clienteId: cliente.id,
+            }).catch((e) => {
+              console.error('Recibo CFE: error procesando (se sigue con el flujo normal):', e.message);
+              return { aplico: false };
+            });
+
+            if (resultadoRecibo.aplico) {
+              const resumen = [
+                resultadoRecibo.datos.consumoMensualKwh != null ? `consumo aprox. ${resultadoRecibo.datos.consumoMensualKwh} kWh/mes` : null,
+                resultadoRecibo.datos.importePromedioRecibo != null ? `importe aprox. $${resultadoRecibo.datos.importePromedioRecibo}/mes` : null,
+              ].filter(Boolean).join(', ');
+              message.content = `El cliente envió su recibo de CFE. Datos leídos automáticamente del recibo: ${resumen}.`;
+            } else if (adjunto.tipo_contenido === 'imagen') {
+              const descripcion = await describirImagen(openai, buffer, mimeType);
+              if (descripcion) message.content = descripcion;
+            }
           }
         } catch (e) {
           console.error('Inbox: error interpretando adjunto con IA (se conserva el placeholder):', e.message);
@@ -416,6 +495,66 @@ async function procesarMensajeEntrante(message, enviar, proveedor = 'desconocido
     console.error('Error calculando cotización automática:', e.message);
   }
 
+  // Ingeniería y Cotización — disparo anticipado (Alina, 2026-08-10):
+  // diagnóstico real de "mándame la cotización" sin efecto — la única forma
+  // de disparar ejecutar_motor_ingenieria era completar, EN ORDEN, todos los
+  // nodos del workflow. Si el cliente lo pide explícitamente y el workflow
+  // activo es del tipo "ingeniería" (tiene un nodo con esa acción — no se
+  // asume paneles solares, sirve para cualquier empresa/industria que
+  // reutilice el mismo motor), corremos correrCotizacionDesdeWorkflow() de
+  // una vez, sin esperar a los nodos que falten — reusa tal cual el mismo
+  // camino que ya dispara el nodo final (mismo PDF, mismo envío, mismo
+  // seguimiento si falta algo). Capa de plataforma, mismo patrón que la
+  // "cotización automática Motor Universal" arriba — sin tocar
+  // Orchestrator/WorkflowEngine (ADR-005).
+  let yaRespondioIngenieria = false;
+  try {
+    const intenciones = resultado.ai_output?.intenciones || [];
+    if (intenciones.includes('solicitud_cotizacion')) {
+      const { data: sesionActiva } = await supabaseServicio
+        .from('workflow_sessions')
+        .select('id, workflow_id, current_node, captured_fields')
+        .eq('company_id', message.company_id)
+        .eq('cliente_id', cliente.id)
+        .eq('status', 'activo')
+        .maybeSingle();
+
+      if (sesionActiva) {
+        const { data: nodosWorkflow } = await supabaseServicio
+          .from('workflow_nodes')
+          .select('nombre, acciones')
+          .eq('workflow_id', sesionActiva.workflow_id);
+
+        const nodoAccion = (nodosWorkflow || [])
+          .find(n => (n.acciones || []).some(a => a?.tipo === 'ejecutar_motor_ingenieria'));
+
+        // Si ya estamos exactamente en el nodo que dispara la acción, se
+        // deja correr por el camino normal del workflow (evita disparo doble
+        // en el mismo turno).
+        if (nodoAccion && sesionActiva.current_node !== nodoAccion.nombre) {
+          const capturedFields = {
+            ...(sesionActiva.captured_fields || {}),
+            ...Object.fromEntries(
+              Object.entries(resultado.ai_output?.datos_extraidos || {})
+                .filter(([, v]) => v != null && String(v).trim() !== '')
+            ),
+          };
+          const calculo = await correrCotizacionDesdeWorkflow(supabaseServicio, {
+            companyId: message.company_id, clienteId: cliente.id, capturedFields, destinatario: message.from,
+          });
+          if (calculo) yaRespondioIngenieria = true;
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Error en disparo anticipado de cotización (ingeniería):', e.message);
+  }
+
+  if (yaRespondioIngenieria) {
+    console.log(`✅ ${message.from} — cotización de ingeniería disparada anticipadamente (empresa ${message.company_id})`);
+    return;
+  }
+
   // FASE 6 (Configuración — mensaje de bienvenida y firma): se aplican en
   // la capa de plataforma, sobre el texto ya generado por el Orchestrator
   // — cero cambios al motor de IA/prompt.
@@ -486,11 +625,15 @@ app.post('/webhook/twilio', async (req, res) => {
     // conversación, nunca por dónde sale la respuesta.
     const numeroOrigen = await channelRouter.resolverEndpointDeEmpresa(message.company_id);
 
+    // Enrutamiento por atribución de leads — ver _aplicarAtribucionDeLead().
+    const atribucionId = await _aplicarAtribucionDeLead(message, req.body, 'twilio');
+
     // Modo Demo en Tiempo Real (Alina, 2026-07-30): si quien escribe es un
     // teléfono con sesión demo vigente, esta conversación se atiende como
     // si fuera la empresa demo, sin afectar a nadie más ni cambiar el canal
     // de salida. Sin sesión activa, message.company_id no cambia — mismo
-    // flujo de siempre.
+    // flujo de siempre. Corre al final: Modo Demo (control manual explícito)
+    // siempre gana la última palabra sobre la atribución automática.
     const sesionDemo = await resolverSesionDemoActiva(supabaseServicio, message.from);
     if (sesionDemo) message.company_id = sesionDemo.company_id;
 
@@ -500,6 +643,10 @@ app.post('/webhook/twilio', async (req, res) => {
       'twilio',
       (media) => adapter.descargarMedia(media)
     );
+
+    // Trazabilidad completa (hilo_id/cliente_id) — recién ahora existen,
+    // procesarMensajeEntrante() los acaba de crear/resolver.
+    await _completarAtribucionConHilo(atribucionId, message.from, message.company_id);
 
     res.status(200).end();
   } catch (e) {
@@ -558,9 +705,15 @@ app.post('/webhook/meta', async (req, res) => {
       return res.status(200).end();
     }
 
+    // Enrutamiento por atribución de leads — ver _aplicarAtribucionDeLead().
+    // Después de resolver credenciales reales de envío, nunca antes.
+    const atribucionId = await _aplicarAtribucionDeLead(message, req.body, 'meta');
+
     // Modo Demo en Tiempo Real — ver nota equivalente en el webhook de
     // Twilio: el override ocurre después de resolver las credenciales
-    // reales de envío (metaAdapterEmpresa), nunca antes.
+    // reales de envío (metaAdapterEmpresa), nunca antes. Corre al final:
+    // Modo Demo (control manual explícito) siempre gana la última palabra
+    // sobre la atribución automática.
     const sesionDemo = await resolverSesionDemoActiva(supabaseServicio, message.from);
     if (sesionDemo) message.company_id = sesionDemo.company_id;
 
@@ -570,6 +723,10 @@ app.post('/webhook/meta', async (req, res) => {
       'meta',
       (media) => metaAdapterEmpresa.descargarMedia(media)
     );
+
+    // Trazabilidad completa (hilo_id/cliente_id) — recién ahora existen,
+    // procesarMensajeEntrante() los acaba de crear/resolver.
+    await _completarAtribucionConHilo(atribucionId, message.from, message.company_id);
 
     res.status(200).end();
   } catch (e) {
@@ -1050,6 +1207,16 @@ app.get('/api/agenda/citas', requireAuth, async (req, res) => {
   }
 });
 
+app.get('/api/agenda/citas/:id', requireAuth, async (req, res) => {
+  try {
+    const cita = await obtenerCita(req.supabase, req.usuario.company_id, req.usuario, req.params.id);
+    if (!cita) return res.status(404).json({ error: 'Cita no encontrada' });
+    res.json(cita);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/agenda/disponibilidad', requireAuth, async (req, res) => {
   try {
     const { asesorId, fecha, duracionMinutos } = req.query;
@@ -1251,6 +1418,20 @@ app.delete('/api/crm/clientes/:id', requireAuth, soloGerencial, async (req, res)
   try {
     await eliminarCliente(req.supabase, req.usuario.company_id, req.params.id);
     res.status(204).send();
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// Borrado completo (cliente + todo su historial) — Panel de Cotizaciones,
+// solo empresas demo (verificado dentro de eliminarClienteConHistorial()).
+// Ruta separada de la de arriba a propósito: /completo es irreversible y de
+// alcance mucho mayor, nunca se quiere que un cliente de /api la dispare
+// por accidente pensando que es el DELETE normal.
+app.delete('/api/crm/clientes/:id/completo', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    const resultado = await eliminarClienteConHistorial(req.supabase, req.usuario.company_id, req.params.id);
+    res.json(resultado);
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
   }
@@ -2034,6 +2215,30 @@ app.get('/api/paquetes-solares', requireAuth, async (req, res) => {
   }
 });
 
+// Catálogo de productos (paneles/inversores) por tipo — usado por el
+// formulario manual de cotización para elegir el panel del cálculo y para
+// armar líneas de producto individuales. `tipo` es texto libre (mismo
+// criterio que productos.tipo, sin ENUM) — 'panel_solar', 'inversor',
+// 'microinversor', etc.
+app.get('/api/productos', requireAuth, async (req, res) => {
+  try {
+    if (!req.query.tipo) return res.status(400).json({ error: 'Falta el parámetro tipo' });
+    res.json(await listarProductosPorTipo(req.supabase, req.usuario.company_id, req.query.tipo));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Portafolio de Servicios → Cotizaciones (Alina, 2026-08-10): cada paquete
+// con sus cotizaciones relacionadas — ver modules/paquetes-solares.js.
+app.get('/api/paquetes-solares/con-cotizaciones', requireAuth, async (req, res) => {
+  try {
+    res.json(await listarPaquetesConCotizaciones(req.supabase, req.usuario.company_id));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/api/paquetes-solares', requireAuth, soloGerencial, async (req, res) => {
   try {
     res.status(201).json(await crearPaquete(req.supabase, req.usuario.company_id, req.body));
@@ -2079,15 +2284,49 @@ app.delete('/api/paquetes-solares/:id', requireAuth, soloGerencial, async (req, 
 // gerencial solo ve las suyas o las que todavía no tienen ejecutivo
 // asignado (mismo criterio de alcance que modules/crm-ui.js).
 
+// Panel de Cotizaciones (Alina, 2026-08-10): mismo par de rutas que ya
+// existía para la bandeja de revisión — ahora respaldadas por
+// modules/cotizaciones.js::listarCotizaciones()/obtenerCotizacion(), que
+// además traen cliente, producto/paquete, líneas, envíos e ingeniería en
+// una sola llamada (lo que necesita tanto la bandeja como el panel nuevo).
+// El alcance por rol (gerencial ve todo, asesor solo lo suyo) se movió al
+// módulo — ver comentario ahí.
+
+// Creación manual (Alina, 2026-09-15 — "necesito que haya una opción
+// manual"): el único camino de creación hasta ahora era
+// correrCotizacionDesdeWorkflow (disparado por WhatsApp). Este endpoint
+// crea la cotización en borrador; el cálculo se dispara aparte en
+// POST /api/cotizaciones/:id/calcular, para que el formulario capture los
+// datos técnicos en un segundo paso.
+app.post('/api/cotizaciones', requireAuth, async (req, res) => {
+  try {
+    const cotizacion = await crearCotizacionBorrador(req.supabase, {
+      companyId: req.usuario.company_id, clienteId: req.body.clienteId,
+      ejecutivoId: req.usuario.id, descripcion: req.body.descripcion,
+    });
+    res.status(201).json(cotizacion);
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message });
+  }
+});
+
+app.post('/api/cotizaciones/:id/calcular', requireAuth, async (req, res) => {
+  try {
+    const resultado = await correrCalculoCotizacionManual(req.supabase, {
+      companyId: req.usuario.company_id, cotizacionId: req.params.id,
+      infoTecnica: req.body.infoTecnica, panelSeleccionadoId: req.body.panelSeleccionadoId,
+      temperaturaMinSitio: req.body.temperaturaMinSitio, inversionNeta: req.body.inversionNeta,
+      calculadoPor: req.usuario.id,
+    });
+    res.json(resultado);
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message });
+  }
+});
+
 app.get('/api/cotizaciones', requireAuth, async (req, res) => {
   try {
-    let query = req.supabase.from('cotizaciones').select('*').eq('company_id', req.usuario.company_id).order('created_at', { ascending: false });
-    if (!esGerencial(req.usuario.rol)) {
-      query = query.or(`ejecutivo_id.eq.${req.usuario.id},ejecutivo_id.is.null`);
-    }
-    const { data, error } = await query;
-    if (error) throw new Error(error.message);
-    res.json(data || []);
+    res.json(await listarCotizaciones(req.supabase, req.usuario.company_id, req.usuario));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -2095,15 +2334,33 @@ app.get('/api/cotizaciones', requireAuth, async (req, res) => {
 
 app.get('/api/cotizaciones/:id', requireAuth, async (req, res) => {
   try {
-    const { data: cotizacion, error } = await req.supabase.from('cotizaciones').select('*').eq('id', req.params.id).eq('company_id', req.usuario.company_id).maybeSingle();
+    const cotizacion = await obtenerCotizacion(req.supabase, req.usuario.company_id, req.params.id);
+    if (!cotizacion) return res.status(404).json({ error: 'Cotización no encontrada' });
+
+    const adjuntos = await listarAdjuntosDeCotizacion(req.supabase, cotizacion.id);
+    res.json({ ...cotizacion, adjuntos });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Ver/descargar el PDF — Storage privado exige service_role, mismo patrón
+// ya establecido en GET /api/inbox/mensajes/:id/adjunto y en
+// POST /api/cotizaciones/:id/generar-pdf: la AUTORIZACIÓN (¿la cotización
+// es de la empresa del usuario?) se verifica con req.supabase, la URL
+// firmada se genera con supabaseServicio.
+app.get('/api/cotizaciones/:id/pdf', requireAuth, async (req, res) => {
+  try {
+    const { data: cotizacion, error } = await req.supabase
+      .from('cotizaciones').select('pdf_url').eq('id', req.params.id).eq('company_id', req.usuario.company_id).maybeSingle();
     if (error || !cotizacion) return res.status(404).json({ error: 'Cotización no encontrada' });
+    if (!cotizacion.pdf_url) return res.status(404).json({ error: 'Esta cotización todavía no tiene un PDF generado' });
 
-    const [{ data: calculo }, adjuntos] = await Promise.all([
-      req.supabase.from('calculos_ingenieria').select('*').eq('cotizacion_id', cotizacion.id).order('version', { ascending: false }).limit(1).maybeSingle(),
-      listarAdjuntosDeCotizacion(req.supabase, cotizacion.id),
-    ]);
+    const { data: firmada, error: errFirmada } = await supabaseServicio.storage
+      .from(BUCKET_COTIZACIONES_PDF).createSignedUrl(cotizacion.pdf_url, 3600);
+    if (errFirmada) throw new Error(errFirmada.message);
 
-    res.json({ cotizacion, calculo: calculo || null, adjuntos });
+    res.redirect(firmada.signedUrl);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -2286,6 +2543,24 @@ app.get('/oauth/google/callback', async (req, res) => {
     console.error('❌ Error en /oauth/google/callback:', e);
     res.status(500).send(`No se pudo completar la conexión con Google: ${e.message}`);
   }
+});
+
+// Diagnóstico — confirma presencia de las 3 variables que usa google-auth.js
+// (mismo patrón que la sección "env_vars" de /api/diagnostics), sin exponer
+// valores. No toca modules/google-auth.js — aditivo, fuera del freeze de ADR-005.
+app.get('/oauth/status', (req, res) => {
+  const vars = {
+    GOOGLE_CLIENT_ID:     !!process.env.GOOGLE_CLIENT_ID,
+    GOOGLE_CLIENT_SECRET: !!process.env.GOOGLE_CLIENT_SECRET,
+    GOOGLE_REDIRECT_URI:  !!process.env.GOOGLE_REDIRECT_URI,
+  };
+  const faltantes = Object.entries(vars).filter(([, v]) => !v).map(([k]) => k);
+
+  res.status(faltantes.length ? 503 : 200).json({
+    configurado: faltantes.length === 0,
+    variables:   vars,
+    faltantes,
+  });
 });
 
 // ── AUTH (Plataforma SaaS, Fase 1) ────────────────────────────────────────────
@@ -2917,6 +3192,7 @@ app.get('/api/status', (req, res) => res.json({
     terminos:    'GET  /terminos',
     google_oauth_iniciar: 'GET  /oauth/google/iniciar?company_id=...',
     google_oauth_callback: 'GET  /oauth/google/callback',
+    google_oauth_status: 'GET  /oauth/status',
     auth_login:  'POST /api/auth/login',
     auth_me:     'GET  /api/auth/me',
     auth_logout: 'POST /api/auth/logout',

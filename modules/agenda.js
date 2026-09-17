@@ -309,6 +309,48 @@ async function vincularUsuarioAAsesor(supabase, company_id, asesorId, usuarioId)
   return data;
 }
 
+/**
+ * Detalle de una cita — cliente, asesor, servicio y la conversación (hilo)
+ * relacionada, en una sola llamada, para la vista de detalle del panel
+ * (Alina, 2026-08-11, demo LUMÉ Hair Studio). Mismo alcance por rol que
+ * listarCitas()/_obtenerCitaPropia() — un Asesor solo puede ver sus propias
+ * citas. El hilo se resuelve por cliente_id, el más reciente por actividad
+ * — mismo criterio que cotizaciones.js::_resolverHiloReciente (nunca inventa
+ * una relación si el cliente no tiene ninguna conversación registrada).
+ *
+ * @returns {Promise<Object|null>} null si no existe o es de otra empresa/asesor
+ */
+async function obtenerCita(supabase, company_id, usuario, citaId) {
+  const { data: cita, error } = await supabase
+    .from('citas')
+    .select('*, clientes(id, nombre, telefono), asesores(nombre), servicios(nombre, precio, duracion_minutos)')
+    .eq('id', citaId)
+    .eq('company_id', company_id)
+    .maybeSingle();
+
+  if (error || !cita) return null;
+
+  if (!ROLES_GERENCIALES.includes(usuario.rol)) {
+    const asesorId = await resolverAsesorDeUsuario(supabase, company_id, usuario.id);
+    if (!asesorId || cita.asesor_id !== asesorId) return null;
+  }
+
+  let hilo = null;
+  if (cita.clientes?.id) {
+    const { data } = await supabase
+      .from('hilos')
+      .select('id, ultimo_mensaje_at')
+      .eq('company_id', company_id)
+      .eq('cliente_id', cita.clientes.id)
+      .order('ultimo_mensaje_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    hilo = data || null;
+  }
+
+  return { ...cita, hilo };
+}
+
 module.exports = {
   listarAsesores,
   listarAsesoresConfig,
@@ -316,6 +358,7 @@ module.exports = {
   actualizarAsesor,
   eliminarAsesor,
   listarCitas,
+  obtenerCita,
   consultarDisponibilidad,
   obtenerOCrearClienteManual,
   crearCita,

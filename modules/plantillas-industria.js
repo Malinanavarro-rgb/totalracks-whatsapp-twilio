@@ -126,6 +126,29 @@ function detectarIndustria(plantillas, descripcionNegocio) {
 }
 
 /**
+ * Genera la regla de negocio que le dice al modelo cómo resolver términos
+ * ambiguos del catálogo de esta industria — usa EXCLUSIVAMENTE los datos ya
+ * declarados en la plantilla (nombre_visible + palabras_clave), nunca texto
+ * hardcodeado por industria. Se agrega automáticamente a toda empresa nueva
+ * con industria detectada (ver aplicarPlantilla()) y aplica igual para
+ * cualquier industria futura sin cambios de código (Alina, 2026-08-10 —
+ * causa raíz de que TARA preguntara "¿qué tipo de paneles?" en una empresa
+ * cuyo único giro es paneles solares: nada en el prompt le indicaba que
+ * debía resolver ambigüedad dentro del catálogo de la empresa en vez de
+ * cubrirse preguntando).
+ *
+ * @param {Object} plantilla - fila de `plantillas_industria` (usa nombre_visible y palabras_clave)
+ * @returns {{texto: string, etapas: string[]}}
+ */
+function generarReglaDisambiguacion(plantilla) {
+  const terminos = (plantilla.palabras_clave || []).slice(0, 5).join(', ');
+  return {
+    texto: `Esta empresa pertenece al giro de "${plantilla.nombre_visible}". Cuando el cliente use un término que podría ser ambiguo en lenguaje general (por ejemplo: ${terminos}), interprétalo SIEMPRE dentro de este giro — nunca preguntes si se refiere a otro tipo de producto o servicio que la empresa no ofrece. La ambigüedad se resuelve con el catálogo de esta empresa, no contra todos los significados posibles de la palabra.`,
+    etapas: [],
+  };
+}
+
+/**
  * Aplica una plantilla de industria a una empresa recién creada: inserta
  * personalidad, knowledge base, servicios (si aplica), catálogo de pipeline
  * y el workflow con sus nodos.
@@ -135,7 +158,11 @@ function detectarIndustria(plantillas, descripcionNegocio) {
  * @param {Object} plantilla - fila de `plantillas_industria`
  */
 async function aplicarPlantilla(supabase, company_id, plantilla) {
-  await _crearPersonalidad(supabase, company_id, plantilla.personalidad);
+  const personalidadConRegla = {
+    ...plantilla.personalidad,
+    reglas: [generarReglaDisambiguacion(plantilla), ...(plantilla.personalidad.reglas || [])],
+  };
+  await _crearPersonalidad(supabase, company_id, personalidadConRegla);
 
   for (const kb of plantilla.knowledge_base_seed || []) {
     await crearKnowledgeBase(supabase, company_id, kb);
@@ -236,10 +263,18 @@ async function obtenerPlantillaDeEmpresa(supabase, company_id) {
   // No toca ningún otro campo de la plantilla (cotizacion_config, ui_config,
   // etc.) — otras empresas de la misma industria (GONDOR, Demo) siguen
   // recibiendo exactamente la plantilla compartida sin cambio alguno.
-  if (company.nav_labels?.dashboard_kpis_seed) {
-    return { ...plantilla, dashboard_kpis_seed: company.nav_labels.dashboard_kpis_seed };
-  }
-  return plantilla;
+  //
+  // `cotizacion_pdf_config` (Nort Energy, Alina 2026-09-14) sigue el MISMO
+  // mecanismo: una empresa puede traer su propio copy/plantilla visual de
+  // PDF sin tocar la fila compartida de `plantillas_industria` — así
+  // GONDOR y Empresa Demo Paneles Solares (mismo industria_slug) siguen
+  // recibiendo el PDF editorial compacto de siempre, y solo Nort Energy usa
+  // `plantilla_visual: 'premium_corporativo'`.
+  const overrides = {};
+  if (company.nav_labels?.dashboard_kpis_seed) overrides.dashboard_kpis_seed = company.nav_labels.dashboard_kpis_seed;
+  if (company.nav_labels?.cotizacion_pdf_config) overrides.cotizacion_pdf_config = company.nav_labels.cotizacion_pdf_config;
+
+  return Object.keys(overrides).length > 0 ? { ...plantilla, ...overrides } : plantilla;
 }
 
-module.exports = { detectarIndustria, aplicarPlantilla, crearEmpresaConIndustria, obtenerPlantillaDeEmpresa };
+module.exports = { detectarIndustria, aplicarPlantilla, crearEmpresaConIndustria, obtenerPlantillaDeEmpresa, generarReglaDisambiguacion };

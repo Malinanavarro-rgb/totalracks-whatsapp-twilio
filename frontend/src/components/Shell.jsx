@@ -17,6 +17,7 @@ const ICONOS = {
   ventas:        <><path d="M20 12l-8 8-9-9V4h7l10 8z"/><circle cx="7.5" cy="7.5" r="1.2" fill="currentColor" stroke="none"/></>,
   clientes:      <><circle cx="9" cy="8" r="3"/><path d="M2 20c0-4 3-6 7-6s7 2 7 6M16 8a3 3 0 100-6M17 14c3 0 5 2 5 6"/></>,
   catalogo:      <path d="M3 8l9-5 9 5-9 5-9-5zm0 0v8l9 5 9-5V8"/>,
+  cotizaciones:  <><path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4M9 12h6M9 16h6M9 8h2"/></>,
   configuracion: <><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.2-1.6l2-1.5-2-3.4-2.3.9a7 7 0 00-2.7-1.6L13.4 2h-2.8l-.4 2.8a7 7 0 00-2.7 1.6l-2.3-.9-2 3.4 2 1.5A7 7 0 005 12c0 .5 0 1.1.2 1.6l-2 1.5 2 3.4 2.3-.9c.8.7 1.7 1.3 2.7 1.6l.4 2.8h2.8l.4-2.8c1-.3 1.9-.9 2.7-1.6l2.3.9 2-3.4-2-1.5c.1-.5.2-1 .2-1.6z"/></>,
   panelAccion:   <><path d="M9 18h6M10 21h4M12 3a6 6 0 00-3.5 10.9c.5.4.8 1 .8 1.6v.5h5.4v-.5c0-.6.3-1.2.8-1.6A6 6 0 0012 3z"/></>,
   centroConocimiento: <><path d="M4 5c3-1.5 6-1.5 8 0v14c-2-1.5-5-1.5-8 0V5z"/><path d="M20 5c-3-1.5-6-1.5-8 0v14c2-1.5 5-1.5 8 0V5z"/></>,

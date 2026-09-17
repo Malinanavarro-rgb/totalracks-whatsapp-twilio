@@ -638,6 +638,7 @@ body {
 .inbox-badge--prioridad-normal { background: #eef0f7; color: #555; }
 .inbox-badge--prioridad-baja { background: #f0f0f2; color: #888; }
 .inbox-badge--etiqueta { background: #ece5fb; color: #5b34a8; }
+.inbox-badge--score { background: #fff0d6; color: #8a5a00; text-transform: none; }
 
 .inbox-cargar-mas {
   margin-top: 0.75rem; padding: 0.5rem 1rem; border-radius: 8px; border: 1px solid #ddd;
@@ -1092,6 +1093,14 @@ body {
 .modal-acciones button[type="submit"] { border: none; background: var(--acento); color: #fff; }
 .modal-acciones button[type="button"] { border: 1px solid #ddd; background: #fff; }
 
+/* ── Detalle de cita (Agenda) ──────────────────────────────────────────── */
+.agenda-cita-item-clic { cursor: pointer; }
+.agenda-cita-item-clic:hover { text-decoration: underline; }
+
+.cita-detalle-lista { display: grid; grid-template-columns: auto 1fr; gap: 0.35rem 0.75rem; margin: 0; }
+.cita-detalle-lista dt { color: #888; font-size: 0.8rem; white-space: nowrap; }
+.cita-detalle-lista dd { margin: 0; font-size: 0.92rem; }
+
 /* ── Clientes (Fase Premium V1.1) ──────────────────────────────────────── */
 /* Cada fila cuenta una historia: nombre, última actividad, monto, próxima
    acción y estado — no solo nombre/teléfono. */
@@ -1104,7 +1113,7 @@ body {
 .clientes-header span:first-child { grid-column: 1 / span 2; }
 .clientes-lista { display: flex; flex-direction: column; }
 .cliente-fila {
-  display: grid; grid-template-columns: 2.4rem 1.4fr 1fr 0.9fr 1.3fr auto;
+  display: grid; grid-template-columns: 2.4rem 1.4fr 1fr 0.9fr 1.3fr auto auto;
   align-items: center; gap: 1rem; padding: 0.9rem 0.4rem;
   border-bottom: 1px solid var(--line); text-decoration: none; color: inherit;
 }
@@ -1129,10 +1138,26 @@ body {
 .pill--error    { background: var(--error-soft); color: var(--error); }
 .pill--neutral  { background: var(--tint); color: var(--text-secondary); }
 
+/* Catálogo técnico (quick win, auditoría 2026-09-16) */
+.catalogo-tecnico-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; margin-top: 1rem; }
+.catalogo-tecnico-tarjeta { border: 1px solid var(--line); border-radius: 12px; padding: 1rem; display: flex; flex-direction: column; gap: 0.4rem; }
+.catalogo-tecnico-tipo { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); }
+.catalogo-tecnico-marca { font-weight: 700; font-size: 1rem; }
+.catalogo-tecnico-modelo { color: var(--text-secondary); font-size: 0.88rem; margin-top: -0.3rem; }
+
 @media (max-width: 760px) {
   .cliente-fila { grid-template-columns: 2.4rem 1fr auto; }
   .cliente-fila-actividad, .cliente-fila-monto, .cliente-fila-accion { display: none; }
 }
+
+/* Panel de Cotizaciones — botón con apariencia de link, para mezclarse con
+   los demás <a> de la columna Acciones (Ver / Abrir PDF / Descargar). */
+.boton-enlace {
+  background: none; border: none; padding: 0; margin: 0; cursor: pointer;
+  color: var(--acento); font-size: inherit; font-family: inherit; text-decoration: underline;
+}
+.boton-enlace:disabled { color: var(--text-secondary); cursor: default; text-decoration: none; }
+.cotizacion-acciones { white-space: nowrap; font-size: 0.85rem; }
 
 /* ── CRM ───────────────────────────────────────────────────────────────── */
 

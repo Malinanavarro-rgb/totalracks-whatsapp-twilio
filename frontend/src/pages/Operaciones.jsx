@@ -212,7 +212,7 @@ export default function Operaciones() {
               <div className="acciones-rapidas">
                 <Link to="/crm" className="accion-rapida-boton">+ Nuevo cliente</Link>
                 <Link to="/crm/pipeline" className="accion-rapida-boton">+ Nueva oportunidad</Link>
-                <Link to="/cotizaciones" className="accion-rapida-boton">+ Crear cotización</Link>
+                <Link to="/cotizaciones/nueva" className="accion-rapida-boton">+ Crear cotización</Link>
                 <Link to="/agenda" className="accion-rapida-boton">+ Agendar cita</Link>
               </div>
 

@@ -2,6 +2,7 @@
 
 const {
   listarPaquetes, crearPaquete, actualizarPaquete, desactivarPaquete, eliminarPaquete, seleccionarPaqueteRecomendado,
+  listarPaquetesConCotizaciones,
 } = require('../modules/paquetes-solares');
 
 function crearBuilder(resultado = { data: null, error: null }) {
@@ -11,6 +12,7 @@ function crearBuilder(resultado = { data: null, error: null }) {
     update: jest.fn().mockReturnThis(),
     delete: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
+    in: jest.fn().mockReturnThis(),
     lte: jest.fn().mockReturnThis(),
     gte: jest.fn().mockReturnThis(),
     or: jest.fn().mockReturnThis(),
@@ -121,5 +123,44 @@ describe('seleccionarPaqueteRecomendado() — la lógica más crítica de esta p
     const db = crearMockDb({ data: null, error: { message: 'timeout' } });
     const paquete = await seleccionarPaqueteRecomendado(db, { companyId: COMPANY_A, numeroPanelesTecnico: 8 });
     expect(paquete).toBeNull();
+  });
+});
+
+describe('listarPaquetesConCotizaciones()', () => {
+  test('agrupa las cotizaciones bajo su paquete correspondiente', async () => {
+    const db = crearMockDb(
+      { data: [{ id: 'pkg-1', cantidad_paneles: 8 }, { id: 'pkg-2', cantidad_paneles: 12 }], error: null },
+      {
+        data: [
+          { id: 20, folio: 'COT-2026-0001', paquete_recomendado_id: 'pkg-2', total: 94000, clientes: { nombre: 'Marisol' } },
+          { id: 21, folio: 'COT-2026-0002', paquete_recomendado_id: 'pkg-1', total: 64000, clientes: { nombre: 'Juan' } },
+        ], error: null,
+      },
+    );
+    const resultado = await listarPaquetesConCotizaciones(db, COMPANY_A);
+    expect(resultado).toHaveLength(2);
+    expect(resultado.find(p => p.id === 'pkg-2').cotizaciones).toEqual([expect.objectContaining({ folio: 'COT-2026-0001' })]);
+    expect(resultado.find(p => p.id === 'pkg-1').cotizaciones).toEqual([expect.objectContaining({ folio: 'COT-2026-0002' })]);
+  });
+
+  test('paquete sin cotizaciones → cotizaciones: []', async () => {
+    const db = crearMockDb(
+      { data: [{ id: 'pkg-1', cantidad_paneles: 8 }], error: null },
+      { data: [], error: null },
+    );
+    const resultado = await listarPaquetesConCotizaciones(db, COMPANY_A);
+    expect(resultado[0].cotizaciones).toEqual([]);
+  });
+
+  test('sin paquetes → arreglo vacío, nunca consulta cotizaciones', async () => {
+    const db = crearMockDb({ data: [], error: null });
+    const resultado = await listarPaquetesConCotizaciones(db, COMPANY_A);
+    expect(resultado).toEqual([]);
+    expect(db.from).toHaveBeenCalledTimes(1);
+  });
+
+  test('error consultando paquetes → arreglo vacío, no lanza', async () => {
+    const db = crearMockDb({ data: null, error: { message: 'boom' } });
+    expect(await listarPaquetesConCotizaciones(db, COMPANY_A)).toEqual([]);
   });
 });

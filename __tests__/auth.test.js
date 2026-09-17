@@ -101,7 +101,7 @@ describe('auth', () => {
       expect(resultado.usuario).toEqual({ id: USUARIO_ID, nombre: 'Alina', email: 'a@b.com' });
       expect(resultado.empresaActiva).toEqual({
         company_id: COMPANY_A, nombre: 'Total Racks', rol: 'owner',
-        logo_url: null, color_acento: null, industria_slug: null, nav_labels: null, ui_config: {}, onboarding_completado: true,
+        logo_url: null, color_acento: null, industria_slug: null, nav_labels: null, ui_config: {}, onboarding_completado: true, es_demo: false,
       });
       expect(resultado.empresas).toHaveLength(1);
     });
@@ -145,7 +145,7 @@ describe('auth', () => {
 
       expect(empresas).toEqual([{
         company_id: COMPANY_A, nombre: 'Total Racks', rol: 'supervisor',
-        logo_url: null, color_acento: null, industria_slug: null, nav_labels: null, ui_config: {}, onboarding_completado: true,
+        logo_url: null, color_acento: null, industria_slug: null, nav_labels: null, ui_config: {}, onboarding_completado: true, es_demo: false,
       }]);
     });
 

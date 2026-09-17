@@ -4,6 +4,10 @@ import { useAuth } from '../context/AuthContext';
 import { api } from '../lib/api';
 import { iniciales, colorDesdeTexto } from '../lib/avatar';
 
+// Mismo criterio que Shell.jsx/CrmClienteDetalle.jsx — duplicado a
+// propósito, el frontend no importa modules/permisos.js del backend.
+const ROLES_GERENCIALES = ['owner', 'administrador', 'supervisor'];
+
 // Estado del cliente → severidad visual del pill (Brand Guidelines V1.0:
 // colores semánticos, no un color por estado inventado).
 const SEVERIDAD_ESTADO = {
@@ -55,6 +59,9 @@ function AvatarCliente({ nombre, logo_url }) {
 // modules/crm-ui.js::listarClientes (ultima_oportunidad), no inventados.
 export default function Crm() {
   const { sesion } = useAuth();
+  const esGerencial = ROLES_GERENCIALES.includes(sesion?.empresaActiva?.rol);
+  const esDemo = !!sesion?.empresaActiva?.es_demo;
+  const [borrandoId, setBorrandoId] = useState(null);
   // Motor Universal: título, columnas y layout (citas vs. cotización) vienen
   // de la plantilla de industria (plantillas_industria.ui_config.crm) — sin
   // esa config (empresa sin industria) se usa el criterio genérico universal.
@@ -84,6 +91,25 @@ export default function Crm() {
     }, 4000);
     return () => clearInterval(id);
   }, [filtros]);
+
+  // Borrado completo por fila, sin entrar a la ficha — solo empresas demo
+  // (Panel de Cotizaciones, 2026-08-10). Un solo confirm() basta aquí (a
+  // diferencia de la ficha, que tiene más espacio para una confirmación en
+  // dos pasos con el nombre del cliente a la vista).
+  async function borrarTodoElHistorial(e, cliente) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!window.confirm(`Esto borra TODO el historial de ${cliente.nombre || cliente.telefono} (conversaciones, citas, oportunidades, cotizaciones, logs). Es irreversible. ¿Continuar?`)) return;
+    setBorrandoId(cliente.id);
+    try {
+      await api.eliminarClienteCompleto(cliente.id);
+      api.clientesCrm(filtros).then(setClientes);
+    } catch (e2) {
+      setError(e2.message);
+    } finally {
+      setBorrandoId(null);
+    }
+  }
 
   async function crearCliente(e) {
     e.preventDefault();
@@ -182,6 +208,14 @@ export default function Crm() {
                   </>
                 )}
                 <span className={`pill pill--${severidad}`}>{c.estado || 'Nuevo'}</span>
+                {esGerencial && esDemo && (
+                  <button
+                    type="button" className="boton-enlace" disabled={borrandoId === c.id}
+                    onClick={(e) => borrarTodoElHistorial(e, c)}
+                  >
+                    {borrandoId === c.id ? 'Borrando…' : 'Borrar todo'}
+                  </button>
+                )}
               </NavLink>
             );
           })}

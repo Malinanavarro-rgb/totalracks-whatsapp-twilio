@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import NuevaCitaModal from './agenda/NuevaCitaModal';
+import CitaDetalleModal from './agenda/CitaDetalleModal';
 import AgendaViva from './agenda/AgendaViva';
 import AgendaResumenGrid from './agenda/AgendaResumenGrid';
 import { hoyISO, rangoParaVista, desplazarFecha, etiquetaRango } from './agenda/rangoFechas';
@@ -41,6 +42,7 @@ function AgendaClasica() {
   const [servicios, setServicios] = useState([]);
   const [error, setError] = useState(null);
   const [mostrarForm, setMostrarForm] = useState(false);
+  const [citaDetalleId, setCitaDetalleId] = useState(null);
 
   useEffect(() => {
     api.asesores().then(setAsesores).catch(() => {});
@@ -121,7 +123,10 @@ function AgendaClasica() {
           <ul className="agenda-citas-lista">
             {lista.map((cita) => (
               <li key={cita.id} className="agenda-cita-item">
-                <span>{formatearHora(cita.inicio)}–{formatearHora(cita.fin)}</span>
+                <span className="agenda-cita-item-clic" onClick={() => setCitaDetalleId(cita.id)}>
+                  {formatearHora(cita.inicio)}–{formatearHora(cita.fin)}
+                  {cita.servicios?.nombre ? ` · ${cita.servicios.nombre}` : ''}
+                </span>
                 <span><Link to={`/crm/clientes/${cita.cliente_id}`}>{cita.clientes?.nombre || cita.clientes?.telefono}</Link></span>
                 <span className={`agenda-estado agenda-estado--${cita.estado}`}>{cita.estado}</span>
                 {cita.estado !== 'cancelada' && (
@@ -142,6 +147,10 @@ function AgendaClasica() {
           onCerrar={() => setMostrarForm(false)}
           onCreada={() => { setMostrarForm(false); cargarCitas(); }}
         />
+      )}
+
+      {citaDetalleId && (
+        <CitaDetalleModal citaId={citaDetalleId} onCerrar={() => setCitaDetalleId(null)} />
       )}
     </div>
   );

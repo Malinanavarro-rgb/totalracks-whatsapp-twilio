@@ -7,10 +7,16 @@ import { api } from '../lib/api';
 // mismo catálogo de etapas configurable (Fase 2.2, api.pipelineEtapas()) —
 // arrastrar una tarjeta llama al mismo endpoint que ya usa el select de
 // estado en CrmClienteDetalle.jsx.
+// Quick win (auditoría 2026-09-16, sección N.2) — razon_cierre ya existía en
+// DB y en la whitelist del backend, solo faltaba pedirla desde la UI.
+const RAZONES_PERDIDA = ['Precio', 'Competencia', 'No responde', 'Sin presupuesto', 'No califica', 'Proyecto pospuesto', 'No autorizado', 'Otro'];
+
 export default function CrmPipeline() {
   const [etapas, setEtapas] = useState(null);
   const [oportunidades, setOportunidades] = useState(null);
   const [error, setError] = useState(null);
+  const [pidiendoRazonPerdida, setPidiendoRazonPerdida] = useState(null); // oportunidadId o null
+  const [razonPerdida, setRazonPerdida] = useState('');
 
   function cargar() {
     Promise.all([api.pipelineEtapas(), api.oportunidades()])
@@ -23,19 +29,30 @@ export default function CrmPipeline() {
 
   useEffect(cargar, []);
 
-  async function moverA(oportunidadId, nuevoEstado) {
+  async function moverA(oportunidadId, nuevoEstado, razon_cierre) {
     try {
-      await api.actualizarOportunidad(oportunidadId, { estado: nuevoEstado });
+      await api.actualizarOportunidad(oportunidadId, razon_cierre !== undefined ? { estado: nuevoEstado, razon_cierre } : { estado: nuevoEstado });
+      setPidiendoRazonPerdida(null);
+      setRazonPerdida('');
       cargar();
     } catch (e2) {
       setError(e2.message);
     }
   }
 
+  function intentarMover(oportunidadId, nuevoEstado) {
+    if (nuevoEstado === 'Perdido') {
+      setPidiendoRazonPerdida(oportunidadId);
+      setRazonPerdida('');
+      return;
+    }
+    moverA(oportunidadId, nuevoEstado);
+  }
+
   function onDrop(e, nombreEtapa) {
     e.preventDefault();
     const oportunidadId = e.dataTransfer.getData('text/plain');
-    if (oportunidadId) moverA(oportunidadId, nombreEtapa);
+    if (oportunidadId) intentarMover(oportunidadId, nombreEtapa);
   }
 
   if (error) return <p className="login-error">{error}</p>;
@@ -85,7 +102,7 @@ export default function CrmPipeline() {
                       <select
                         className="crm-pipeline-mover"
                         value={et.nombre}
-                        onChange={(e) => moverA(op.id, e.target.value)}
+                        onChange={(e) => intentarMover(op.id, e.target.value)}
                         aria-label="Mover a otra etapa"
                       >
                         {etapas.map((destino) => <option key={destino.id} value={destino.nombre}>{destino.nombre}</option>)}
@@ -96,6 +113,24 @@ export default function CrmPipeline() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {pidiendoRazonPerdida && (
+        <div className="modal-fondo">
+          <div className="modal-tarjeta">
+            <h2>¿Por qué se perdió esta oportunidad?</h2>
+            <select value={razonPerdida} onChange={(e) => setRazonPerdida(e.target.value)}>
+              <option value="">Selecciona un motivo…</option>
+              {RAZONES_PERDIDA.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+            <div className="modal-acciones">
+              <button type="button" onClick={() => setPidiendoRazonPerdida(null)}>Cancelar</button>
+              <button type="submit" disabled={!razonPerdida} onClick={() => moverA(pidiendoRazonPerdida, 'Perdido', razonPerdida)}>
+                Confirmar
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

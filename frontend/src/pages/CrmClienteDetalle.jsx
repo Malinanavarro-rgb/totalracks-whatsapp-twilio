@@ -1,12 +1,22 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api } from '../lib/api';
+import { useAuth } from '../context/AuthContext';
 
 const ESTADOS = ['Nuevo', 'Calificacion', 'Negociacion', 'Calificado', 'Ganado', 'Perdido'];
+const RAZONES_PERDIDA = ['Precio', 'Competencia', 'No responde', 'Sin presupuesto', 'No califica', 'Proyecto pospuesto', 'No autorizado', 'Otro'];
+// Mismo criterio que Shell.jsx — el frontend no importa modules/permisos.js
+// del backend, así que este arreglo vive duplicado a propósito.
+const ROLES_GERENCIALES = ['owner', 'administrador', 'supervisor'];
 
 export default function CrmClienteDetalle() {
   const { clienteId } = useParams();
   const navigate = useNavigate();
+  const { sesion } = useAuth();
+  const esGerencial = ROLES_GERENCIALES.includes(sesion?.empresaActiva?.rol);
+  const esDemo = !!sesion?.empresaActiva?.es_demo;
+  const [confirmandoBorradoTotal, setConfirmandoBorradoTotal] = useState(false);
+  const [borrandoTodo, setBorrandoTodo] = useState(false);
   const [ficha, setFicha] = useState(null);
   const [seguimientos, setSeguimientos] = useState([]);
   const [error, setError] = useState(null);
@@ -27,6 +37,9 @@ export default function CrmClienteDetalle() {
   // Centro de Conocimiento, Fase 3 — "Ayúdame a cerrar" por oportunidad,
   // keyed por id para poder tener varias abiertas a la vez sin pisarse.
   const [ayudaCierre, setAyudaCierre] = useState({});
+  // Quick win (auditoría 2026-09-16) — razon_cierre al marcar Perdido.
+  const [pidiendoRazonPerdida, setPidiendoRazonPerdida] = useState(null); // oportunidadId o null
+  const [razonPerdida, setRazonPerdida] = useState('');
 
   function cargar() {
     Promise.all([api.fichaCliente(clienteId), api.seguimientos(clienteId)])
@@ -86,6 +99,23 @@ export default function CrmClienteDetalle() {
     }
   }
 
+  // Borrado completo — solo empresas demo (Panel de Cotizaciones, 2026-08-10).
+  // Confirmación en dos pasos (no un solo click) porque esto SÍ borra
+  // conversaciones/citas/oportunidades/cotizaciones reales de ese cliente,
+  // a diferencia de "Eliminar cliente" arriba (que ya rechaza si hay
+  // cualquier historial).
+  async function borrarTodoElHistorial() {
+    setBorrandoTodo(true);
+    try {
+      await api.eliminarClienteCompleto(clienteId);
+      navigate('/crm');
+    } catch (e2) {
+      setError(e2.message);
+      setBorrandoTodo(false);
+      setConfirmandoBorradoTotal(false);
+    }
+  }
+
   async function agregarSeguimiento(e) {
     e.preventDefault();
     if (!nuevoSeguimiento.texto.trim()) return;
@@ -123,13 +153,27 @@ export default function CrmClienteDetalle() {
     }
   }
 
-  async function actualizarEstadoOportunidad(oportunidadId, estado) {
+  async function actualizarEstadoOportunidad(oportunidadId, estado, razon_cierre) {
     try {
-      await api.actualizarOportunidad(oportunidadId, { estado });
+      await api.actualizarOportunidad(oportunidadId, razon_cierre !== undefined ? { estado, razon_cierre } : { estado });
+      setPidiendoRazonPerdida(null);
+      setRazonPerdida('');
       cargar();
     } catch (e2) {
       setError(e2.message);
     }
+  }
+
+  // Quick win (auditoría 2026-09-16, sección N.2): razon_cierre ya existía en
+  // DB y en la whitelist del backend, solo faltaba pedirla desde la UI al
+  // marcar una oportunidad como Perdido — nunca se guardaba antes de esto.
+  function elegirEstadoOportunidad(oportunidadId, estado) {
+    if (estado === 'Perdido') {
+      setPidiendoRazonPerdida(oportunidadId);
+      setRazonPerdida('');
+      return;
+    }
+    actualizarEstadoOportunidad(oportunidadId, estado);
   }
 
   async function eliminarOportunidad(oportunidadId) {
@@ -235,9 +279,28 @@ export default function CrmClienteDetalle() {
               <button onClick={() => setEditando(true)}>Editar</button>
               {' '}
               <button onClick={eliminarClienteActual}>Eliminar cliente</button>
+              {esGerencial && esDemo && (
+                <>
+                  {' '}
+                  <button type="button" onClick={() => setConfirmandoBorradoTotal(true)}>
+                    Borrar todo el historial
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>
+
+        {esGerencial && esDemo && confirmandoBorradoTotal && (
+          <p className="login-error">
+            Esto borra TODO — conversaciones, mensajes, citas, oportunidades, cotizaciones y logs de{' '}
+            <strong>{cliente.nombre || cliente.telefono}</strong> ({cliente.telefono}). Es irreversible.{' '}
+            <button type="button" disabled={borrandoTodo} onClick={borrarTodoElHistorial}>
+              {borrandoTodo ? 'Borrando…' : 'Sí, borrar todo'}
+            </button>{' '}
+            <button type="button" disabled={borrandoTodo} onClick={() => setConfirmandoBorradoTotal(false)}>Cancelar</button>
+          </p>
+        )}
 
         {editando ? (
           <form className="crm-form-edicion" onSubmit={guardarEdicion}>
@@ -262,6 +325,7 @@ export default function CrmClienteDetalle() {
             <dt>Empresa</dt><dd>{cliente.empresa || '—'}</dd>
             <dt>Ciudad</dt><dd>{cliente.ciudad || '—'}</dd>
             <dt>Estado</dt><dd>{cliente.estado || 'Nuevo'}</dd>
+            <dt>Score de interés</dt><dd>{cliente.score_interes != null ? cliente.score_interes : '—'}</dd>
             <dt>Notas</dt><dd>{cliente.notas || '—'}</dd>
             <dt>Atendido por</dt><dd>{cliente.atendido_por === 'humano' ? 'Atención personal' : 'TARA'}</dd>
           </dl>
@@ -377,13 +441,29 @@ export default function CrmClienteDetalle() {
               <li key={op.id}>
                 {op.descripcion || op.tipo_rack || 'Sin descripción'}
                 {op.presupuesto_estimado ? ` — $${op.presupuesto_estimado}` : ''}
-                <select value={op.estado || 'Nuevo'} onChange={(e) => actualizarEstadoOportunidad(op.id, e.target.value)}>
+                {op.estado === 'Perdido' && op.razon_cierre && (
+                  <span className="operaciones-nota"> — motivo: {op.razon_cierre}</span>
+                )}
+                <select value={op.estado || 'Nuevo'} onChange={(e) => elegirEstadoOportunidad(op.id, e.target.value)}>
                   {etapasPipeline.map((et) => <option key={et.id} value={et.nombre}>{et.nombre}</option>)}
                 </select>
                 <button onClick={() => ayudameACerrar(op.id)} disabled={ayudaCierre[op.id]?.cargando}>
                   {ayudaCierre[op.id]?.cargando ? 'Analizando…' : 'Ayúdame a cerrar'}
                 </button>
                 <button onClick={() => eliminarOportunidad(op.id)}>Eliminar</button>
+
+                {pidiendoRazonPerdida === op.id && (
+                  <p className="config-form-inline">
+                    <select value={razonPerdida} onChange={(e) => setRazonPerdida(e.target.value)}>
+                      <option value="">¿Por qué se perdió?</option>
+                      {RAZONES_PERDIDA.map((r) => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                    <button type="button" disabled={!razonPerdida} onClick={() => actualizarEstadoOportunidad(op.id, 'Perdido', razonPerdida)}>
+                      Confirmar
+                    </button>
+                    <button type="button" onClick={() => setPidiendoRazonPerdida(null)}>Cancelar</button>
+                  </p>
+                )}
 
                 {ayudaCierre[op.id]?.error && (
                   <p className="login-error">{ayudaCierre[op.id].error}</p>

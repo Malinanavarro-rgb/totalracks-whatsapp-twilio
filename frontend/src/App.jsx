@@ -19,6 +19,11 @@ import Configuracion from './pages/Configuracion';
 import PanelAccion from './pages/PanelAccion';
 import CentroConocimiento from './pages/CentroConocimiento';
 import Catalogo from './pages/Catalogo';
+import CatalogoTecnico from './pages/CatalogoTecnico';
+import Cotizaciones from './pages/Cotizaciones';
+import NuevaCotizacion from './pages/NuevaCotizacion';
+import CotizacionDetalle from './pages/CotizacionDetalle';
+import Paquetes from './pages/Paquetes';
 import AceptarInvitacion from './pages/AceptarInvitacion';
 import Registro from './pages/Registro';
 import RecuperarPassword from './pages/RecuperarPassword';
@@ -79,6 +84,11 @@ export default function App() {
             <Route path="/centro-conocimiento" element={<CentroConocimiento />} />
             <Route path="/configuracion" element={<Configuracion />} />
             <Route path="/catalogo" element={<Catalogo />} />
+            <Route path="/catalogo-tecnico" element={<CatalogoTecnico />} />
+            <Route path="/cotizaciones" element={<Cotizaciones />} />
+            <Route path="/cotizaciones/nueva" element={<NuevaCotizacion />} />
+            <Route path="/cotizaciones/:cotizacionId" element={<CotizacionDetalle />} />
+            <Route path="/paquetes" element={<Paquetes />} />
           </Route>
 
           <Route path="/" element={<RutaPublica><Landing /></RutaPublica>} />

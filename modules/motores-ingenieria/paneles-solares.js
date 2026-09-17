@@ -266,6 +266,35 @@ function calcularPeriodoSimpleRecuperacion(inversionNeta, ahorroAnualEstimado) {
   return { valor: inversionNeta / ahorroAnualEstimado, unidad: 'años', etiqueta: 'Periodo simple de recuperación', incompleto: false };
 }
 
+// ── 9b. Ahorro acumulado a N años — SIN incremento tarifario (deliberado) ──
+
+/**
+ * Proyecta el ahorro acumulado simplemente multiplicando el ahorro anual
+ * estimado por el número de años — a propósito NO asume ningún incremento
+ * futuro de la tarifa CFE (eso requeriría una hipótesis de inflación
+ * tarifaria que Alina no ha confirmado con fuente). Mismo criterio que
+ * calcularPeriodoSimpleRecuperacion(): una proyección explícitamente simple,
+ * nunca presentada como simulación financiera completa.
+ *
+ * @param {number} ahorroAnualEstimado
+ * @param {number[]} periodosAnios - ej. [5, 10, 20]
+ */
+function calcularAhorroAcumulado(ahorroAnualEstimado, periodosAnios) {
+  if (!ahorroAnualEstimado || ahorroAnualEstimado <= 0) {
+    return { incompleto: true, motivo: 'Falta el ahorro anual estimado para proyectar el ahorro acumulado.' };
+  }
+  const porPeriodo = {};
+  for (const anios of periodosAnios) {
+    porPeriodo[anios] = ahorroAnualEstimado * anios;
+  }
+  return {
+    incompleto: false,
+    porPeriodo,
+    metodo: 'ahorro_anual_estimado_x_anios_sin_incremento_tarifario',
+    advertencia: 'Proyección simple: asume el mismo ahorro anual cada año, sin incremento de tarifa CFE ni degradación del sistema.',
+  };
+}
+
 // ── 10. Reducción de CO2 — factor configurable y versionado ────────────────
 
 function calcularReduccionCO2(produccionAnualKwh, factorCO2) {
@@ -369,7 +398,7 @@ function calcularPredimensionamiento({ infoTecnica, hsp, parametros, panelSelecc
     coberturaPct = calcularCobertura(produccion.anual, consumoAnual.valor);
   }
 
-  let ahorro = null, periodoRecuperacion = null, co2 = null;
+  let ahorro = null, periodoRecuperacion = null, co2 = null, ahorroAcumulado = null;
   if (produccion) {
     ahorro = calcularAhorro({
       produccionMensualKwh: produccion.promedioMensual ?? produccion.anual / 12,
@@ -381,6 +410,9 @@ function calcularPredimensionamiento({ infoTecnica, hsp, parametros, panelSelecc
     });
     if (ahorro && !ahorro.incompleto && inversionNeta) {
       periodoRecuperacion = calcularPeriodoSimpleRecuperacion(inversionNeta, ahorro.ahorroAnualEstimado);
+    }
+    if (ahorro && !ahorro.incompleto) {
+      ahorroAcumulado = calcularAhorroAcumulado(ahorro.ahorroAnualEstimado, [5, 10, 20]);
     }
     co2 = calcularReduccionCO2(produccion.anual, parametros.factor_emision_co2);
   }
@@ -409,6 +441,7 @@ function calcularPredimensionamiento({ infoTecnica, hsp, parametros, panelSelecc
       produccion,
       cobertura_pct: coberturaPct,
       ahorro,
+      ahorro_acumulado: ahorroAcumulado,
       periodo_simple_recuperacion: periodoRecuperacion,
       reduccion_co2: co2,
     },
@@ -502,6 +535,7 @@ module.exports = {
   calcularProduccion,
   calcularCobertura,
   calcularAhorro,
+  calcularAhorroAcumulado,
   calcularPeriodoSimpleRecuperacion,
   calcularReduccionCO2,
   generarAlertas,

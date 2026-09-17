@@ -94,6 +94,9 @@ export default function Inbox() {
                   <span className={`etiqueta-atencion etiqueta-atencion--${h.clientes?.atendido_por}`}>
                     {h.clientes?.atendido_por === 'humano' ? 'Atención personal' : 'TARA'}
                   </span>
+                  {h.clientes?.score_interes != null && (
+                    <span className="inbox-badge inbox-badge--score">Score {h.clientes.score_interes}</span>
+                  )}
                   {(h.etiquetas || []).map(et => <span key={et} className="inbox-badge inbox-badge--etiqueta">{et}</span>)}
                 </div>
               </NavLink>

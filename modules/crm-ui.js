@@ -230,6 +230,95 @@ async function eliminarCliente(supabase, company_id, clienteId) {
   }
 }
 
+/**
+ * Borrado COMPLETO de un cliente y todo su rastro — Panel de Cotizaciones,
+ * Alina 2026-08-10: "para que empiece de cero". A diferencia de
+ * eliminarCliente() (arriba, seguro para producción — rechaza si hay
+ * cualquier historial), esta función SÍ cascadea manualmente por cada tabla
+ * que referencia al cliente — mismo procedimiento validado a mano dos veces
+ * contra datos reales en esta sesión, incluida la referencia circular
+ * cotizaciones.calculo_ingenieria_id ↔ calculos_ingenieria.cotizacion_id
+ * (se rompe explícitamente antes de borrar).
+ *
+ * **Solo empresas demo** (companies.es_demo = true) — verificado aquí
+ * ADEMÁS de en la ruta (server.js), nunca confiar en una sola capa: un
+ * borrado de este alcance en una empresa real sería irreversible y
+ * destruiría conversaciones/cotizaciones/oportunidades reales.
+ *
+ * Best-effort por tabla (seguido el mismo criterio que AuditLogger/eventos
+ * no críticos): una tabla inesperada que falle no debe impedir borrar el
+ * resto — se acumulan advertencias y se reportan, pero solo se lanza si el
+ * DELETE final de `clientes` falla (ahí sí el borrado "no pasó" de verdad).
+ *
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} company_id
+ * @param {number} clienteId
+ * @returns {Promise<{advertencias: string[]}>}
+ */
+async function eliminarClienteConHistorial(supabase, company_id, clienteId) {
+  const { data: company } = await supabase.from('companies').select('es_demo').eq('id', company_id).maybeSingle();
+  if (!company?.es_demo) {
+    const err = new Error('Borrado completo de historial solo está disponible para empresas demo.');
+    err.status = 403;
+    throw err;
+  }
+
+  const { data: cliente } = await supabase.from('clientes').select('id, telefono').eq('id', clienteId).eq('company_id', company_id).maybeSingle();
+  if (!cliente) {
+    const err = new Error('Cliente no encontrado');
+    err.status = 404;
+    throw err;
+  }
+
+  const advertencias = [];
+  async function borrar(tabla, query) {
+    const { error } = await query;
+    if (error) advertencias.push(`${tabla}: ${error.message}`);
+  }
+
+  const { data: hilos } = await supabase.from('hilos').select('id').eq('cliente_id', clienteId);
+  const hiloIds = (hilos || []).map(h => h.id);
+
+  const { data: cotizaciones } = await supabase.from('cotizaciones').select('id').eq('cliente_id', clienteId);
+  const cotizacionIds = (cotizaciones || []).map(c => c.id);
+
+  if (cotizacionIds.length > 0) {
+    await borrar('cotizacion_lineas', supabase.from('cotizacion_lineas').delete().in('cotizacion_id', cotizacionIds));
+    await borrar('cotizacion_adjuntos', supabase.from('cotizacion_adjuntos').delete().in('cotizacion_id', cotizacionIds));
+    await borrar('envios_documento (por cotizacion)', supabase.from('envios_documento').delete().in('cotizacion_id', cotizacionIds));
+    // Referencia circular cotizaciones.calculo_ingenieria_id ↔
+    // calculos_ingenieria.cotizacion_id — se desvincula antes de poder
+    // borrar cualquiera de las dos tablas (confirmado con datos reales).
+    await borrar('cotizaciones (desvincular calculo)', supabase.from('cotizaciones').update({ calculo_ingenieria_id: null }).in('id', cotizacionIds));
+    await borrar('calculos_ingenieria', supabase.from('calculos_ingenieria').delete().in('cotizacion_id', cotizacionIds));
+    await borrar('cotizaciones', supabase.from('cotizaciones').delete().in('id', cotizacionIds));
+  }
+  await borrar('envios_documento (por cliente)', supabase.from('envios_documento').delete().eq('cliente_id', clienteId));
+
+  if (hiloIds.length > 0) {
+    await borrar('analisis_hilo', supabase.from('analisis_hilo').delete().in('hilo_id', hiloIds));
+    await borrar('mensajes', supabase.from('mensajes').delete().in('hilo_id', hiloIds));
+  }
+  await borrar('hilos', supabase.from('hilos').delete().eq('cliente_id', clienteId));
+
+  await borrar('conversaciones', supabase.from('conversaciones').delete().eq('cliente_id', clienteId));
+  await borrar('workflow_sessions', supabase.from('workflow_sessions').delete().eq('cliente_id', clienteId));
+  await borrar('seguimientos', supabase.from('seguimientos').delete().eq('cliente_id', clienteId));
+  await borrar('oportunidades', supabase.from('oportunidades').delete().eq('cliente_id', clienteId));
+  await borrar('citas', supabase.from('citas').delete().eq('cliente_id', clienteId));
+  await borrar('mensajes_humanos', supabase.from('mensajes_humanos').delete().eq('cliente_id', clienteId));
+
+  if (cliente.telefono) {
+    await borrar('decision_logs', supabase.from('decision_logs').delete().eq('identificador', cliente.telefono));
+    await borrar('sesiones_demo', supabase.from('sesiones_demo').delete().eq('authorized_phone', cliente.telefono));
+  }
+
+  const { error: errCliente } = await supabase.from('clientes').delete().eq('id', clienteId).eq('company_id', company_id);
+  if (errCliente) throw new Error(`crm-ui.eliminarClienteConHistorial: ${errCliente.message}`);
+
+  return { advertencias };
+}
+
 async function listarSeguimientos(supabase, company_id, clienteId) {
   const { data, error } = await supabase
     .from('seguimientos')
@@ -353,6 +442,7 @@ module.exports = {
   obtenerFichaCliente,
   actualizarCliente,
   eliminarCliente,
+  eliminarClienteConHistorial,
   listarSeguimientos,
   crearSeguimiento,
   actualizarSeguimiento,

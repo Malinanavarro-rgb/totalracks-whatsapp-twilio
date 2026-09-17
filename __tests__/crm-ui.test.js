@@ -7,7 +7,7 @@ jest.mock('../modules/conversaciones', () => ({
 }));
 
 const {
-  listarClientes, obtenerFichaCliente, actualizarCliente, eliminarCliente,
+  listarClientes, obtenerFichaCliente, actualizarCliente, eliminarCliente, eliminarClienteConHistorial,
   listarSeguimientos, crearSeguimiento, actualizarSeguimiento,
   listarOportunidades, crearOportunidad, actualizarOportunidad, eliminarOportunidad,
 } = require('../modules/crm-ui');
@@ -36,6 +36,18 @@ function crearMockDb(...resultados) {
   let idx = 0;
   const db = { from: jest.fn(() => crearBuilder(resultados[idx++] ?? { data: null, error: null })) };
   return db;
+}
+
+/** Mock por NOMBRE de tabla — necesario para eliminarClienteConHistorial(), que consulta ~15 tablas distintas. */
+function crearMockDbPorTabla(overrides = {}) {
+  const defaults = {
+    companies: { data: { es_demo: true }, error: null },
+    clientes: { data: { id: 138, telefono: '+5218142850036' }, error: null },
+    hilos: { data: [], error: null },
+    cotizaciones: { data: [], error: null },
+  };
+  const resultados = { ...defaults, ...overrides };
+  return { from: jest.fn((tabla) => crearBuilder(resultados[tabla] ?? { data: null, error: null })) };
 }
 
 const COMPANY_A = 'aaaaaaaa-0000-0000-0000-000000000001';
@@ -195,6 +207,97 @@ describe('crm-ui', () => {
     test('otros errores de Supabase se traducen a un mensaje genérico sin status', async () => {
       const db = crearMockDb({ error: { code: '42501', message: 'permission denied' } });
       await expect(eliminarCliente(db, COMPANY_A, 5)).rejects.toThrow('No se pudo eliminar el cliente');
+    });
+  });
+
+  describe('eliminarClienteConHistorial() — Panel de Cotizaciones, borrado completo (2026-08-10)', () => {
+    test('empresa que NO es demo → rechaza con 403, nunca toca ninguna tabla de historial', async () => {
+      const db = crearMockDbPorTabla({ companies: { data: { es_demo: false }, error: null } });
+      await expect(eliminarClienteConHistorial(db, COMPANY_A, 138)).rejects.toMatchObject({ status: 403 });
+      expect(db.from).toHaveBeenCalledTimes(1); // solo consultó companies, nunca llegó a clientes ni al resto
+    });
+
+    test('empresa sin fila en companies (es_demo indefinido) → también rechaza, nunca asume demo por default', async () => {
+      const db = crearMockDbPorTabla({ companies: { data: null, error: null } });
+      await expect(eliminarClienteConHistorial(db, COMPANY_A, 138)).rejects.toMatchObject({ status: 403 });
+    });
+
+    test('cliente inexistente (o de otra empresa) → 404', async () => {
+      const db = crearMockDbPorTabla({ clientes: { data: null, error: null } });
+      await expect(eliminarClienteConHistorial(db, COMPANY_A, 999)).rejects.toMatchObject({ status: 404 });
+    });
+
+    test('empresa demo, cliente con hilos y cotizaciones → borra en cascada, desvincula calculo_ingenieria_id antes de borrar calculos_ingenieria (rompe la referencia circular)', async () => {
+      const llamadas = [];
+      const db = crearMockDbPorTabla({
+        hilos: { data: [{ id: 'hilo-1' }], error: null },
+        cotizaciones: { data: [{ id: 21 }], error: null },
+      });
+      const fromOriginal = db.from;
+      db.from = jest.fn((tabla) => {
+        const builder = fromOriginal(tabla);
+        const updateOriginal = builder.update;
+        const deleteOriginal = builder.delete;
+        builder.update = jest.fn((payload) => { llamadas.push({ tabla, tipo: 'update', payload }); return updateOriginal.call(builder, payload); });
+        builder.delete = jest.fn(() => { llamadas.push({ tabla, tipo: 'delete' }); return deleteOriginal.call(builder); });
+        return builder;
+      });
+
+      const resultado = await eliminarClienteConHistorial(db, COMPANY_A, 138);
+
+      expect(resultado.advertencias).toEqual([]);
+      const idxDesvincular = llamadas.findIndex(l => l.tabla === 'cotizaciones' && l.tipo === 'update');
+      const idxBorrarCalculos = llamadas.findIndex(l => l.tabla === 'calculos_ingenieria' && l.tipo === 'delete');
+      const idxBorrarCliente = llamadas.findIndex(l => l.tabla === 'clientes' && l.tipo === 'delete');
+      expect(idxDesvincular).toBeGreaterThanOrEqual(0);
+      expect(idxDesvincular).toBeLessThan(idxBorrarCalculos); // desvincula ANTES de borrar calculos_ingenieria
+      expect(idxBorrarCliente).toBe(llamadas.length - 1); // clientes siempre es lo último
+      expect(llamadas.some(l => l.tabla === 'mensajes' && l.tipo === 'delete')).toBe(true);
+      expect(llamadas.some(l => l.tabla === 'decision_logs' && l.tipo === 'delete')).toBe(true);
+      expect(llamadas.some(l => l.tabla === 'sesiones_demo' && l.tipo === 'delete')).toBe(true);
+    });
+
+    test('sin hilos ni cotizaciones → no intenta borrar cotizacion_lineas/calculos_ingenieria/mensajes/analisis_hilo (nada que borrar ahí)', async () => {
+      const db = crearMockDbPorTabla(); // hilos: [], cotizaciones: [] por default
+      await eliminarClienteConHistorial(db, COMPANY_A, 138);
+      expect(db.from).not.toHaveBeenCalledWith('cotizacion_lineas');
+      expect(db.from).not.toHaveBeenCalledWith('calculos_ingenieria');
+      expect(db.from).not.toHaveBeenCalledWith('mensajes');
+      expect(db.from).not.toHaveBeenCalledWith('analisis_hilo');
+    });
+
+    test('cliente sin teléfono → no intenta decision_logs ni sesiones_demo', async () => {
+      const db = crearMockDbPorTabla({ clientes: { data: { id: 138, telefono: null }, error: null } });
+      await eliminarClienteConHistorial(db, COMPANY_A, 138);
+      expect(db.from).not.toHaveBeenCalledWith('decision_logs');
+      expect(db.from).not.toHaveBeenCalledWith('sesiones_demo');
+    });
+
+    test('una tabla falla a medio camino (best-effort) → sigue, borra el cliente igual, y reporta la advertencia', async () => {
+      const db = crearMockDbPorTabla({
+        oportunidades: { data: null, error: { message: 'tabla bloqueada' } },
+      });
+      const resultado = await eliminarClienteConHistorial(db, COMPANY_A, 138);
+      expect(resultado.advertencias).toEqual([expect.stringContaining('oportunidades')]);
+      expect(db.from).toHaveBeenCalledWith('clientes'); // igual llegó a borrar el cliente
+    });
+
+    test('el DELETE final de clientes falla → SÍ lanza (a diferencia de las demás tablas, este es crítico)', async () => {
+      const db = crearMockDbPorTabla();
+      const fromOriginal = db.from;
+      db.from = jest.fn((tabla) => {
+        const builder = fromOriginal(tabla);
+        if (tabla === 'clientes') {
+          const deleteOriginal = builder.delete;
+          builder.delete = jest.fn(() => {
+            const b = deleteOriginal.call(builder);
+            b.eq = jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: { message: 'boom' } }) });
+            return b;
+          });
+        }
+        return builder;
+      });
+      await expect(eliminarClienteConHistorial(db, COMPANY_A, 138)).rejects.toThrow(/boom/);
     });
   });
 

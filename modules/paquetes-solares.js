@@ -127,6 +127,47 @@ async function seleccionarPaqueteRecomendado(supabase, { companyId, numeroPanele
   return data || null;
 }
 
+/**
+ * Panel de Cotizaciones (Alina, 2026-08-10) — Portafolio de Servicios:
+ * cada paquete con sus cotizaciones relacionadas (folio, cliente, total,
+ * estado). Reutiliza `paquetes_solares`/`cotizaciones.paquete_recomendado_id`
+ * — que YA es la relación real de esta industria (confirmado en la
+ * auditoría: `cotizacion_lineas.servicio_id` no se usa para paneles
+ * solares, la tabla genérica `servicios` es de otra industria) — no crea
+ * ninguna arquitectura paralela.
+ *
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} companyId
+ * @returns {Promise<Array>} paquetes (todos, incluidos inactivos — un
+ *   paquete descontinuado puede seguir teniendo cotizaciones históricas),
+ *   cada uno con `cotizaciones: []`
+ */
+async function listarPaquetesConCotizaciones(supabase, companyId) {
+  const { data: paquetes, error: errPaquetes } = await supabase
+    .from('paquetes_solares')
+    .select('*')
+    .eq('company_id', companyId)
+    .order('cantidad_paneles', { ascending: true });
+
+  if (errPaquetes || !paquetes) return [];
+  if (paquetes.length === 0) return [];
+
+  const { data: cotizaciones } = await supabase
+    .from('cotizaciones')
+    .select('id, folio, estado, total, created_at, paquete_recomendado_id, clientes(nombre, telefono)')
+    .eq('company_id', companyId)
+    .in('paquete_recomendado_id', paquetes.map(p => p.id))
+    .order('created_at', { ascending: false });
+
+  const porPaquete = {};
+  for (const c of cotizaciones || []) {
+    (porPaquete[c.paquete_recomendado_id] ||= []).push(c);
+  }
+
+  return paquetes.map(p => ({ ...p, cotizaciones: porPaquete[p.id] || [] }));
+}
+
 module.exports = {
   listarPaquetes, crearPaquete, actualizarPaquete, desactivarPaquete, eliminarPaquete, seleccionarPaqueteRecomendado,
+  listarPaquetesConCotizaciones,
 };

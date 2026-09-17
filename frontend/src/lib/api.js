@@ -69,6 +69,7 @@ export const api = {
 
   asesores:      () => pedir('/api/agenda/asesores'),
   citas:         (desde, hasta) => pedir(`/api/agenda/citas?desde=${desde}&hasta=${hasta}`),
+  citaDetalle:   (citaId) => pedir(`/api/agenda/citas/${citaId}`),
   crearClienteManual: (datos) => pedir('/api/agenda/clientes', { method: 'POST', body: JSON.stringify(datos) }),
   crearCita:     (datos) => pedir('/api/agenda/citas', { method: 'POST', body: JSON.stringify(datos) }),
   reagendarCita: (citaId, inicio, fin) =>
@@ -98,6 +99,8 @@ export const api = {
   actualizarCliente:  (clienteId, cambios) =>
     pedir(`/api/crm/clientes/${clienteId}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
   eliminarClienteCrm: (clienteId) => pedir(`/api/crm/clientes/${clienteId}`, { method: 'DELETE' }),
+  // Borrado completo (cliente + todo su historial) — solo empresas demo.
+  eliminarClienteCompleto: (clienteId) => pedir(`/api/crm/clientes/${clienteId}/completo`, { method: 'DELETE' }),
   seguimientos:       (clienteId) => pedir(`/api/crm/clientes/${clienteId}/seguimientos`),
   preguntarSobreCliente: (clienteId, pregunta) =>
     pedir(`/api/crm/clientes/${clienteId}/preguntar`, { method: 'POST', body: JSON.stringify({ pregunta }) }),
@@ -166,6 +169,36 @@ export const api = {
     pedir(`/api/crm/oportunidades/${oportunidadId}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
   eliminarOportunidad: (oportunidadId) => pedir(`/api/crm/oportunidades/${oportunidadId}`, { method: 'DELETE' }),
   oportunidades:      () => pedir('/api/crm/oportunidades'),
+
+  // Panel de Cotizaciones (Fase Panel de Cotizaciones)
+  cotizaciones:        () => pedir('/api/cotizaciones'),
+  cotizacion:          (id) => pedir(`/api/cotizaciones/${id}`),
+  reenviarCotizacion:  (id) => pedir(`/api/cotizaciones/${id}/enviar`, { method: 'POST' }),
+  // No es un pedir() — mismo criterio que urlAdjunto(): el navegador sigue
+  // el redirect a la URL firmada directo, sin pasar por fetch/JSON.
+  urlPdfCotizacion:    (id) => `/api/cotizaciones/${id}/pdf`,
+
+  // Creación manual (Alina, 2026-09-15) — el asesor arma la cotización con
+  // clics en vez de esperar al workflow de WhatsApp.
+  crearCotizacion:         (datos) => pedir('/api/cotizaciones', { method: 'POST', body: JSON.stringify(datos) }),
+  calcularCotizacion:      (id, datos) => pedir(`/api/cotizaciones/${id}/calcular`, { method: 'POST', body: JSON.stringify(datos) }),
+  revisarPredimensionamiento: (id) => pedir(`/api/cotizaciones/${id}/revisar-predimensionamiento`, { method: 'POST' }),
+  validarIngenieria:       (id) => pedir(`/api/cotizaciones/${id}/validar-ingenieria`, { method: 'POST' }),
+  puedeEnviarCotizacion:   (id) => pedir(`/api/cotizaciones/${id}/puede-enviar`),
+  autorizarPrecioCotizacion: (id, precioFinal) => pedir(`/api/cotizaciones/${id}/autorizar-precio`, { method: 'POST', body: JSON.stringify({ precioFinal }) }),
+  lineasCotizacion:        (id) => pedir(`/api/cotizaciones/${id}/lineas`),
+  agregarLineaCotizacion:  (id, datos) => pedir(`/api/cotizaciones/${id}/lineas`, { method: 'POST', body: JSON.stringify(datos) }),
+  actualizarLineaCotizacion: (lineaId, cambios) => pedir(`/api/cotizaciones/lineas/${lineaId}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
+  eliminarLineaCotizacion: (lineaId) => pedir(`/api/cotizaciones/lineas/${lineaId}`, { method: 'DELETE' }),
+  aplicarCalculoALineasCotizacion: (id) => pedir(`/api/cotizaciones/${id}/lineas/aplicar-calculo`, { method: 'POST' }),
+  generarPdfCotizacionManual: (id) => pedir(`/api/cotizaciones/${id}/generar-pdf`, { method: 'POST' }),
+
+  // Catálogo de productos por tipo (panel_solar/inversor/microinversor/...)
+  productosPorTipo:    (tipo) => pedir(`/api/productos?tipo=${encodeURIComponent(tipo)}`),
+  paquetesSolares:     () => pedir('/api/paquetes-solares?activos=true'),
+
+  // Portafolio de Servicios → Paquetes y sus cotizaciones relacionadas
+  paquetesConCotizaciones: () => pedir('/api/paquetes-solares/con-cotizaciones'),
 
   // Configuración de empresa (Fase 6)
   personalidad:            () => pedir('/api/config/personalidad'),
