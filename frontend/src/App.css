@@ -1170,6 +1170,23 @@ body {
 }
 .crm-seccion h2 { margin: 0 0 0.85rem; font-size: 1rem; }
 
+/* Expediente Solar 360° — encabezado resumen (auditoría 2026-09-16) */
+.expediente-encabezado {
+  background: #fff; border-radius: 10px; padding: 1.25rem 1.5rem; margin-bottom: 1rem;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06); display: flex; flex-direction: column; gap: 0.7rem;
+}
+.expediente-encabezado-titulo { display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap; }
+.expediente-encabezado-titulo h1 { margin: 0; font-size: 1.3rem; }
+.expediente-encabezado-datos {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.6rem 1rem;
+  padding: 0.7rem 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+}
+.expediente-encabezado-datos dt { font-size: 0.72rem; color: var(--text-secondary); margin: 0; }
+.expediente-encabezado-datos dd { margin: 0.1rem 0 0; font-size: 0.9rem; }
+.expediente-checklist { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.expediente-acciones-rapidas { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.expediente-acciones-rapidas a.pregunta-tara-chip { text-decoration: none; }
+
 .pregunta-tara-ficha { border-left: 3px solid var(--acento); }
 .pregunta-tara-respuesta-ficha {
   margin: 0.9rem 0 0; padding: 0.9rem 1rem; border-radius: 10px;

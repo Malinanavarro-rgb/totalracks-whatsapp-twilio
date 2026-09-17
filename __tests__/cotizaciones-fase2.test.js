@@ -684,6 +684,23 @@ describe('listarCotizaciones()', () => {
     const db = { from: jest.fn(() => crearBuilder({ data: null, error: { message: 'boom' } })) };
     expect(await listarCotizaciones(db, COMPANY_A)).toEqual([]);
   });
+
+  // Expediente Solar 360° (2026-09-17) — tab "Cotizaciones" del expediente.
+  describe('filtro por clienteId', () => {
+    test('con clienteId: filtra por cliente_id además de company_id', async () => {
+      const builder = crearBuilder({ data: [], error: null });
+      const db = { from: jest.fn(() => builder) };
+      await listarCotizaciones(db, COMPANY_A, undefined, { clienteId: 42 });
+      expect(builder.eq).toHaveBeenCalledWith('cliente_id', 42);
+    });
+
+    test('sin clienteId: no agrega el filtro (comportamiento previo intacto)', async () => {
+      const builder = crearBuilder({ data: [], error: null });
+      const db = { from: jest.fn(() => builder) };
+      await listarCotizaciones(db, COMPANY_A);
+      expect(builder.eq).not.toHaveBeenCalledWith('cliente_id', expect.anything());
+    });
+  });
 });
 
 describe('obtenerCotizacion()', () => {

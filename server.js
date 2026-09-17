@@ -50,7 +50,7 @@ const { listarLineas, agregarLinea, actualizarLinea, eliminarLinea, aplicarCalcu
 const { generarPdfCotizacion, generarYEnviarCotizacion, BUCKET_COTIZACIONES_PDF } = require('./modules/cotizacion-pdf');
 const { listarPaquetes, crearPaquete, actualizarPaquete, desactivarPaquete, eliminarPaquete, listarPaquetesConCotizaciones } = require('./modules/paquetes-solares');
 const { transcribirAudio, describirImagen } = require('./modules/adjuntos-ia');
-const { procesarReciboCFE } = require('./modules/recibo-cfe');
+const { procesarReciboCFE, extraerDatosReciboCFE, normalizarDatosRecibo } = require('./modules/recibo-cfe');
 const { esGerencial } = require('./modules/permisos');
 const { crearSolicitud: crearSolicitudConocimiento, listarSolicitudes: listarSolicitudesConocimiento, responderSolicitud: responderSolicitudConocimiento, rechazarSolicitud: rechazarSolicitudConocimiento } = require('./modules/knowledge-requests');
 const { subirDocumento: subirDocumentoProveedor, procesarDocumento: procesarDocumentoProveedor, listarDocumentos: listarDocumentosProveedor, confirmarDocumento: confirmarDocumentoProveedor, generarUrlFirmadaDocumento } = require('./modules/documentos-proveedor');
@@ -1461,6 +1461,35 @@ app.post('/api/crm/clientes/:id/preguntar', requireAuth, async (req, res) => {
   }
 });
 
+// Expediente Solar 360° (2026-09-17) — "Subir recibo CFE" manual desde el
+// panel. Hasta ahora modules/recibo-cfe.js SOLO extraía automáticamente
+// cuando el recibo llegaba por WhatsApp durante una sesión activa del
+// workflow de cotización directa (procesarReciboCFE) — este endpoint reusa
+// el mismo extractor (extraerDatosReciboCFE/normalizarDatosRecibo) sin ese
+// requisito, para que un asesor pueda subir un recibo directo desde el
+// expediente. NUNCA guarda nada — solo devuelve el borrador extraído; el
+// asesor lo revisa/corrige en el frontend y lo guarda con el PATCH de
+// oportunidad ya existente (nunca se asume que la extracción es infalible).
+const uploadReciboCFE = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+app.post('/api/crm/clientes/:id/recibo-cfe', requireAuth, uploadReciboCFE.single('archivo'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'archivo requerido' });
+
+    const { data: cliente } = await req.supabase.from('clientes').select('id').eq('id', req.params.id).eq('company_id', req.usuario.company_id).maybeSingle();
+    if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
+
+    const datosCrudos = await extraerDatosReciboCFE(openai, { buffer: req.file.buffer, mimeType: req.file.mimetype });
+    if (!datosCrudos.es_recibo_cfe) {
+      return res.status(422).json({ error: 'No se reconoció este archivo como un recibo de CFE legible.', motivo: datosCrudos._motivo || null });
+    }
+
+    res.json(normalizarDatosRecibo(datosCrudos));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Modo Operador — Nivel 3 (Empresa). El alcance SIEMPRE se calcula aquí, a
 // partir de la sesión ya autenticada — nunca viene del body de la petición.
 // Ver modules/operador-engine.js / modules/operador-tools.js.
@@ -2326,7 +2355,7 @@ app.post('/api/cotizaciones/:id/calcular', requireAuth, async (req, res) => {
 
 app.get('/api/cotizaciones', requireAuth, async (req, res) => {
   try {
-    res.json(await listarCotizaciones(req.supabase, req.usuario.company_id, req.usuario));
+    res.json(await listarCotizaciones(req.supabase, req.usuario.company_id, req.usuario, { clienteId: req.query.clienteId }));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

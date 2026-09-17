@@ -104,6 +104,20 @@ export const api = {
   seguimientos:       (clienteId) => pedir(`/api/crm/clientes/${clienteId}/seguimientos`),
   preguntarSobreCliente: (clienteId, pregunta) =>
     pedir(`/api/crm/clientes/${clienteId}/preguntar`, { method: 'POST', body: JSON.stringify({ pregunta }) }),
+  // No es un pedir(): mismo criterio que subirDocumentoProveedor — FormData
+  // necesita que el navegador ponga su propio Content-Type con boundary.
+  subirReciboCFE: async (clienteId, archivo) => {
+    const formData = new FormData();
+    formData.append('archivo', archivo);
+    const respuesta = await fetch(`/api/crm/clientes/${clienteId}/recibo-cfe`, { method: 'POST', credentials: 'include', body: formData });
+    const cuerpo = await respuesta.json().catch(() => ({}));
+    if (!respuesta.ok) {
+      const error = new Error(cuerpo.error || `Error ${respuesta.status}`);
+      error.status = respuesta.status;
+      throw error;
+    }
+    return cuerpo;
+  },
   preguntarOperador: (pregunta) =>
     pedir('/api/operador/preguntar', { method: 'POST', body: JSON.stringify({ pregunta }) }),
   convertirParaCliente: (texto) =>
@@ -171,7 +185,7 @@ export const api = {
   oportunidades:      () => pedir('/api/crm/oportunidades'),
 
   // Panel de Cotizaciones (Fase Panel de Cotizaciones)
-  cotizaciones:        () => pedir('/api/cotizaciones'),
+  cotizaciones:        (clienteId) => pedir(`/api/cotizaciones${clienteId ? `?clienteId=${clienteId}` : ''}`),
   cotizacion:          (id) => pedir(`/api/cotizaciones/${id}`),
   reenviarCotizacion:  (id) => pedir(`/api/cotizaciones/${id}/enviar`, { method: 'POST' }),
   // No es un pedir() — mismo criterio que urlAdjunto(): el navegador sigue

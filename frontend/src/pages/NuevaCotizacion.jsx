@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api';
 
 // Creación manual de cotización (Alina, 2026-09-15 — "necesito que haya una
@@ -16,8 +16,15 @@ const TIPOS_ALIMENTACION = [
   { value: 'trifásica', label: 'Trifásica' },
 ];
 
+// Mapea el texto libre que captura el workflow ("monofasica") al mismo
+// texto con acento que usa este formulario — mismo criterio de traducción
+// en el borde conversacional que ya usa modules/cotizaciones.js.
+const TIPO_ALIMENTACION_A_ACENTUADO = { monofasica: 'monofásica', bifasica: 'bifásica', trifasica: 'trifásica' };
+
 export default function NuevaCotizacion() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const clienteIdPrecarga = searchParams.get('clienteId');
 
   // Paso 1 — cliente
   const [busqueda, setBusqueda] = useState('');
@@ -35,6 +42,30 @@ export default function NuevaCotizacion() {
 
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState(null);
+
+  // Expediente Solar 360° (2026-09-17) — "Cotizar" desde el expediente de un
+  // cliente precarga automáticamente cliente + lo que ya sepamos de su
+  // oportunidad más reciente (consumo/importe/cobertura/alimentación/voltaje
+  // capturados por conversación) — nunca vuelve a pedir un dato que TARA ya
+  // tiene, mismo criterio de "una sola fuente de verdad" del resto del panel.
+  useEffect(() => {
+    if (!clienteIdPrecarga) return;
+    api.fichaCliente(clienteIdPrecarga).then((ficha) => {
+      setClienteSeleccionado(ficha.cliente);
+      const oportunidad = ficha.oportunidades?.[0];
+      if (oportunidad) {
+        setInfoTecnica((prev) => ({
+          ...prev,
+          ubicacion: oportunidad.ciudad || prev.ubicacion,
+          consumo_mensual_kwh: oportunidad.consumo_mensual_kwh || prev.consumo_mensual_kwh,
+          importe_promedio_recibo: oportunidad.importe_promedio_recibo || prev.importe_promedio_recibo,
+          pct_cobertura_deseado: oportunidad.pct_cobertura_deseado || prev.pct_cobertura_deseado,
+          tipo_alimentacion: TIPO_ALIMENTACION_A_ACENTUADO[oportunidad.tipo_alimentacion] || oportunidad.tipo_alimentacion || prev.tipo_alimentacion,
+          voltaje_sitio: oportunidad.voltaje_sitio || prev.voltaje_sitio,
+        }));
+      }
+    }).catch((e) => setError(e.message));
+  }, [clienteIdPrecarga]);
 
   async function buscarClientes(texto) {
     setBusqueda(texto);

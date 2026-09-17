@@ -546,13 +546,18 @@ async function correrCalculoCotizacionManual(supabase, { companyId, cotizacionId
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} companyId
  * @param {{id: string, rol: string}} [usuario] - si se omite, no aplica alcance por rol (ej. llamadas internas/tests)
+ * @param {{clienteId?: number|string}} [filtros] - Expediente Solar 360° (2026-09-17): filtra por cliente, para el tab "Cotizaciones" del expediente
  * @returns {Promise<Array>}
  */
-async function listarCotizaciones(supabase, companyId, usuario) {
+async function listarCotizaciones(supabase, companyId, usuario, filtros = {}) {
   let query = supabase
     .from('cotizaciones')
     .select('id, folio, estado, total, created_at, pdf_url, cliente_id, hilo_id, oportunidad_id, ejecutivo_id, paquete_recomendado_id, clientes(nombre, telefono), paquetes_solares:paquete_recomendado_id(nombre)')
     .eq('company_id', companyId);
+
+  if (filtros.clienteId) {
+    query = query.eq('cliente_id', filtros.clienteId);
+  }
 
   if (usuario && !esGerencial(usuario.rol)) {
     query = query.or(`ejecutivo_id.eq.${usuario.id},ejecutivo_id.is.null`);
