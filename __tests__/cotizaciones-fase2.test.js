@@ -7,7 +7,7 @@ jest.mock('../modules/cotizacion-pdf', () => ({
 
 const {
   mapearCapturedFieldsAInfoTecnica, correrCotizacionDesdeWorkflow, puedeEnviarCotizacion, autorizarPrecioFinal,
-  generarFolio, listarCotizaciones, obtenerCotizacion,
+  generarFolio, listarCotizaciones, obtenerCotizacion, correrCalculoCotizacionManual,
 } = require('../modules/cotizaciones');
 const {
   asociarSiHaySesionDeCotizacionActiva, reatarAdjuntosACotizacion,
@@ -319,6 +319,100 @@ describe('correrCotizacionDesdeWorkflow()', () => {
 
     await correrCotizacionDesdeWorkflow(db, { companyId: COMPANY_A, clienteId: 7, capturedFields: {} });
     expect(seLlamoUpdateConPaquete).toBe(false);
+  });
+});
+
+describe('correrCalculoCotizacionManual()', () => {
+  test('normaliza infoTecnica snake_case a camelCase antes de guardarla (bug real 2026-09-17: antes se pasaba cruda y el motor nunca la entendía, siempre salía bloqueado en silencio)', async () => {
+    let payloadInsertCalculo = null;
+    const db = crearMockDbPorTabla();
+    const fromOriginal = db.from;
+    db.from = jest.fn((tabla) => {
+      const builder = fromOriginal(tabla);
+      if (tabla === 'calculos_ingenieria') {
+        const insertOriginal = builder.insert;
+        builder.insert = jest.fn((payload) => { payloadInsertCalculo = payload[0]; return insertOriginal.call(builder, payload); });
+      }
+      return builder;
+    });
+
+    await correrCalculoCotizacionManual(db, {
+      companyId: COMPANY_A, cotizacionId: 42,
+      infoTecnica: {
+        ubicacion: 'Monterrey, NL', consumo_mensual_kwh: '600', importe_promedio_recibo: '2400',
+        pct_cobertura_deseado: '90', tipo_alimentacion: 'monofásica', voltaje_sitio: '220', area_disponible_m2: '40',
+      },
+    });
+
+    expect(payloadInsertCalculo.datos_entrada).toMatchObject({
+      consumoMensualKwh: 600, pctCoberturaDeseado: 0.9, tipoAlimentacion: 'monofasica', voltajeSitio: 220,
+    });
+  });
+
+  test('pasa panelSeleccionadoId al motor (antes de este fix nunca se elegía panel, así que nunca podía dimensionar)', async () => {
+    let idConsultado = null;
+    const db = crearMockDbPorTabla({
+      productos: { data: { id: 'panel-1', tipo: 'panel_solar' }, error: null },
+    });
+    const fromOriginal = db.from;
+    db.from = jest.fn((tabla) => {
+      const builder = fromOriginal(tabla);
+      if (tabla === 'productos') {
+        const eqOriginal = builder.eq;
+        builder.eq = jest.fn((campo, valor) => {
+          if (campo === 'id') idConsultado = valor;
+          return eqOriginal.call(builder, campo, valor);
+        });
+      }
+      return builder;
+    });
+
+    await correrCalculoCotizacionManual(db, {
+      companyId: COMPANY_A, cotizacionId: 42, infoTecnica: { ubicacion: 'Monterrey' }, panelSeleccionadoId: 'panel-1',
+    });
+
+    expect(idConsultado).toBe('panel-1');
+  });
+
+  test('sin panelSeleccionadoId, no filtra productos por id (el motor queda sin panel, no revienta)', async () => {
+    let idConsultado = 'sin-tocar';
+    const db = crearMockDbPorTabla();
+    const fromOriginal = db.from;
+    db.from = jest.fn((tabla) => {
+      const builder = fromOriginal(tabla);
+      if (tabla === 'productos') {
+        const eqOriginal = builder.eq;
+        builder.eq = jest.fn((campo, valor) => {
+          if (campo === 'id') idConsultado = valor;
+          return eqOriginal.call(builder, campo, valor);
+        });
+      }
+      return builder;
+    });
+
+    await correrCalculoCotizacionManual(db, { companyId: COMPANY_A, cotizacionId: 42, infoTecnica: { ubicacion: 'Monterrey' } });
+    expect(idConsultado).toBe('sin-tocar'); // nunca se llamó .eq('id', ...) — solo el catálogo de inversores por tipo/company_id
+  });
+
+  test('con numero_paneles técnico y un paquete que alcanza, guarda paquete_recomendado_id y regresa el paquete', async () => {
+    const db = crearMockDbPorTabla({
+      calculos_ingenieria: { data: { id: 'calc-1', estado_calculo: 'completo', version: 1, alertas: [], resultados: { numero_paneles: { valor: 7 } } }, error: null },
+      paquetes_solares: { data: { id: 'pkg-8', cantidad_paneles: 8, precio_contado: 64000 }, error: null },
+    });
+
+    const { paquete } = await correrCalculoCotizacionManual(db, {
+      companyId: COMPANY_A, cotizacionId: 42, infoTecnica: { ubicacion: 'Monterrey' }, panelSeleccionadoId: 'panel-1',
+    });
+
+    expect(paquete).toEqual({ id: 'pkg-8', cantidad_paneles: 8, precio_contado: 64000 });
+    expect(db.from).toHaveBeenCalledWith('paquetes_solares');
+  });
+
+  test('calculo bloqueado (sin numero_paneles) → nunca consulta paquetes_solares y regresa paquete null', async () => {
+    const db = crearMockDbPorTabla(); // default: bloqueado, sin resultados.numero_paneles
+    const { paquete } = await correrCalculoCotizacionManual(db, { companyId: COMPANY_A, cotizacionId: 42, infoTecnica: { ubicacion: 'Monterrey' } });
+    expect(paquete).toBeNull();
+    expect(db.from).not.toHaveBeenCalledWith('paquetes_solares');
   });
 });
 

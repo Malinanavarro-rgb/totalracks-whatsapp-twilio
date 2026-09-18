@@ -43,6 +43,19 @@ export default function NuevaCotizacion() {
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState(null);
 
+  // Paso 3 — panel solar. Gap funcional real (2026-09-17): sin un panel
+  // elegido, el motor de ingeniería no puede calcular numero_paneles ni
+  // seleccionar inversor (ambos dependen de panelSeleccionado) — este
+  // formulario nunca lo pedía, así que el cálculo manual quedaba siempre
+  // incompleto. Se corrige agregando la selección real, no un default
+  // silencioso.
+  const [paneles, setPaneles] = useState(null);
+  const [panelSeleccionadoId, setPanelSeleccionadoId] = useState(null);
+
+  useEffect(() => {
+    api.productosPorTipo('panel_solar').then(setPaneles).catch((e) => setError(e.message));
+  }, []);
+
   // Expediente Solar 360° (2026-09-17) — "Cotizar" desde el expediente de un
   // cliente precarga automáticamente cliente + lo que ya sepamos de su
   // oportunidad más reciente (consumo/importe/cobertura/alimentación/voltaje
@@ -101,6 +114,7 @@ export default function NuevaCotizacion() {
   async function crearYCalcular(e) {
     e.preventDefault();
     if (!clienteSeleccionado) { setError('Elige o crea un cliente primero.'); return; }
+    if (!panelSeleccionadoId) { setError('Elige un panel solar antes de calcular — el motor no puede dimensionar el sistema sin uno.'); return; }
     setError(null);
     setEnviando(true);
     try {
@@ -115,6 +129,7 @@ export default function NuevaCotizacion() {
           voltaje_sitio: infoTecnica.voltaje_sitio || null,
           area_disponible_m2: infoTecnica.area_disponible_m2 || null,
         },
+        panelSeleccionadoId,
       });
       navigate(`/cotizaciones/${cotizacion.id}`);
     } catch (e2) {
@@ -223,8 +238,35 @@ export default function NuevaCotizacion() {
               <input type="number" min="0" value={infoTecnica.area_disponible_m2}
                 onChange={(e) => campoTecnico('area_disponible_m2', e.target.value)} />
             </label>
+
+            <h3>3. Panel solar</h3>
+            {paneles === null && <p className="operaciones-nota">Cargando catálogo…</p>}
+            {paneles?.length === 0 && (
+              <p className="login-error">No hay paneles activos en el catálogo — agrega al menos uno en Configuración → Fichas Técnicas antes de cotizar.</p>
+            )}
+            {paneles?.length > 0 && (
+              <div className="catalogo-tecnico-grid">
+                {paneles.map((p) => (
+                  <label
+                    key={p.id}
+                    className="catalogo-tecnico-tarjeta"
+                    style={{ cursor: 'pointer', borderColor: panelSeleccionadoId === p.id ? 'var(--acento)' : undefined, borderWidth: panelSeleccionadoId === p.id ? 2 : 1 }}
+                  >
+                    <input type="radio" name="panel" value={p.id} checked={panelSeleccionadoId === p.id}
+                      onChange={() => setPanelSeleccionadoId(p.id)} style={{ display: 'none' }} />
+                    <div className="catalogo-tecnico-marca">{p.marca || 'Marca no especificada'}</div>
+                    <div className="catalogo-tecnico-modelo">{p.modelo || 'Modelo no especificado'}</div>
+                    {p.specs?.potencia_wp && <p className="operaciones-nota">{p.specs.potencia_wp} W</p>}
+                    <span className={`pill pill--${p.ficha_tecnica_completa ? 'success' : 'warning'}`}>
+                      {p.ficha_tecnica_completa ? 'Ficha técnica confirmada' : 'Ficha técnica pendiente'}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
+
             <div>
-              <button type="submit" disabled={enviando}>{enviando ? 'Calculando…' : 'Crear y calcular sistema'}</button>
+              <button type="submit" disabled={enviando || !panelSeleccionadoId}>{enviando ? 'Calculando…' : 'Crear y calcular sistema'}</button>
             </div>
           </form>
         </section>

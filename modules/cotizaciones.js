@@ -499,18 +499,27 @@ async function crearCotizacionBorrador(supabase, { companyId, clienteId, ejecuti
  * @param {Object} datos
  * @param {string} datos.companyId
  * @param {number} datos.cotizacionId
- * @param {Object} datos.infoTecnica - mismo shape que mapearCapturedFieldsAInfoTecnica() produce
+ * @param {Object} datos.infoTecnica - MISMO shape "crudo" que `workflow_sessions.captured_fields`
+ *   (ubicacion, consumo_mensual_kwh, importe_promedio_recibo, pct_cobertura_deseado,
+ *   tipo_alimentacion, voltaje_sitio, area_disponible_m2) — se normaliza aquí con la
+ *   MISMA función que ya usa correrCotizacionDesdeWorkflow (mapearCapturedFieldsAInfoTecnica),
+ *   una sola fuente de verdad para ambos caminos. Bug real corregido 2026-09-17: antes se
+ *   pasaba tal cual al motor, que espera camelCase (consumoMensualKwh, pctCoberturaDeseado...)
+ *   — el cálculo manual SIEMPRE salía "bloqueado" en silencio, nunca se había detectado.
  * @param {string} [datos.panelSeleccionadoId] - si se omite, el motor no puede dimensionar (quedará incompleto)
  * @param {number} [datos.temperaturaMinSitio] - default 5°C (mismo criterio conservador que el workflow)
  * @param {number} [datos.inversionNeta] - normalmente null hasta que haya un precio de paquete/líneas
  * @param {string} [datos.calculadoPor]
  * @returns {Promise<{calculo: Object, paquete: Object|null}>}
  */
-async function correrCalculoCotizacionManual(supabase, { companyId, cotizacionId, infoTecnica, panelSeleccionadoId, temperaturaMinSitio, inversionNeta, calculadoPor }) {
+async function correrCalculoCotizacionManual(supabase, { companyId, cotizacionId, infoTecnica: infoTecnicaCruda, panelSeleccionadoId, temperaturaMinSitio, inversionNeta, calculadoPor }) {
+  const { infoTecnica, temperaturaMinSitio: temperaturaDefault } = mapearCapturedFieldsAInfoTecnica(infoTecnicaCruda || {});
+  infoTecnica.ubicacion = await _normalizarUbicacion(supabase, infoTecnica.ubicacion);
+
   const calculo = await correrYGuardarCalculo(supabase, {
     companyId, cotizacionId, industriaSlug: 'paneles_solares', infoTecnica,
     panelSeleccionadoId: panelSeleccionadoId || null,
-    temperaturaMinSitio: temperaturaMinSitio ?? 5,
+    temperaturaMinSitio: temperaturaMinSitio ?? temperaturaDefault,
     inversionNeta: inversionNeta ?? null,
     calculadoPor: calculadoPor || null,
   });
