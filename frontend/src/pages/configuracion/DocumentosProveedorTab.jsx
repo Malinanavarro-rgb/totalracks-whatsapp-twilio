@@ -49,11 +49,14 @@ export default function DocumentosProveedorTab() {
     }
   }
 
-  async function confirmar(id) {
+  async function confirmar(documento) {
+    const id = documento.id;
     const datos = confirmando[id] || {};
     try {
       await api.confirmarDocumentoProveedor(id, {
-        producto_id: datos.producto_id?.trim() || undefined,
+        // Si el documento ya viene enlazado a un producto (ej. cargado desde la ficha
+        // oficial del fabricante), ese es el que se confirma — no hace falta reescribirlo.
+        producto_id: (datos.producto_id ?? documento.producto_id ?? '').trim() || undefined,
         esFichaCompleta: !!datos.esFichaCompleta,
       });
       setConfirmando((prev) => ({ ...prev, [id]: undefined }));
@@ -102,12 +105,27 @@ export default function DocumentosProveedorTab() {
             ) : d.datos_extraidos ? (
               <div className="pregunta-tara-respuesta">
                 <p><strong>Borrador (sin confirmar todavía):</strong></p>
+                {d.datos_extraidos.objetivo && (
+                  <p className="operaciones-nota">
+                    Producto del catálogo: <strong>{d.datos_extraidos.objetivo.marca} {d.datos_extraidos.objetivo.modelo}</strong>
+                    {d.datos_extraidos.modelo_coincide === false ? ' — el documento NO corresponde a este modelo' : ' — modelo verificado en el documento'}
+                  </p>
+                )}
+                {d.datos_extraidos.advertencias?.length > 0 && (
+                  <div className="login-error">
+                    <strong>Revisa antes de confirmar:</strong>
+                    <ul>{d.datos_extraidos.advertencias.map((a, i) => <li key={i}>{a}</li>)}</ul>
+                  </div>
+                )}
+                {d.datos_extraidos.campos_faltantes?.length > 0 && (
+                  <p className="operaciones-nota">Aún faltan para el motor de ingeniería: {d.datos_extraidos.campos_faltantes.join(', ')}</p>
+                )}
                 <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.8rem' }}>{JSON.stringify(d.datos_extraidos, null, 2)}</pre>
                 {d.datos_extraidos.es_ficha_tecnica ? (
                   <div className="config-form-inline">
                     <input
                       type="text" placeholder="ID de producto a enlazar (opcional)"
-                      value={confirmando[d.id]?.producto_id || ''}
+                      value={confirmando[d.id]?.producto_id ?? d.producto_id ?? ''}
                       onChange={(e) => setConfirmando((prev) => ({ ...prev, [d.id]: { ...prev[d.id], producto_id: e.target.value } }))}
                     />
                     <label>
@@ -117,7 +135,7 @@ export default function DocumentosProveedorTab() {
                       />
                       {' '}Ficha completa
                     </label>
-                    <button type="button" onClick={() => confirmar(d.id)}>Confirmar</button>
+                    <button type="button" onClick={() => confirmar(d)}>Confirmar</button>
                   </div>
                 ) : (
                   <p className="operaciones-nota">TARA no reconoció esto como una ficha técnica legible — no hay nada que confirmar.</p>

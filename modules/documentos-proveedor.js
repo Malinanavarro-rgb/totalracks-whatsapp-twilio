@@ -20,6 +20,9 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
+const {
+  normalizarSpecsExtraidos, validarCoherencia, camposFaltantes, describirCamposParaPrompt, modeloCoincide, CAMPOS_CANONICOS,
+} = require('./specs-canonicas');
 
 const BUCKET = 'documentos-proveedor';
 const MODELO_VISION_DEFAULT = 'gpt-4o-mini';
@@ -56,6 +59,47 @@ const SYSTEM_PROMPT = [
   '}',
 ].join('\n');
 
+/**
+ * Prompt para cuando YA sabemos qué producto del catálogo esperamos leer
+ * (documento enlazado a un producto). Dos diferencias clave frente al genérico:
+ *   - Las claves de `specs` son las CANÓNICAS del motor de ingeniería
+ *     (specs-canonicas.js), no claves libres que el motor nunca leería.
+ *   - Una ficha suele cubrir una SERIE de modelos en columnas (ej. 605/610/615 W):
+ *     debe leer SOLO la columna del modelo objetivo. Si ese modelo no aparece,
+ *     lo dice — nunca rellena con la columna vecina.
+ */
+function construirSystemPrompt(objetivo) {
+  const campos = describirCamposParaPrompt(objetivo.tipo);
+  return [
+    'Eres un extractor de fichas técnicas de equipo de energía solar para un proveedor mexicano.',
+    '',
+    `Te muestro un documento y el producto que se espera encontrar en él: marca "${objetivo.marca || 'desconocida'}", modelo EXACTO "${objetivo.modelo}" (tipo: ${objetivo.tipo}).`,
+    ...(objetivo.potencia_wp ? [`Su potencia nominal en el catálogo es ${objetivo.potencia_wp} W: úsala para elegir la columna correcta cuando el nombre del modelo no incluye la potencia.`] : []),
+    '',
+    'REGLAS — léelas con cuidado:',
+    '1. Muchas fichas cubren una serie de modelos en columnas (por ejemplo 605 W, 610 W, 615 W). Extrae los valores',
+    `   ÚNICAMENTE de la columna/sección del modelo "${objetivo.modelo}". Nunca uses la columna de otro modelo, aunque sea contigua.`,
+    '2. Si ese modelo exacto NO aparece en el documento, responde "modelo_encontrado": false y "specs": {}.',
+    '3. Extrae solo lo que esté impreso con claridad — nunca inventes, calcules ni asumas. Un dato ausente va null.',
+    '4. Usa EXACTAMENTE las claves y unidades indicadas abajo, con valores numéricos (sin unidades dentro del valor).',
+    '   Cualquier otro dato útil (peso, dimensiones, garantía...) puede ir en claves adicionales dentro de "specs".',
+    '',
+    'Responde ÚNICAMENTE JSON, sin texto antes ni después, con esta forma exacta:',
+    '{',
+    '  "es_ficha_tecnica": true o false,',
+    '  "modelo_encontrado": true o false,',
+    '  "marca": "tal cual aparece impreso" o null,',
+    '  "modelo": "el nombre del modelo de la columna/sección que realmente usaste, tal cual aparece impreso" o null,',
+    `  "tipo": "${objetivo.tipo}",`,
+    '  "specs": {',
+    campos,
+    '    ...más claves opcionales',
+    '  },',
+    '  "garantia": "texto de garantía tal cual aparece" o null',
+    '}',
+  ].join('\n');
+}
+
 function extensionDeMime(mimeType) {
   if (EXTENSIONES_POR_MIME[mimeType]) return EXTENSIONES_POR_MIME[mimeType];
   const subtipo = (mimeType || '').split('/')[1] || 'bin';
@@ -70,24 +114,24 @@ function _parsearJsonSeguro(texto) {
   }
 }
 
-async function _extraerViaVision(openaiClient, buffer, mimeType, modelo) {
+async function _extraerViaVision(openaiClient, buffer, mimeType, modelo, systemPrompt = SYSTEM_PROMPT, maxTokens = 800) {
   const dataUrl = `data:${mimeType || 'image/jpeg'};base64,${buffer.toString('base64')}`;
 
   const respuesta = await openaiClient.chat.completions.create({
     model: modelo,
     messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: systemPrompt },
       { role: 'user', content: [{ type: 'image_url', image_url: { url: dataUrl } }] },
     ],
     response_format: { type: 'json_object' },
     temperature: 0,
-    max_tokens: 800,
+    max_tokens: maxTokens,
   });
 
   return _parsearJsonSeguro(respuesta.choices?.[0]?.message?.content || '');
 }
 
-async function _extraerViaTextoPDF(openaiClient, buffer, modelo) {
+async function _extraerViaTextoPDF(openaiClient, buffer, modelo, systemPrompt = SYSTEM_PROMPT, maxTokens = 800) {
   const { PDFParse } = require('pdf-parse');
   const parser = new PDFParse({ data: buffer });
   let texto = '';
@@ -105,12 +149,12 @@ async function _extraerViaTextoPDF(openaiClient, buffer, modelo) {
   const respuesta = await openaiClient.chat.completions.create({
     model: modelo,
     messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: systemPrompt },
       { role: 'user', content: texto },
     ],
     response_format: { type: 'json_object' },
     temperature: 0,
-    max_tokens: 800,
+    max_tokens: maxTokens,
   });
 
   return _parsearJsonSeguro(respuesta.choices?.[0]?.message?.content || '');
@@ -125,16 +169,71 @@ async function _extraerViaTextoPDF(openaiClient, buffer, modelo) {
  * @param {{buffer: Buffer, mimeType?: string, modelo?: string}} datos
  * @returns {Promise<Object>} forma cruda del SYSTEM_PROMPT
  */
-async function extraerFichaTecnica(openaiClient, { buffer, mimeType, modelo }) {
+async function extraerFichaTecnica(openaiClient, { buffer, mimeType, modelo, objetivo }) {
   const familia = (mimeType || '').split('/')[0];
 
+  // Con `objetivo` ({marca, modelo, tipo} de un producto del catálogo) el prompt
+  // exige las claves canónicas del motor y la columna del modelo exacto.
+  const conObjetivo = Boolean(objetivo?.modelo && CAMPOS_CANONICOS[objetivo.tipo]);
+  const systemPrompt = conObjetivo ? construirSystemPrompt(objetivo) : SYSTEM_PROMPT;
+  const maxTokens = conObjetivo ? 1200 : 800;
+
+  let crudo;
   if (familia === 'image') {
-    return _extraerViaVision(openaiClient, buffer, mimeType, modelo || MODELO_VISION_DEFAULT);
+    crudo = await _extraerViaVision(openaiClient, buffer, mimeType, modelo || MODELO_VISION_DEFAULT, systemPrompt, maxTokens);
+  } else if (mimeType === 'application/pdf') {
+    crudo = await _extraerViaTextoPDF(openaiClient, buffer, modelo || MODELO_TEXTO_DEFAULT, systemPrompt, maxTokens);
+  } else {
+    return { es_ficha_tecnica: false, _motivo: 'tipo_de_archivo_no_soportado' };
   }
-  if (mimeType === 'application/pdf') {
-    return _extraerViaTextoPDF(openaiClient, buffer, modelo || MODELO_TEXTO_DEFAULT);
+
+  return conObjetivo && crudo.es_ficha_tecnica ? aplicarObjetivo(crudo, objetivo) : crudo;
+}
+
+/**
+ * Postproceso de una extracción hecha CON modelo objetivo: normaliza a claves
+ * canónicas, valida coherencia física y verifica que la IA leyó el modelo
+ * correcto. Si el modelo leído NO coincide con el esperado, `specs` queda
+ * vacío — nunca se proponen cifras de otro modelo de la serie (esa es la
+ * falla real que motivó esto: una ficha de 605/610/615 W devolvió la columna
+ * de 605 W para un producto de 615 W).
+ */
+function aplicarObjetivo(crudo, objetivo) {
+  const advertencias = [];
+  const coincide = crudo.modelo_encontrado !== false && modeloCoincide(objetivo.modelo, crudo.modelo);
+
+  if (!coincide) {
+    advertencias.push(crudo.modelo_encontrado === false
+      ? `El modelo "${objetivo.modelo}" no aparece en este documento — no se propone ningún valor.`
+      : `El documento se leyó como "${crudo.modelo || 'modelo desconocido'}", que no coincide con "${objetivo.modelo}" — se descartan los valores para no mezclar modelos de la serie.`);
+    return {
+      ...crudo, specs: {}, modelo_coincide: false, campos_faltantes: camposFaltantes(objetivo.tipo, {}), advertencias,
+      objetivo: { marca: objetivo.marca || null, modelo: objetivo.modelo, tipo: objetivo.tipo },
+    };
   }
-  return { es_ficha_tecnica: false, _motivo: 'tipo_de_archivo_no_soportado' };
+
+  const { canonicas, otros, advertencias: advNormalizacion } = normalizarSpecsExtraidos(objetivo.tipo, crudo.specs);
+
+  // Segunda verificación cuando el catálogo ya conoce la potencia del producto: un
+  // nombre de modelo sin potencia (ej. "TM7G72M": existe en 585 y 590 W) no basta
+  // para saber qué columna es. Si la potencia leída difiere, es OTRA variante.
+  if (objetivo.potencia_wp && typeof canonicas.potencia_wp === 'number' && canonicas.potencia_wp !== Number(objetivo.potencia_wp)) {
+    return {
+      ...crudo, specs: {}, modelo_coincide: false, campos_faltantes: camposFaltantes(objetivo.tipo, {}),
+      advertencias: [`La ficha se leyó con potencia ${canonicas.potencia_wp} W pero el catálogo tiene ${objetivo.potencia_wp} W — es otra variante de la serie, se descartan los valores.`],
+      objetivo: { marca: objetivo.marca || null, modelo: objetivo.modelo, tipo: objetivo.tipo, potencia_wp: Number(objetivo.potencia_wp) },
+    };
+  }
+
+  const specs = { ...otros, ...canonicas };
+  return {
+    ...crudo,
+    specs,
+    modelo_coincide: true,
+    campos_faltantes: camposFaltantes(objetivo.tipo, specs),
+    advertencias: [...advNormalizacion, ...validarCoherencia(objetivo.tipo, canonicas)],
+    objetivo: { marca: objetivo.marca || null, modelo: objetivo.modelo, tipo: objetivo.tipo },
+  };
 }
 
 /**
@@ -145,7 +244,7 @@ async function extraerFichaTecnica(openaiClient, { buffer, mimeType, modelo }) {
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase - service_role (bucket privado)
  * @returns {Promise<Object>} la fila creada
  */
-async function subirDocumento(supabase, { company_id, proveedor, tipo_documento, buffer, mimeType, nombre_archivo, subido_por }) {
+async function subirDocumento(supabase, { company_id, proveedor, tipo_documento, buffer, mimeType, nombre_archivo, subido_por, producto_id }) {
   if (!company_id) throw new Error('documentos-proveedor.subirDocumento: company_id requerido');
   if (!buffer?.length) throw new Error('documentos-proveedor.subirDocumento: archivo vacío o faltante');
 
@@ -160,6 +259,7 @@ async function subirDocumento(supabase, { company_id, proveedor, tipo_documento,
   const { data, error } = await supabase.from('documentos_proveedor').insert({
     company_id, proveedor: proveedor || null, tipo_documento: tipo_documento || 'ficha_tecnica',
     archivo_url: path, nombre_archivo: nombre_archivo || null, subido_por: subido_por || null,
+    producto_id: producto_id || null,
   }).select().single();
   if (error) throw new Error(`documentos-proveedor.subirDocumento: ${error.message}`);
 
@@ -183,7 +283,16 @@ async function procesarDocumento(openaiClient, supabase, companyId, documentoId)
 
   const buffer = Buffer.from(await archivo.arrayBuffer());
   const mimeType = archivo.type || undefined;
-  const datosExtraidos = await extraerFichaTecnica(openaiClient, { buffer, mimeType });
+  // Si el documento ya está enlazado a un producto, la extracción sabe qué modelo
+  // exacto leer y con qué claves (ver aplicarObjetivo). Sin enlace: extracción
+  // genérica de siempre.
+  let objetivo;
+  if (documento.producto_id) {
+    const { data: producto } = await supabase
+      .from('productos').select('marca, modelo, tipo, specs').eq('id', documento.producto_id).eq('company_id', companyId).maybeSingle();
+    if (producto) objetivo = { marca: producto.marca, modelo: producto.modelo, tipo: producto.tipo, potencia_wp: producto.specs?.potencia_wp };
+  }
+  const datosExtraidos = await extraerFichaTecnica(openaiClient, { buffer, mimeType, objetivo });
 
   const { data, error } = await supabase.from('documentos_proveedor')
     .update({ datos_extraidos: datosExtraidos, procesado_en: new Date().toISOString() })
@@ -227,9 +336,15 @@ async function confirmarDocumento(supabase, companyId, documentoId, { producto_i
     if (!producto) throw new Error('documentos-proveedor.confirmarDocumento: producto no encontrado');
 
     const specsNuevas = documento.datos_extraidos.specs || {};
+    const specsFinales = { ...specsNuevas, ...(producto.specs || {}) }; // producto ya existente gana
+    // La ficha sube a "completa" si el humano lo marca, o si -tras mezclar- el
+    // motor ya tiene TODOS sus campos y la extracción no dejó advertencias sin
+    // resolver (con advertencias, solo el humano decide con esFichaCompleta).
+    const sinAdvertencias = !(documento.datos_extraidos.advertencias || []).length;
+    const completaPorCampos = sinAdvertencias && camposFaltantes(producto.tipo, specsFinales).length === 0 && Boolean(CAMPOS_CANONICOS[producto.tipo]);
     const cambios = {
-      specs: { ...specsNuevas, ...(producto.specs || {}) }, // producto ya existente gana
-      ficha_tecnica_completa: producto.ficha_tecnica_completa || esFichaCompleta,
+      specs: specsFinales,
+      ficha_tecnica_completa: producto.ficha_tecnica_completa || esFichaCompleta || completaPorCampos,
     };
     const { error: errorUpdate } = await supabase.from('productos').update(cambios).eq('id', producto_id);
     if (errorUpdate) throw new Error(`documentos-proveedor.confirmarDocumento: ${errorUpdate.message}`);
@@ -252,6 +367,8 @@ async function generarUrlFirmadaDocumento(supabase, path, segundos = 60) {
 module.exports = {
   BUCKET,
   extensionDeMime,
+  construirSystemPrompt,
+  aplicarObjetivo,
   extraerFichaTecnica,
   subirDocumento,
   procesarDocumento,

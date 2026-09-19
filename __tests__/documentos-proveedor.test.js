@@ -307,3 +307,232 @@ describe('generarUrlFirmadaDocumento()', () => {
     await expect(generarUrlFirmadaDocumento(db, 'no-existe.pdf')).rejects.toThrow('path no existe');
   });
 });
+
+// ─── Modelo objetivo + claves canónicas (2026-09-19) ─────────────────────────
+// Falla real que motivó esto: una ficha LONGi de la serie 605/610/615 W devolvió la
+// columna de 605 W para un producto de 615 W, y con claves libres que el motor de
+// ingeniería nunca lee. Ver modules/specs-canonicas.js.
+
+describe('extraerFichaTecnica() — con modelo objetivo', () => {
+  const OBJETIVO = { marca: 'LONGi Solar', modelo: 'LR7-72HTH-615M', tipo: 'panel_solar' };
+  const SPECS_615 = { potencia_wp: 615, voc: 52.57, vmp: 44.33, isc: 14.87, imp: 13.88, coef_temp_voc: -0.23, peso_kg: 28.5 };
+
+  beforeEach(() => mockGetText.mockResolvedValue({ text: 'FICHA TÉCNICA LONGI SERIE LR7-72HTH '.repeat(4) }));
+
+  test('el prompt nombra el modelo EXACTO y exige las claves canónicas del motor', async () => {
+    const openai = crearMockOpenAI({ es_ficha_tecnica: true, modelo_encontrado: true, modelo: 'LR7-72HTH-615M', tipo: 'panel_solar', specs: SPECS_615 });
+    await extraerFichaTecnica(openai, { buffer: BUFFER_FAKE, mimeType: 'application/pdf', objetivo: OBJETIVO });
+
+    const prompt = openai.chat.completions.create.mock.calls[0][0].messages[0].content;
+    expect(prompt).toMatch(/LR7-72HTH-615M/);
+    expect(prompt).toMatch(/ÚNICAMENTE de la columna/);
+    expect(prompt).toMatch(/"coef_temp_voc"/);
+  });
+
+  test('modelo leído = objetivo → specs canónicas, sin faltantes ni advertencias, extras conservados', async () => {
+    const openai = crearMockOpenAI({ es_ficha_tecnica: true, modelo_encontrado: true, modelo: 'LR7-72HTH-615M', tipo: 'panel_solar', specs: SPECS_615 });
+    const r = await extraerFichaTecnica(openai, { buffer: BUFFER_FAKE, mimeType: 'application/pdf', objetivo: OBJETIVO });
+
+    expect(r.modelo_coincide).toBe(true);
+    expect(r.specs).toMatchObject({ potencia_wp: 615, voc: 52.57, vmp: 44.33, isc: 14.87, imp: 13.88, coef_temp_voc: -0.23, peso_kg: 28.5 });
+    expect(r.campos_faltantes).toEqual([]);
+    expect(r.advertencias).toEqual([]);
+    expect(r.objetivo).toEqual(OBJETIVO);
+  });
+
+  test('normaliza claves libres (sinónimos) aunque la IA no obedezca el esquema', async () => {
+    const openai = crearMockOpenAI({
+      es_ficha_tecnica: true, modelo_encontrado: true, modelo: 'LR7-72HTH-615M', tipo: 'panel_solar',
+      specs: { potencia_w: 615, voltaje_circuito_abierto_v: 52.57, voltaje_en_potencia_max_v: 44.33, corriente_corta_circuito_a: 14.87, corriente_en_potencia_max_a: 13.88, coeficiente_temperatura_voc_pct_por_c: -0.23 },
+    });
+    const r = await extraerFichaTecnica(openai, { buffer: BUFFER_FAKE, mimeType: 'application/pdf', objetivo: OBJETIVO });
+    expect(r.campos_faltantes).toEqual([]);
+    expect(r.specs.voc).toBe(52.57);
+  });
+
+  test('la IA leyó la columna de OTRO modelo de la serie (605M) → specs vacías + advertencia, nunca cifras ajenas', async () => {
+    const openai = crearMockOpenAI({ es_ficha_tecnica: true, modelo_encontrado: true, modelo: 'LR7-72HTH-605M', tipo: 'panel_solar', specs: { potencia_wp: 605, voc: 52.3, vmp: 44.03, isc: 14.74, imp: 13.75, coef_temp_voc: -0.23 } });
+    const r = await extraerFichaTecnica(openai, { buffer: BUFFER_FAKE, mimeType: 'application/pdf', objetivo: OBJETIVO });
+
+    expect(r.modelo_coincide).toBe(false);
+    expect(r.specs).toEqual({});
+    expect(r.campos_faltantes.length).toBe(6);
+    expect(r.advertencias[0]).toMatch(/no coincide/);
+  });
+
+  test('modelo_encontrado=false → specs vacías + advertencia de que el modelo no aparece', async () => {
+    const openai = crearMockOpenAI({ es_ficha_tecnica: true, modelo_encontrado: false, modelo: null, tipo: 'panel_solar', specs: {} });
+    const r = await extraerFichaTecnica(openai, { buffer: BUFFER_FAKE, mimeType: 'application/pdf', objetivo: OBJETIVO });
+
+    expect(r.modelo_coincide).toBe(false);
+    expect(r.advertencias[0]).toMatch(/no aparece/);
+  });
+
+  test('valores incoherentes (vmp×imp no cuadra con la potencia) → se proponen pero con advertencia', async () => {
+    const openai = crearMockOpenAI({ es_ficha_tecnica: true, modelo_encontrado: true, modelo: 'LR7-72HTH-615M', tipo: 'panel_solar', specs: { ...SPECS_615, vmp: 44.03, imp: 13.75 } });
+    const r = await extraerFichaTecnica(openai, { buffer: BUFFER_FAKE, mimeType: 'application/pdf', objetivo: OBJETIVO });
+
+    expect(r.modelo_coincide).toBe(true);
+    expect(r.advertencias.join(' ')).toMatch(/columna de otro modelo/);
+  });
+
+  test('no es ficha técnica → se devuelve tal cual, sin postproceso', async () => {
+    const openai = crearMockOpenAI({ es_ficha_tecnica: false });
+    const r = await extraerFichaTecnica(openai, { buffer: BUFFER_FAKE, mimeType: 'application/pdf', objetivo: OBJETIVO });
+    expect(r).toEqual({ es_ficha_tecnica: false });
+  });
+
+  test('sin objetivo → extracción genérica de siempre (prompt genérico, sin campos de postproceso)', async () => {
+    const openai = crearMockOpenAI({ es_ficha_tecnica: true, tipo: 'panel_solar', specs: { potencia_w: 550 } });
+    const r = await extraerFichaTecnica(openai, { buffer: BUFFER_FAKE, mimeType: 'application/pdf' });
+
+    expect(r.modelo_coincide).toBeUndefined();
+    expect(openai.chat.completions.create.mock.calls[0][0].messages[0].content).not.toMatch(/modelo EXACTO/);
+  });
+
+  test('objetivo de un tipo sin campos canónicos (ej. bateria) → extracción genérica', async () => {
+    const openai = crearMockOpenAI({ es_ficha_tecnica: true, tipo: 'bateria', specs: { capacidad_kwh: 5 } });
+    const r = await extraerFichaTecnica(openai, { buffer: BUFFER_FAKE, mimeType: 'application/pdf', objetivo: { marca: 'X', modelo: 'B1', tipo: 'bateria' } });
+    expect(r.modelo_coincide).toBeUndefined();
+  });
+});
+
+describe('subirDocumento() — producto_id', () => {
+  test('guarda el producto_id enlazado en la fila (para que procesar sepa qué modelo leer)', async () => {
+    let insertado = null;
+    const db = crearMockDb();
+    db.from = jest.fn(() => {
+      const builder = crearBuilder({ data: { id: 1 }, error: null });
+      builder.insert = jest.fn((fila) => { insertado = fila; return builder; });
+      return builder;
+    });
+
+    await subirDocumento(db, { company_id: COMPANY_A, buffer: BUFFER_FAKE, mimeType: 'application/pdf', producto_id: 'prod-uuid-1' });
+    expect(insertado.producto_id).toBe('prod-uuid-1');
+  });
+
+  test('sin producto_id → null (comportamiento previo)', async () => {
+    let insertado = null;
+    const db = crearMockDb();
+    db.from = jest.fn(() => {
+      const builder = crearBuilder({ data: { id: 1 }, error: null });
+      builder.insert = jest.fn((fila) => { insertado = fila; return builder; });
+      return builder;
+    });
+
+    await subirDocumento(db, { company_id: COMPANY_A, buffer: BUFFER_FAKE, mimeType: 'application/pdf' });
+    expect(insertado.producto_id).toBeNull();
+  });
+});
+
+describe('procesarDocumento() — documento enlazado a un producto', () => {
+  function armarDb(documento, producto) {
+    const tablasConsultadas = [];
+    const db = crearMockDb({}, { downloadResultado: { type: 'application/pdf', arrayBuffer: async () => BUFFER_FAKE.buffer.slice(BUFFER_FAKE.byteOffset, BUFFER_FAKE.byteOffset + BUFFER_FAKE.byteLength) } });
+    db.from = jest.fn((tabla) => {
+      tablasConsultadas.push(tabla);
+      const builder = crearBuilder({ data: null, error: null });
+      builder.maybeSingle = jest.fn().mockResolvedValue({ data: tabla === 'productos' ? producto : documento, error: null });
+      return builder;
+    });
+    return { db, tablasConsultadas };
+  }
+
+  test('lee marca/modelo/tipo del producto y los usa como objetivo de la extracción', async () => {
+    mockGetText.mockResolvedValue({ text: 'FICHA TÉCNICA LONGI SERIE LR7-72HTH '.repeat(4) });
+    const { db, tablasConsultadas } = armarDb(
+      { id: 5, company_id: COMPANY_A, archivo_url: 'x.pdf', producto_id: 'prod-1' },
+      { marca: 'LONGi Solar', modelo: 'LR7-72HTH-615M', tipo: 'panel_solar' },
+    );
+    const openai = crearMockOpenAI({ es_ficha_tecnica: true, modelo_encontrado: true, modelo: 'LR7-72HTH-615M', tipo: 'panel_solar', specs: { potencia_wp: 615 } });
+
+    await procesarDocumento(openai, db, COMPANY_A, 5);
+
+    expect(tablasConsultadas).toContain('productos');
+    expect(openai.chat.completions.create.mock.calls[0][0].messages[0].content).toMatch(/LR7-72HTH-615M/);
+  });
+
+  test('sin producto enlazado → nunca consulta productos y usa el prompt genérico', async () => {
+    mockGetText.mockResolvedValue({ text: 'FICHA TÉCNICA PANEL '.repeat(5) });
+    const { db, tablasConsultadas } = armarDb({ id: 5, company_id: COMPANY_A, archivo_url: 'x.pdf', producto_id: null }, null);
+    const openai = crearMockOpenAI({ es_ficha_tecnica: true, specs: {} });
+
+    await procesarDocumento(openai, db, COMPANY_A, 5);
+
+    expect(tablasConsultadas).not.toContain('productos');
+    expect(openai.chat.completions.create.mock.calls[0][0].messages[0].content).not.toMatch(/modelo EXACTO/);
+  });
+});
+
+describe('confirmarDocumento() — ficha completa por campos', () => {
+  const PANEL_SIN_FICHA = { id: 99, company_id: COMPANY_A, tipo: 'panel_solar', specs: { potencia_wp: 615 }, ficha_tecnica_completa: false };
+  const SPECS_NUEVAS = { voc: 52.57, vmp: 44.33, isc: 14.87, imp: 13.88, coef_temp_voc: -0.23 };
+
+  async function confirmarCon(datosExtraidos, producto) {
+    let cambios = null;
+    const documento = { id: 5, company_id: COMPANY_A, datos_extraidos: datosExtraidos };
+    const db = { storage: crearMockStorage() };
+    db.from = jest.fn((tabla) => {
+      const builder = crearBuilder({ data: documento, error: null });
+      builder.maybeSingle = jest.fn().mockResolvedValue({ data: tabla === 'productos' ? producto : documento, error: null });
+      if (tabla === 'productos') builder.update = jest.fn((c) => { cambios = c; return builder; });
+      return builder;
+    });
+    await confirmarDocumento(db, COMPANY_A, 5, { producto_id: 99, usuario_id: 'user-1' });
+    return cambios;
+  }
+
+  test('tras mezclar el producto tiene TODOS los campos del motor y no hay advertencias → sube a completa sola', async () => {
+    const cambios = await confirmarCon({ es_ficha_tecnica: true, specs: SPECS_NUEVAS, advertencias: [] }, PANEL_SIN_FICHA);
+    expect(cambios.specs).toMatchObject({ potencia_wp: 615, voc: 52.57, coef_temp_voc: -0.23 });
+    expect(cambios.ficha_tecnica_completa).toBe(true);
+  });
+
+  test('con advertencias sin resolver → NO se marca completa sola (decide el humano con esFichaCompleta)', async () => {
+    const cambios = await confirmarCon({ es_ficha_tecnica: true, specs: SPECS_NUEVAS, advertencias: ['Vmp × Imp no cuadra'] }, PANEL_SIN_FICHA);
+    expect(cambios.ficha_tecnica_completa).toBe(false);
+  });
+
+  test('aún faltan campos del motor → NO se marca completa', async () => {
+    const cambios = await confirmarCon({ es_ficha_tecnica: true, specs: { voc: 52.57 }, advertencias: [] }, PANEL_SIN_FICHA);
+    expect(cambios.ficha_tecnica_completa).toBe(false);
+  });
+
+  test('producto de un tipo sin campos canónicos → nunca se marca completa por campos', async () => {
+    const cambios = await confirmarCon({ es_ficha_tecnica: true, specs: { capacidad_kwh: 5 }, advertencias: [] }, { id: 99, company_id: COMPANY_A, tipo: 'bateria', specs: {}, ficha_tecnica_completa: false });
+    expect(cambios.ficha_tecnica_completa).toBe(false);
+  });
+});
+
+describe('extraerFichaTecnica() — verificación por potencia del catálogo', () => {
+  const OBJ = { marca: 'TaleSun', modelo: 'TM7G72M', tipo: 'panel_solar', potencia_wp: 590 };
+  beforeEach(() => mockGetText.mockResolvedValue({ text: 'FICHA TALESUN TM7G72M '.repeat(6) }));
+
+  test('el prompt incluye la potencia esperada para elegir la columna', async () => {
+    const openai = crearMockOpenAI({ es_ficha_tecnica: true, modelo_encontrado: true, modelo: 'TM7G72M', tipo: 'panel_solar', specs: { potencia_wp: 590, voc: 52.3, vmp: 43.7, isc: 14.2, imp: 13.5, coef_temp_voc: -0.25 } });
+    await extraerFichaTecnica(openai, { buffer: BUFFER_FAKE, mimeType: 'application/pdf', objetivo: OBJ });
+    expect(openai.chat.completions.create.mock.calls[0][0].messages[0].content).toMatch(/590 W/);
+  });
+
+  test('potencia leída = catálogo → se acepta', async () => {
+    const openai = crearMockOpenAI({ es_ficha_tecnica: true, modelo_encontrado: true, modelo: 'TM7G72M', tipo: 'panel_solar', specs: { potencia_wp: 590, voc: 52.3, vmp: 43.7, isc: 14.2, imp: 13.5, coef_temp_voc: -0.25 } });
+    const r = await extraerFichaTecnica(openai, { buffer: BUFFER_FAKE, mimeType: 'application/pdf', objetivo: OBJ });
+    expect(r.modelo_coincide).toBe(true);
+    expect(r.specs.voc).toBe(52.3);
+  });
+
+  test('el nombre coincide pero la potencia leída es de OTRA variante (585 vs 590) → se descarta todo', async () => {
+    const openai = crearMockOpenAI({ es_ficha_tecnica: true, modelo_encontrado: true, modelo: 'TM7G72M', tipo: 'panel_solar', specs: { potencia_wp: 585, voc: 52.1, vmp: 43.5, isc: 14.1, imp: 13.45, coef_temp_voc: -0.25 } });
+    const r = await extraerFichaTecnica(openai, { buffer: BUFFER_FAKE, mimeType: 'application/pdf', objetivo: OBJ });
+
+    expect(r.modelo_coincide).toBe(false);
+    expect(r.specs).toEqual({});
+    expect(r.advertencias[0]).toMatch(/585 W.*590 W/);
+  });
+
+  test('catálogo sin potencia conocida → no se aplica esta verificación', async () => {
+    const openai = crearMockOpenAI({ es_ficha_tecnica: true, modelo_encontrado: true, modelo: 'TM7G72M', tipo: 'panel_solar', specs: { potencia_wp: 585 } });
+    const r = await extraerFichaTecnica(openai, { buffer: BUFFER_FAKE, mimeType: 'application/pdf', objetivo: { ...OBJ, potencia_wp: undefined } });
+    expect(r.modelo_coincide).toBe(true);
+  });
+});
