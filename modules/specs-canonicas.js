@@ -193,20 +193,19 @@ function _normalizarModelo(texto) {
 }
 
 /**
- * ¿El modelo que la IA dice haber leído es el modelo objetivo? Igual una vez
- * normalizado, o una variante con un sufijo/prefijo corto (≤3 caracteres, ej.
- * "-BF", "-V"). Deliberadamente NO acepta que el nombre de la SERIE ("LR7-72HTH")
- * cuente como coincidencia del modelo completo ("LR7-72HTH-615M") — leer la
- * cabecera de la serie en vez de la columna del modelo es justo el error que
- * este chequeo existe para atrapar.
+ * ¿El modelo que la IA dice haber leído es EXACTAMENTE el modelo objetivo?
+ * Igualdad tras normalizar mayúsculas y separadores ("LR7-72HTH-615M" ≈
+ * "lr7 72hth 615m") — sin tolerancia de sufijos. Una versión anterior aceptaba
+ * sufijos de hasta 3 caracteres, pero eso dejaba pasar variantes con specs
+ * distintas: "MIN 6000TL-X" daría por bueno "MIN 6000TL-X2", o la serie
+ * "LR7-72HTH" por el modelo completo. Un falso negativo (nombre distinto pero
+ * legítimo) solo cuesta que una persona lo revise; un falso positivo mete
+ * cifras de otra variante en un cálculo eléctrico.
  */
 function modeloCoincide(modeloObjetivo, modeloLeido) {
   const a = _normalizarModelo(modeloObjetivo);
   const b = _normalizarModelo(modeloLeido);
-  if (!a || !b) return false;
-  if (a === b) return true;
-  const [corto, largo] = a.length <= b.length ? [a, b] : [b, a];
-  return largo.includes(corto) && largo.length - corto.length <= 3;
+  return Boolean(a) && a === b;
 }
 
 module.exports = {

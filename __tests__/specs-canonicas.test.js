@@ -146,10 +146,6 @@ describe('modeloCoincide()', () => {
     expect(modeloCoincide('LR7-72HTH-615M', 'lr7 72hth 615m')).toBe(true);
   });
 
-  test('variante con sufijo corto (≤3 caracteres) sí coincide', () => {
-    expect(modeloCoincide('LR7-72HTH-615M', 'LR7-72HTH-615M-BF')).toBe(true);
-  });
-
   test('otro modelo de la MISMA serie (605M vs 615M) NO coincide', () => {
     expect(modeloCoincide('LR7-72HTH-615M', 'LR7-72HTH-605M')).toBe(false);
   });
@@ -158,8 +154,15 @@ describe('modeloCoincide()', () => {
     expect(modeloCoincide('LR7-72HTH-615M', 'LR7-72HTH')).toBe(false);
   });
 
+  test('variantes con sufijo NO coinciden: MIN 6000TL-X ≠ MIN 6000TL-X2 (specs distintas en un inversor)', () => {
+    expect(modeloCoincide('MIN 6000TL-X2', 'MIN 6000TL-X')).toBe(false);
+    expect(modeloCoincide('MIN 6000TL-X', 'MIN 6000TL-XH')).toBe(false);
+    expect(modeloCoincide('SPH6000TL BL-US', 'SPH6000TL BL-UP')).toBe(false);
+  });
+
   test('vacío o null → false', () => {
     expect(modeloCoincide('LR7-72HTH-615M', null)).toBe(false);
     expect(modeloCoincide(null, 'LR7-72HTH-615M')).toBe(false);
+    expect(modeloCoincide(null, null)).toBe(false);
   });
 });

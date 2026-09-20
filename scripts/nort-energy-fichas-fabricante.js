@@ -46,6 +46,20 @@ const MANIFIESTO = [
     'https://jouleenergysolutions.co.za/wp-content/uploads/2023/12/JES-Spec-Sheets_Seraphim-Solar-Module-SIV-Series-450W460W550W-Consolidated-2.pdf',
   ] },
   { modelo: 'SRP-610-BTC-BG', proveedor: 'Seraphim', urls: ['https://www.seraphim-energy.com/uploads/upload/files/20241121/3db61ea62fb53ca8c222697d985d072b.pdf'] },
+
+  // ── Inversores residenciales conectados a red (2026-09-20) ──
+  { modelo: 'MIC 2000TL-X', proveedor: 'Growatt', urls: ['https://www.growatt.tech/wp-content/uploads/shared-files/MIC-7503300TL-X-Datasheet.pdf'] },
+  { modelo: 'GW8500-MS', proveedor: 'GoodWe', urls: ['https://en.goodwe.com/Ftp/EN/Downloads/Datasheet/GW_MS_Datasheet-EN.pdf'] },
+  { modelo: 'MIN 10000TL-X2', proveedor: 'Growatt', urls: ['https://www.emergente.com.co/wp-content/uploads/2024/12/Inversor-Solar-Growatt-MIN-10000TL-X2.pdf'] },
+  { modelo: 'SPH6000TL BL-US', proveedor: 'Growatt', urls: [
+    'https://www.pvo-int.com/wp-content/uploads/2022/03/Datasheet-Growatt-3-6kw-SPH3000-6000.pdf',
+    'https://midsummerwholesale.co.uk/pdfs/growatt-sph3000-6000-hybrid-datasheet.pdf',
+  ] },
+  // MIN 3600/5000/6000TL-X2: el único PDF directo encontrado es el de la variante "-X" (sin el 2),
+  // que NO es la misma y se rechazaría por modelo. Pendientes de una ficha X2 verificable.
+  { modelo: 'MIN 3600TL-X2', proveedor: 'Growatt', urls: [] },
+  { modelo: 'MIN 5000TL-X2', proveedor: 'Growatt', urls: [] },
+  { modelo: 'MIN 6000TL-X2', proveedor: 'Growatt', urls: [] },
 ];
 
 async function descargarPdf(url) {
@@ -105,7 +119,7 @@ async function main() {
       }
     }
 
-    resumen.push([item.modelo, resultadoFinal?.estado || 'SIN FICHA VÁLIDA — ninguna URL candidata confirmó el modelo']);
+    resumen.push([item.modelo, resultadoFinal?.estado || (item.urls.length ? 'SIN FICHA VÁLIDA — ninguna URL candidata confirmó el modelo' : 'PENDIENTE — sin URL de ficha verificable')]);
     if (resultadoFinal?.extraccion.advertencias?.length) resultadoFinal.extraccion.advertencias.forEach((a) => console.log(`    ⚠ ${item.modelo}: ${a}`));
   }
 
