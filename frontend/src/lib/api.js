@@ -209,6 +209,7 @@ export const api = {
   actualizarLineaCotizacion: (lineaId, cambios) => pedir(`/api/cotizaciones/lineas/${lineaId}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
   eliminarLineaCotizacion: (lineaId) => pedir(`/api/cotizaciones/lineas/${lineaId}`, { method: 'DELETE' }),
   aplicarCalculoALineasCotizacion: (id) => pedir(`/api/cotizaciones/${id}/lineas/aplicar-calculo`, { method: 'POST' }),
+  aplicarBomALineasCotizacion: (id) => pedir(`/api/cotizaciones/${id}/lineas/aplicar-bom`, { method: 'POST' }),
   generarPdfCotizacionManual: (id) => pedir(`/api/cotizaciones/${id}/generar-pdf`, { method: 'POST' }),
 
   // Catálogo de productos por tipo (panel_solar/inversor/microinversor/...)

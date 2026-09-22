@@ -46,7 +46,7 @@ const { analizarHilo, analizarConversacionPegada, analizarOportunidadParaCierre,
 const { tipoContenidoDeMime, subirAdjunto, generarUrlFirmada } = require('./modules/inbox-adjuntos');
 const { asociarSiHaySesionDeCotizacionActiva, listarAdjuntosDeCotizacion } = require('./modules/cotizacion-adjuntos');
 const { marcarPredimensionamientoRevisado, marcarIngenieriaValidada, puedeEnviarCotizacion, autorizarPrecioFinal, listarCotizaciones, obtenerCotizacion, correrCotizacionDesdeWorkflow, crearCotizacionBorrador, correrCalculoCotizacionManual, listarProductosPorTipo } = require('./modules/cotizaciones');
-const { listarLineas, agregarLinea, actualizarLinea, eliminarLinea, aplicarCalculoALineas } = require('./modules/cotizacion-lineas');
+const { listarLineas, agregarLinea, actualizarLinea, eliminarLinea, aplicarCalculoALineas, aplicarBomALineas } = require('./modules/cotizacion-lineas');
 const { generarPdfCotizacion, generarYEnviarCotizacion, BUCKET_COTIZACIONES_PDF } = require('./modules/cotizacion-pdf');
 const { listarPaquetes, crearPaquete, actualizarPaquete, desactivarPaquete, eliminarPaquete, listarPaquetesConCotizaciones } = require('./modules/paquetes-solares');
 const { generarPropuestasCotizacion, simularRangoCotizacion } = require('./modules/propuestas-solares');
@@ -2521,6 +2521,17 @@ app.post('/api/cotizaciones/:id/lineas/aplicar-calculo', requireAuth, async (req
     res.status(201).json(lineas);
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// BOM desglosado panel+inversor (2026-09-22) — ALTERNATIVA a aplicar-calculo,
+// no un reemplazo (ver modules/cotizacion-lineas.js::aplicarBomALineas).
+app.post('/api/cotizaciones/:id/lineas/aplicar-bom', requireAuth, async (req, res) => {
+  try {
+    const resultado = await aplicarBomALineas(req.supabase, { companyId: req.usuario.company_id, cotizacionId: req.params.id });
+    res.status(201).json(resultado);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
   }
 });
 

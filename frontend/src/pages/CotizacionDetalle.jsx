@@ -132,6 +132,25 @@ export default function CotizacionDetalle() {
   }
 
   const usarPaqueteRecomendado = () => conAnimoDeEspera(() => api.aplicarCalculoALineasCotizacion(cotizacionId));
+
+  // BOM desglosado (2026-09-22) — alternativa a "Usar este paquete", no la
+  // reemplaza: genera línea de panel + línea de inversor con precio real del
+  // catálogo. A diferencia de conAnimoDeEspera genérico, necesita leer
+  // `motivo` de la respuesta para explicar por qué no se creó nada (ej. sin
+  // cálculo todavía) — no es un error, es información.
+  async function aplicarBom() {
+    setProcesando(true);
+    setError(null);
+    try {
+      const resultado = await api.aplicarBomALineasCotizacion(cotizacionId);
+      if (resultado.motivo) setError(resultado.motivo);
+      cargar();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setProcesando(false);
+    }
+  }
   const validar = () => conAnimoDeEspera(() => api.validarIngenieria(cotizacionId));
   const generarPdf = () => conAnimoDeEspera(() => api.generarPdfCotizacionManual(cotizacionId));
 
@@ -274,6 +293,16 @@ export default function CotizacionDetalle() {
               {' · '}
               <button type="button" className="boton-enlace" disabled={procesando} onClick={usarPaqueteRecomendado}>
                 Usar este paquete
+              </button>
+            </p>
+          )}
+
+          {cotizacion.estado === 'borrador' && (!cotizacion.lineas || cotizacion.lineas.length === 0) && (
+            <p className="operaciones-nota">
+              O, en vez del paquete, arma la cotización con las líneas reales del panel y el inversor que eligió el cálculo
+              {' · '}
+              <button type="button" className="boton-enlace" disabled={procesando} onClick={aplicarBom}>
+                Usar BOM desglosado (panel + inversor)
               </button>
             </p>
           )}

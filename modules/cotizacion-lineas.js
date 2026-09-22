@@ -200,4 +200,77 @@ async function aplicarCalculoALineas(supabase, { companyId, cotizacionId }) {
   return [linea];
 }
 
-module.exports = { recalcularTotales, agregarLinea, actualizarLinea, eliminarLinea, listarLineas, aplicarCalculoALineas, IVA_DEFAULT };
+/**
+ * "BOM panel + inversor" (Alina, 2026-09-22) — ALTERNATIVA a
+ * aplicarCalculoALineas(), no un reemplazo: crea una línea real por el panel
+ * (cantidad = numero_paneles del cálculo) y otra por el inversor que el motor
+ * seleccionó, cada una con el precio ACTUAL del catálogo (no el precio
+ * congelado en el cálculo — un asesor puede haber actualizado el precio
+ * después). El asesor elige UNA de las dos formas, nunca ambas: comparte el
+ * mismo guard de "ya existe una línea automática" que aplicarCalculoALineas,
+ * así que si ya se aplicó el paquete (o ya se aplicó este BOM antes), no
+ * duplica nada.
+ *
+ * Deliberadamente NO intenta estructura/riel/cable/protecciones — el motor
+ * de ingeniería no calcula esas cantidades (confirmado en la auditoría
+ * 2026-09-16), y el catálogo hoy casi no tiene precios cargados fuera de
+ * panel/inversor. Inventar una cantidad o un precio ahí rompería el
+ * principio de "nunca alucinar" que sostiene todo este módulo — esas
+ * líneas se siguen agregando a mano, como ya funciona hoy.
+ *
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {Object} datos
+ * @param {string} datos.companyId
+ * @param {number} datos.cotizacionId
+ * @returns {Promise<{lineas: Array, motivo: string|null}>}
+ */
+async function aplicarBomALineas(supabase, { companyId, cotizacionId }) {
+  const { data: yaExisten } = await supabase
+    .from('cotizacion_lineas').select('id').eq('cotizacion_id', cotizacionId).eq('origen', 'calculado_automatico').limit(1).maybeSingle();
+  if (yaExisten) return { lineas: [], motivo: 'Esta cotización ya tiene una línea automática (paquete o BOM) — bórrala primero si quieres regenerar.' };
+
+  const { data: cotizacion } = await supabase
+    .from('cotizaciones').select('calculo_ingenieria_id').eq('id', cotizacionId).eq('company_id', companyId).maybeSingle();
+  if (!cotizacion) {
+    const err = new Error('Cotización no encontrada');
+    err.status = 404;
+    throw err;
+  }
+  if (!cotizacion.calculo_ingenieria_id) return { lineas: [], motivo: 'Esta cotización todavía no tiene un cálculo de ingeniería.' };
+
+  const { data: calculo } = await supabase
+    .from('calculos_ingenieria').select('resultados, catalogo_usado').eq('id', cotizacion.calculo_ingenieria_id).maybeSingle();
+  const numeroPaneles = calculo?.resultados?.numero_paneles?.valor;
+  const panelId = calculo?.catalogo_usado?.panel?.id;
+  const inversorId = calculo?.resultados?.inversor_seleccionado?.inversorSeleccionado?.id;
+
+  if (!numeroPaneles || !panelId) {
+    return { lineas: [], motivo: 'El cálculo todavía no determinó cuántos paneles usar (falta panel seleccionado o datos de consumo).' };
+  }
+
+  const idsAConsultar = [panelId, inversorId].filter(Boolean);
+  const { data: productosActuales } = await supabase.from('productos').select('id, tipo, marca, modelo, precio').in('id', idsAConsultar);
+  const productoPorId = Object.fromEntries((productosActuales || []).map((p) => [p.id, p]));
+
+  const items = [{ producto: productoPorId[panelId], cantidad: numeroPaneles, tipoEtiqueta: 'panel solar' }];
+  if (inversorId) items.push({ producto: productoPorId[inversorId], cantidad: 1, tipoEtiqueta: 'inversor' });
+
+  const lineas = [];
+  let orden = 0;
+  for (const { producto, cantidad, tipoEtiqueta } of items) {
+    if (!producto) continue; // el producto fue borrado del catálogo desde que corrió el cálculo — nunca se inventa
+    const sinPrecio = producto.precio == null;
+    // eslint-disable-next-line no-await-in-loop -- cada línea depende de recalcularTotales de la anterior; volumen mínimo (panel + inversor)
+    const linea = await agregarLinea(supabase, {
+      companyId, cotizacionId, productoId: producto.id,
+      descripcion: `${producto.marca || ''} ${producto.modelo || tipoEtiqueta}`.trim() || tipoEtiqueta,
+      cantidad, precioUnitario: sinPrecio ? 0 : Number(producto.precio),
+      origen: 'calculado_automatico', pendienteLevantamiento: sinPrecio, orden: orden++,
+    });
+    lineas.push(linea);
+  }
+
+  return { lineas, motivo: lineas.length === 0 ? 'Ni el panel ni el inversor del cálculo siguen en el catálogo.' : null };
+}
+
+module.exports = { recalcularTotales, agregarLinea, actualizarLinea, eliminarLinea, listarLineas, aplicarCalculoALineas, aplicarBomALineas, IVA_DEFAULT };

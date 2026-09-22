@@ -1,7 +1,7 @@
 'use strict';
 
 const {
-  recalcularTotales, agregarLinea, actualizarLinea, eliminarLinea, aplicarCalculoALineas, IVA_DEFAULT,
+  recalcularTotales, agregarLinea, actualizarLinea, eliminarLinea, aplicarCalculoALineas, aplicarBomALineas, IVA_DEFAULT,
 } = require('../modules/cotizacion-lineas');
 
 function crearBuilder(resultado = { data: null, error: null }) {
@@ -11,6 +11,7 @@ function crearBuilder(resultado = { data: null, error: null }) {
     update: jest.fn().mockReturnThis(),
     delete: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
+    in: jest.fn().mockReturnThis(),
     order: jest.fn().mockReturnThis(),
     limit: jest.fn().mockReturnThis(),
     single: jest.fn().mockResolvedValue(resultado),
@@ -208,5 +209,115 @@ describe('aplicarCalculoALineas() — Alina 2026-08-04: ahora usa el paquete com
 
     await aplicarCalculoALineas(db, { companyId: 'c1', cotizacionId: 1 });
     expect(payloadCapturado.precio_unitario).toBe(64000);
+  });
+});
+
+describe('aplicarBomALineas() — 2026-09-22: alternativa desglosada panel+inversor, NO reemplaza el paquete', () => {
+  const CALCULO_BASE = {
+    resultados: { numero_paneles: { valor: 8 }, inversor_seleccionado: { inversorSeleccionado: { id: 'inv-1' } } },
+    catalogo_usado: { panel: { id: 'panel-1' } },
+  };
+
+  function armarDb({ lineaExistente = null, cotizacion = { calculo_ingenieria_id: 'calc-1' }, calculo = CALCULO_BASE, productos = [
+    { id: 'panel-1', tipo: 'panel_solar', marca: 'Jinko', modelo: 'Tiger Neo 550', precio: 3200 },
+    { id: 'inv-1', tipo: 'inversor', marca: 'Growatt', modelo: 'MIN 4000TL-X', precio: 9500 },
+  ] } = {}) {
+    const inserts = [];
+    const db = {
+      from: jest.fn((tabla) => {
+        if (tabla === 'cotizacion_lineas') {
+          const builder = crearBuilder({ data: lineaExistente, error: null });
+          builder.maybeSingle = jest.fn().mockResolvedValue({ data: lineaExistente, error: null });
+          builder.insert = jest.fn((rows) => { inserts.push(rows[0]); return builder; });
+          builder.single = jest.fn().mockImplementation(() => Promise.resolve({ data: { id: `linea-${inserts.length}`, ...inserts[inserts.length - 1] }, error: null }));
+          builder.then = (resolve) => resolve({ data: [], error: null }); // recalcularTotales: sin líneas previas para sumar
+          return builder;
+        }
+        if (tabla === 'cotizaciones') return crearBuilder({ data: cotizacion, error: null });
+        if (tabla === 'calculos_ingenieria') return crearBuilder({ data: calculo, error: null });
+        if (tabla === 'productos') return crearBuilder({ data: productos, error: null });
+        return crearBuilder();
+      }),
+    };
+    return { db, inserts };
+  }
+
+  test('ya existe una línea automática (paquete o BOM) → no duplica, motivo claro', async () => {
+    const { db } = armarDb({ lineaExistente: { id: 'existente' } });
+    const r = await aplicarBomALineas(db, { companyId: 'c1', cotizacionId: 1 });
+    expect(r.lineas).toEqual([]);
+    expect(r.motivo).toMatch(/ya tiene una línea automática/);
+  });
+
+  test('cotización inexistente → 404', async () => {
+    const { db } = armarDb({ cotizacion: null });
+    await expect(aplicarBomALineas(db, { companyId: 'c1', cotizacionId: 999 })).rejects.toMatchObject({ status: 404 });
+  });
+
+  test('sin cálculo de ingeniería → sin líneas, con motivo', async () => {
+    const { db } = armarDb({ cotizacion: { calculo_ingenieria_id: null } });
+    const r = await aplicarBomALineas(db, { companyId: 'c1', cotizacionId: 1 });
+    expect(r.lineas).toEqual([]);
+    expect(r.motivo).toMatch(/cálculo de ingeniería/);
+  });
+
+  test('cálculo sin número de paneles → sin líneas, con motivo, nunca inventa', async () => {
+    const { db } = armarDb({ calculo: { resultados: { numero_paneles: { valor: null } }, catalogo_usado: {} } });
+    const r = await aplicarBomALineas(db, { companyId: 'c1', cotizacionId: 1 });
+    expect(r.lineas).toEqual([]);
+    expect(r.motivo).toMatch(/paneles/);
+  });
+
+  test('con panel + inversor y precio en catálogo → 2 líneas, cantidad y precio correctos, sin pendiente_levantamiento', async () => {
+    const { db, inserts } = armarDb();
+    const r = await aplicarBomALineas(db, { companyId: 'c1', cotizacionId: 1 });
+
+    expect(r.lineas).toHaveLength(2);
+    expect(r.motivo).toBeNull();
+    expect(inserts[0]).toMatchObject({ producto_id: 'panel-1', cantidad: 8, precio_unitario: 3200, origen: 'calculado_automatico', pendiente_levantamiento: false });
+    expect(inserts[1]).toMatchObject({ producto_id: 'inv-1', cantidad: 1, precio_unitario: 9500, origen: 'calculado_automatico', pendiente_levantamiento: false });
+  });
+
+  test('producto SIN precio en catálogo → línea igual se crea, precio 0 y pendiente_levantamiento:true (nunca inventa el precio)', async () => {
+    const { db, inserts } = armarDb({ productos: [
+      { id: 'panel-1', tipo: 'panel_solar', marca: 'LONGi', modelo: 'LR7-72HTH-615M', precio: null },
+      { id: 'inv-1', tipo: 'inversor', marca: 'Growatt', modelo: 'MIN 4000TL-X', precio: 9500 },
+    ] });
+    const r = await aplicarBomALineas(db, { companyId: 'c1', cotizacionId: 1 });
+
+    expect(r.lineas).toHaveLength(2);
+    expect(inserts[0]).toMatchObject({ producto_id: 'panel-1', precio_unitario: 0, pendiente_levantamiento: true });
+    expect(inserts[1]).toMatchObject({ producto_id: 'inv-1', precio_unitario: 9500, pendiente_levantamiento: false });
+  });
+
+  test('sin inversor seleccionado por el motor → solo la línea del panel, no inventa un inversor', async () => {
+    const { db, inserts } = armarDb({ calculo: { resultados: { numero_paneles: { valor: 8 }, inversor_seleccionado: null }, catalogo_usado: { panel: { id: 'panel-1' } } } });
+    const r = await aplicarBomALineas(db, { companyId: 'c1', cotizacionId: 1 });
+
+    expect(r.lineas).toHaveLength(1);
+    expect(inserts).toHaveLength(1);
+    expect(inserts[0].producto_id).toBe('panel-1');
+  });
+
+  test('el panel ya no existe en el catálogo (fue borrado desde que corrió el cálculo) → no lo inventa, se salta esa línea', async () => {
+    const { db, inserts } = armarDb({ productos: [{ id: 'inv-1', tipo: 'inversor', marca: 'Growatt', modelo: 'MIN 4000TL-X', precio: 9500 }] });
+    const r = await aplicarBomALineas(db, { companyId: 'c1', cotizacionId: 1 });
+
+    expect(r.lineas).toHaveLength(1);
+    expect(inserts[0].producto_id).toBe('inv-1');
+  });
+
+  test('ni panel ni inversor siguen en el catálogo → sin líneas, con motivo', async () => {
+    const { db } = armarDb({ productos: [] });
+    const r = await aplicarBomALineas(db, { companyId: 'c1', cotizacionId: 1 });
+    expect(r.lineas).toEqual([]);
+    expect(r.motivo).toMatch(/catálogo/);
+  });
+
+  test('la descripción usa marca + modelo del producto', async () => {
+    const { db, inserts } = armarDb();
+    await aplicarBomALineas(db, { companyId: 'c1', cotizacionId: 1 });
+    expect(inserts[0].descripcion).toBe('Jinko Tiger Neo 550');
+    expect(inserts[1].descripcion).toBe('Growatt MIN 4000TL-X');
   });
 });
