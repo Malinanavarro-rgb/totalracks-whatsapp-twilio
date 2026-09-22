@@ -75,6 +75,7 @@ export default function CotizacionDetalle() {
   const [propuestas, setPropuestas] = useState(null);
   const [simulacion, setSimulacion] = useState(null);
   const [indiceSimulador, setIndiceSimulador] = useState(0);
+  const [financiamiento, setFinanciamiento] = useState(null);
 
   function cargar() {
     api.cotizacion(cotizacionId).then(setCotizacion).catch((e) => setError(e.message));
@@ -101,6 +102,13 @@ export default function CotizacionDetalle() {
       setIndiceSimulador(idxTecnico > -1 ? idxTecnico : 0);
     }).catch(() => setSimulacion(null));
   }, [cotizacionId, cotizacion?.calculo]);
+
+  // Financiamiento: depende del monto (total o precio final autorizado), no
+  // del cálculo de ingeniería — se recalcula si cualquiera de los dos cambia.
+  useEffect(() => {
+    if (!cotizacion?.total && !cotizacion?.precio_final_autorizado) { setFinanciamiento(null); return; }
+    api.financiamientoCotizacion(cotizacionId).then(setFinanciamiento).catch(() => setFinanciamiento(null));
+  }, [cotizacionId, cotizacion?.total, cotizacion?.precio_final_autorizado]);
 
   async function reenviar() {
     setReenviando(true);
@@ -410,6 +418,39 @@ export default function CotizacionDetalle() {
               </div>
             );
           })()}
+        </section>
+      )}
+
+      {financiamiento && (financiamiento.planes.length > 0 || financiamiento.motivo) && (
+        <section className="crm-seccion">
+          <h2>Financiamiento</h2>
+          {financiamiento.planes.length === 0 ? (
+            <p className="operaciones-nota">{financiamiento.motivo}</p>
+          ) : (
+            <>
+              <p className="operaciones-nota">Sobre {formatearMonto(financiamiento.monto_base)}{cotizacion.precio_final_autorizado != null ? ' (precio final autorizado)' : ' (total actual, sin autorizar todavía)'}.</p>
+              <div className="catalogo-tecnico-grid">
+                {financiamiento.planes.map((p) => (
+                  <div key={p.plan.id} className="catalogo-tecnico-tarjeta">
+                    <div className="catalogo-tecnico-marca">{p.plan.nombre}</div>
+                    {p.incompleto ? (
+                      <p className="operaciones-nota">{p.motivo}</p>
+                    ) : p.plan.tipo === 'contado' ? (
+                      <p><strong>{formatearMonto(p.total_a_pagar)}</strong> de contado</p>
+                    ) : (
+                      <>
+                        <p><strong>{formatearMonto(p.mensualidad)}</strong> / mes × {p.plan.numero_parcialidades}</p>
+                        <p className="operaciones-nota">Total: {formatearMonto(p.total_a_pagar)}{p.costo_financiero > 0 ? ` (costo financiero: ${formatearMonto(p.costo_financiero)})` : ' — sin intereses'}</p>
+                      </>
+                    )}
+                    {p.plan.anticipo_pct_minimo > 0 && (
+                      <p className="operaciones-nota">Requiere {p.plan.anticipo_pct_minimo}% de anticipo — financia {formatearMonto(p.monto_a_financiar)}.</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </section>
       )}
 

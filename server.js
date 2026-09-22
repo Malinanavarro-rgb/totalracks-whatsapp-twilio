@@ -49,6 +49,10 @@ const { marcarPredimensionamientoRevisado, marcarIngenieriaValidada, puedeEnviar
 const { listarLineas, agregarLinea, actualizarLinea, eliminarLinea, aplicarCalculoALineas, aplicarBomALineas } = require('./modules/cotizacion-lineas');
 const { generarPdfCotizacion, generarYEnviarCotizacion, BUCKET_COTIZACIONES_PDF } = require('./modules/cotizacion-pdf');
 const { listarPaquetes, crearPaquete, actualizarPaquete, desactivarPaquete, eliminarPaquete, listarPaquetesConCotizaciones } = require('./modules/paquetes-solares');
+const {
+  listarPlanes: listarPlanesFinanciamiento, crearPlan: crearPlanFinanciamiento, actualizarPlan: actualizarPlanFinanciamiento,
+  desactivarPlan: desactivarPlanFinanciamiento, eliminarPlan: eliminarPlanFinanciamiento, simularFinanciamientoCotizacion,
+} = require('./modules/planes-financiamiento');
 const { generarPropuestasCotizacion, simularRangoCotizacion } = require('./modules/propuestas-solares');
 const { aplicarDescuento: aplicarDescuentoCotizacion, autorizarDescuento: autorizarDescuentoCotizacion } = require('./modules/cotizacion-descuento');
 const { transcribirAudio, describirImagen } = require('./modules/adjuntos-ia');
@@ -2303,6 +2307,50 @@ app.delete('/api/paquetes-solares/:id', requireAuth, soloGerencial, async (req, 
   }
 });
 
+// Financiamiento configurable (2026-09-22, ver modules/planes-financiamiento.js)
+// — mismo molde de CRUD que paquetes-solares. Sin ningún plan sembrado por
+// default: son términos financieros reales, la empresa los captura aquí.
+app.get('/api/planes-financiamiento', requireAuth, async (req, res) => {
+  try {
+    res.json(await listarPlanesFinanciamiento(req.supabase, req.usuario.company_id, { soloActivos: req.query.activos === 'true' }));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/planes-financiamiento', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    res.status(201).json(await crearPlanFinanciamiento(req.supabase, req.usuario.company_id, req.body));
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message });
+  }
+});
+
+app.patch('/api/planes-financiamiento/:id', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    res.json(await actualizarPlanFinanciamiento(req.supabase, req.usuario.company_id, req.params.id, req.body));
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message });
+  }
+});
+
+app.post('/api/planes-financiamiento/:id/desactivar', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    res.json(await desactivarPlanFinanciamiento(req.supabase, req.usuario.company_id, req.params.id));
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message });
+  }
+});
+
+app.delete('/api/planes-financiamiento/:id', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    await eliminarPlanFinanciamiento(req.supabase, req.usuario.company_id, req.params.id);
+    res.status(204).send();
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
 // ── COTIZACIONES — bandeja de revisión (Fase 2, Ingeniería y Cotización) ──────
 // Mínimo necesario para probar el flujo de aprobación humana de punta a
 // punta (escenario 5, Alina 2026-08-04): listar/ver + los dos estados de
@@ -2441,6 +2489,18 @@ app.get('/api/cotizaciones/:id/simulador', requireAuth, async (req, res) => {
     const simulacion = await simularRangoCotizacion(req.supabase, { companyId: req.usuario.company_id, cotizacionId: req.params.id, desde, hasta });
     if (!simulacion) return res.status(404).json({ error: 'Cotización no encontrada' });
     res.json(simulacion);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Financiamiento configurable — planes activos de la empresa calculados
+// sobre el precio de esta cotización (ver modules/planes-financiamiento.js).
+app.get('/api/cotizaciones/:id/financiamiento', requireAuth, async (req, res) => {
+  try {
+    const financiamiento = await simularFinanciamientoCotizacion(req.supabase, { companyId: req.usuario.company_id, cotizacionId: req.params.id });
+    if (!financiamiento) return res.status(404).json({ error: 'Cotización no encontrada' });
+    res.json(financiamiento);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

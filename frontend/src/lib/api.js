@@ -201,6 +201,7 @@ export const api = {
   puedeEnviarCotizacion:   (id) => pedir(`/api/cotizaciones/${id}/puede-enviar`),
   propuestasCotizacion:    (id) => pedir(`/api/cotizaciones/${id}/propuestas`),
   simuladorCotizacion:     (id, desde, hasta) => pedir(`/api/cotizaciones/${id}/simulador${desde != null ? `?desde=${desde}&hasta=${hasta}` : ''}`),
+  financiamientoCotizacion: (id) => pedir(`/api/cotizaciones/${id}/financiamiento`),
   autorizarPrecioCotizacion: (id, precioFinal) => pedir(`/api/cotizaciones/${id}/autorizar-precio`, { method: 'POST', body: JSON.stringify({ precioFinal }) }),
   aplicarDescuentoCotizacion: (id, datos) => pedir(`/api/cotizaciones/${id}/descuento`, { method: 'POST', body: JSON.stringify(datos) }),
   autorizarDescuentoCotizacion: (id) => pedir(`/api/cotizaciones/${id}/descuento/autorizar`, { method: 'POST' }),
@@ -215,6 +216,10 @@ export const api = {
   // Catálogo de productos por tipo (panel_solar/inversor/microinversor/...)
   productosPorTipo:    (tipo) => pedir(`/api/productos?tipo=${encodeURIComponent(tipo)}`),
   paquetesSolares:     () => pedir('/api/paquetes-solares?activos=true'),
+  planesFinanciamiento:        (soloActivos) => pedir(`/api/planes-financiamiento${soloActivos ? '?activos=true' : ''}`),
+  crearPlanFinanciamiento:     (datos) => pedir('/api/planes-financiamiento', { method: 'POST', body: JSON.stringify(datos) }),
+  actualizarPlanFinanciamiento: (id, cambios) => pedir(`/api/planes-financiamiento/${id}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
+  desactivarPlanFinanciamiento: (id) => pedir(`/api/planes-financiamiento/${id}/desactivar`, { method: 'POST' }),
 
   // Portafolio de Servicios → Paquetes y sus cotizaciones relacionadas
   paquetesConCotizaciones: () => pedir('/api/paquetes-solares/con-cotizaciones'),
