@@ -61,6 +61,8 @@ export default function CotizacionDetalle() {
   // existía en el backend desde Fase 3, sin ningún botón que lo usara.
   const [precioFinalInput, setPrecioFinalInput] = useState('');
   const [propuestas, setPropuestas] = useState(null);
+  const [simulacion, setSimulacion] = useState(null);
+  const [indiceSimulador, setIndiceSimulador] = useState(0);
 
   function cargar() {
     api.cotizacion(cotizacionId).then(setCotizacion).catch((e) => setError(e.message));
@@ -75,6 +77,18 @@ export default function CotizacionDetalle() {
     if (!cotizacion?.calculo) { setPropuestas(null); return; }
     api.propuestasCotizacion(cotizacionId).then(setPropuestas).catch(() => setPropuestas(null));
   }, [cotizacionId, cotizacion?.calculo, cotizacion?.paquete_recomendado_id]);
+
+  // Simulador: un solo request trae el rango completo de puntos — el control
+  // deslizante solo mueve un índice local, nunca dispara una petición nueva
+  // por movimiento. Arranca en el punto técnico (el mismo del cálculo).
+  useEffect(() => {
+    if (!cotizacion?.calculo) { setSimulacion(null); return; }
+    api.simuladorCotizacion(cotizacionId).then((r) => {
+      setSimulacion(r);
+      const idxTecnico = r?.puntos?.findIndex((p) => p.es_tecnico);
+      setIndiceSimulador(idxTecnico > -1 ? idxTecnico : 0);
+    }).catch(() => setSimulacion(null));
+  }, [cotizacionId, cotizacion?.calculo]);
 
   async function reenviar() {
     setReenviando(true);
@@ -255,6 +269,61 @@ export default function CotizacionDetalle() {
               )}
             </>
           )}
+        </section>
+      )}
+
+      {simulacion?.puntos?.length > 0 && (
+        <section className="crm-seccion">
+          <h2>Simulador</h2>
+          <p className="operaciones-nota">
+            Mueve el número de paneles y mira cómo cambian producción, cobertura, ahorro y recuperación —
+            en tiempo real, sin volver a calcular. El precio es el de tu paquete estándar más chico que
+            cubre esa cantidad; si no coincide exacto, se marca como referencia.
+          </p>
+          {(() => {
+            const punto = simulacion.puntos[indiceSimulador];
+            if (!punto) return null;
+            return (
+              <div>
+                <input
+                  type="range" min={0} max={simulacion.puntos.length - 1} value={indiceSimulador}
+                  onChange={(e) => setIndiceSimulador(Number(e.target.value))}
+                  style={{ width: '100%' }}
+                />
+                <p style={{ textAlign: 'center' }}>
+                  <strong style={{ fontSize: '1.3rem' }}>{punto.numero_paneles} paneles</strong>
+                  {punto.es_tecnico && <span className="pill pill--success" style={{ marginLeft: '0.5rem' }}>número técnico del cálculo</span>}
+                </p>
+                <div className="catalogo-tecnico-grid">
+                  <div className="catalogo-tecnico-tarjeta">
+                    <div className="catalogo-tecnico-marca">Sistema</div>
+                    <p>{punto.kwp != null ? `${punto.kwp.toFixed(2)} kWp` : '—'}</p>
+                    <p className="operaciones-nota">{punto.produccion_anual_kwh != null ? `${Math.round(punto.produccion_anual_kwh).toLocaleString('es-MX')} kWh/año` : '—'}</p>
+                  </div>
+                  <div className="catalogo-tecnico-tarjeta">
+                    <div className="catalogo-tecnico-marca">Cobertura</div>
+                    <p>{punto.cobertura_pct != null ? `${punto.cobertura_pct.toFixed(0)} %` : '—'}</p>
+                    {punto.excede_consumo && <p className="operaciones-nota">Produce más de lo que consume.</p>}
+                  </div>
+                  <div className="catalogo-tecnico-tarjeta">
+                    <div className="catalogo-tecnico-marca">Ahorro anual</div>
+                    <p>{formatearMonto(punto.ahorro_anual != null ? Math.round(punto.ahorro_anual) : null)}</p>
+                    <p className="operaciones-nota">Recuperación: {punto.periodo_recuperacion_anios != null ? `${punto.periodo_recuperacion_anios.toFixed(1)} años` : '—'}</p>
+                  </div>
+                  <div className="catalogo-tecnico-tarjeta">
+                    <div className="catalogo-tecnico-marca">Precio de referencia</div>
+                    <p>{formatearMonto(punto.paquete_referencia?.precio_contado)}</p>
+                    <p className="operaciones-nota">
+                      {punto.paquete_referencia
+                        ? `${punto.paquete_referencia.nombre}${punto.paquete_referencia.exacto ? '' : ' (referencia — cubre más de lo elegido)'}`
+                        : 'Fuera del catálogo estándar — necesitaría un paquete a la medida.'}
+                    </p>
+                  </div>
+                </div>
+                {punto.motivos.map((m, i) => <p key={i} className="operaciones-nota">{m}</p>)}
+              </div>
+            );
+          })()}
         </section>
       )}
 

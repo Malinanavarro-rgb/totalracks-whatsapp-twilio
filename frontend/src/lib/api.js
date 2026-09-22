@@ -200,6 +200,7 @@ export const api = {
   validarIngenieria:       (id) => pedir(`/api/cotizaciones/${id}/validar-ingenieria`, { method: 'POST' }),
   puedeEnviarCotizacion:   (id) => pedir(`/api/cotizaciones/${id}/puede-enviar`),
   propuestasCotizacion:    (id) => pedir(`/api/cotizaciones/${id}/propuestas`),
+  simuladorCotizacion:     (id, desde, hasta) => pedir(`/api/cotizaciones/${id}/simulador${desde != null ? `?desde=${desde}&hasta=${hasta}` : ''}`),
   autorizarPrecioCotizacion: (id, precioFinal) => pedir(`/api/cotizaciones/${id}/autorizar-precio`, { method: 'POST', body: JSON.stringify({ precioFinal }) }),
   lineasCotizacion:        (id) => pedir(`/api/cotizaciones/${id}/lineas`),
   agregarLineaCotizacion:  (id, datos) => pedir(`/api/cotizaciones/${id}/lineas`, { method: 'POST', body: JSON.stringify(datos) }),

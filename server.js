@@ -49,7 +49,7 @@ const { marcarPredimensionamientoRevisado, marcarIngenieriaValidada, puedeEnviar
 const { listarLineas, agregarLinea, actualizarLinea, eliminarLinea, aplicarCalculoALineas } = require('./modules/cotizacion-lineas');
 const { generarPdfCotizacion, generarYEnviarCotizacion, BUCKET_COTIZACIONES_PDF } = require('./modules/cotizacion-pdf');
 const { listarPaquetes, crearPaquete, actualizarPaquete, desactivarPaquete, eliminarPaquete, listarPaquetesConCotizaciones } = require('./modules/paquetes-solares');
-const { generarPropuestasCotizacion } = require('./modules/propuestas-solares');
+const { generarPropuestasCotizacion, simularRangoCotizacion } = require('./modules/propuestas-solares');
 const { transcribirAudio, describirImagen } = require('./modules/adjuntos-ia');
 const { procesarReciboCFE, extraerDatosReciboCFE, normalizarDatosRecibo } = require('./modules/recibo-cfe');
 const { esGerencial } = require('./modules/permisos');
@@ -2422,6 +2422,24 @@ app.get('/api/cotizaciones/:id/propuestas', requireAuth, async (req, res) => {
     const propuestas = await generarPropuestasCotizacion(req.supabase, { companyId: req.usuario.company_id, cotizacionId: req.params.id });
     if (!propuestas) return res.status(404).json({ error: 'Cotización no encontrada' });
     res.json(propuestas);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Simulador interactivo (auditoría 2026-09-16, Parte B): un punto por cada
+// número de paneles en un rango — todo en una sola llamada para que un
+// control deslizante en pantalla no dispare una petición por movimiento
+// (ver modules/propuestas-solares.js::simularRango). desde/hasta opcionales
+// en el query string; sin ellos usa el rango por defecto alrededor del
+// número técnico.
+app.get('/api/cotizaciones/:id/simulador', requireAuth, async (req, res) => {
+  try {
+    const desde = req.query.desde !== undefined ? Number(req.query.desde) : undefined;
+    const hasta = req.query.hasta !== undefined ? Number(req.query.hasta) : undefined;
+    const simulacion = await simularRangoCotizacion(req.supabase, { companyId: req.usuario.company_id, cotizacionId: req.params.id, desde, hasta });
+    if (!simulacion) return res.status(404).json({ error: 'Cotización no encontrada' });
+    res.json(simulacion);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

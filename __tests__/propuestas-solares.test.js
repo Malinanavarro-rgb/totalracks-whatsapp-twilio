@@ -1,6 +1,6 @@
 'use strict';
 
-const { armarPropuestas, generarPropuestasCotizacion } = require('../modules/propuestas-solares');
+const { armarPropuestas, generarPropuestasCotizacion, simularRango, simularRangoCotizacion } = require('../modules/propuestas-solares');
 
 // Cálculo real de Nort Energy (Jinko Tiger Neo 550, 600 kWh/mes, Monterrey, 90 % cobertura):
 // 8 paneles técnicos, 4.4 kWp, ~6,801 kWh/año de producción.
@@ -215,5 +215,103 @@ describe('generarPropuestasCotizacion()', () => {
     expect(paq.eq).toHaveBeenCalledWith('activo', true);
     expect(paq.lte).toHaveBeenCalledWith('vigencia_desde', expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/));
     expect(paq.or).toHaveBeenCalledWith(expect.stringMatching(/^vigencia_hasta\.is\.null,vigencia_hasta\.gte\.\d{4}-\d{2}-\d{2}$/));
+  });
+});
+
+// ─── simularRango() / simularRangoCotizacion() ───────────────────────────────
+
+describe('simularRango()', () => {
+  test('rango por defecto: técnico-3 a técnico+6, marcando el punto técnico', () => {
+    const r = simularRango({ paquetes: PAQUETES, calculo: calculoBase() }); // técnico = 8
+    expect(r.puntos.map((p) => p.numero_paneles)).toEqual([5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+    expect(r.puntos.find((p) => p.numero_paneles === 8).es_tecnico).toBe(true);
+    expect(r.puntos.find((p) => p.numero_paneles === 5).es_tecnico).toBe(false);
+  });
+
+  test('desde/hasta explícitos se respetan (redondeados)', () => {
+    const r = simularRango({ paquetes: PAQUETES, calculo: calculoBase(), desde: 6.4, hasta: 9.6 });
+    expect(r.puntos.map((p) => p.numero_paneles)).toEqual([6, 7, 8, 9, 10]);
+  });
+
+  test('desde nunca baja de 1, y hasta nunca queda por debajo de desde', () => {
+    const r1 = simularRango({ paquetes: PAQUETES, calculo: calculoBase(), desde: -5, hasta: 2 });
+    expect(r1.puntos[0].numero_paneles).toBe(1);
+    const r2 = simularRango({ paquetes: PAQUETES, calculo: calculoBase(), desde: 10, hasta: 3 });
+    expect(r2.puntos.map((p) => p.numero_paneles)).toEqual([10]);
+  });
+
+  test('el punto técnico reproduce exactamente el cálculo original', () => {
+    const r = simularRango({ paquetes: PAQUETES, calculo: calculoBase() });
+    const tecnico = r.puntos.find((p) => p.es_tecnico);
+    expect(tecnico.kwp).toBeCloseTo(4.4, 5);
+    expect(tecnico.produccion_anual_kwh).toBeCloseTo(6801, 3);
+  });
+
+  test('kWp escala linealmente por panel', () => {
+    const r = simularRango({ paquetes: PAQUETES, calculo: calculoBase(), desde: 4, hasta: 16 });
+    const kwpPorPanel = 4.4 / 8;
+    r.puntos.forEach((p) => expect(p.kwp).toBeCloseTo(kwpPorPanel * p.numero_paneles, 5));
+  });
+
+  test('paquete_referencia: el más chico que CUBRE ese número — exacto:true solo si coincide justo', () => {
+    const r = simularRango({ paquetes: PAQUETES, calculo: calculoBase(), desde: 5, hasta: 9 });
+    const porN = Object.fromEntries(r.puntos.map((p) => [p.numero_paneles, p]));
+    expect(porN[5].paquete_referencia.id).toBe('p6'); // 5 no tiene paquete exacto → el de 6 cubre
+    expect(porN[5].paquete_referencia.exacto).toBe(false);
+    expect(porN[6].paquete_referencia.id).toBe('p6');
+    expect(porN[6].paquete_referencia.exacto).toBe(true);
+    expect(porN[9].paquete_referencia.id).toBe('p10');
+    expect(porN[9].paquete_referencia.exacto).toBe(false);
+  });
+
+  test('número mayor a cualquier paquete del catálogo → sin paquete de referencia, sin precio ni recuperación, pero sí kWp/producción', () => {
+    const r = simularRango({ paquetes: PAQUETES, calculo: calculoBase(), desde: 20, hasta: 20 });
+    const p = r.puntos[0];
+    expect(p.paquete_referencia).toBeNull();
+    expect(p.kwp).not.toBeNull();
+    expect(p.periodo_recuperacion_anios).toBeNull();
+  });
+
+  test('sin paquetes en absoluto → todos los puntos sin paquete_referencia, pero con kWp/producción/ahorro', () => {
+    const r = simularRango({ paquetes: [], calculo: calculoBase(), desde: 8, hasta: 8 });
+    expect(r.puntos[0].paquete_referencia).toBeNull();
+    expect(r.puntos[0].kwp).not.toBeNull();
+    expect(r.puntos[0].ahorro_anual).not.toBeNull();
+  });
+
+  test('cálculo sin número técnico → sin puntos, con motivo', () => {
+    const r = simularRango({ paquetes: PAQUETES, calculo: { resultados: { numero_paneles: { valor: null } }, datos_entrada: {} } });
+    expect(r.puntos).toEqual([]);
+    expect(r.motivo).toMatch(/número de paneles/);
+  });
+
+  test('cobertura > 100% se marca excede_consumo, igual que en armarPropuestas', () => {
+    const r = simularRango({ paquetes: PAQUETES, calculo: calculoBase(), desde: 12, hasta: 12 });
+    expect(r.puntos[0].excede_consumo).toBe(true);
+  });
+});
+
+describe('simularRangoCotizacion()', () => {
+  test('cotización inexistente o de otra empresa → null', async () => {
+    const db = crearDb({ cotizaciones: { data: null, error: null } });
+    expect(await simularRangoCotizacion(db, { companyId: 'empresa-a', cotizacionId: 99 })).toBeNull();
+    expect(db.builders.cotizaciones.eq).toHaveBeenCalledWith('company_id', 'empresa-a');
+  });
+
+  test('sin cálculo de ingeniería → sin puntos y con motivo, sin tocar paquetes', async () => {
+    const db = crearDb({ cotizaciones: { data: { id: 1, calculo_ingenieria_id: null }, error: null } });
+    const r = await simularRangoCotizacion(db, { companyId: 'empresa-a', cotizacionId: 1 });
+    expect(r.puntos).toEqual([]);
+    expect(db.from).not.toHaveBeenCalledWith('paquetes_solares');
+  });
+
+  test('con cálculo: arma el rango y pasa desde/hasta', async () => {
+    const db = crearDb({
+      cotizaciones: { data: { id: 1, calculo_ingenieria_id: 'calc-1' }, error: null },
+      calculos_ingenieria: { data: calculoBase(), error: null },
+      paquetes_solares: { data: PAQUETES, error: null },
+    });
+    const r = await simularRangoCotizacion(db, { companyId: 'empresa-a', cotizacionId: 1, desde: 6, hasta: 9 });
+    expect(r.puntos.map((p) => p.numero_paneles)).toEqual([6, 7, 8, 9]);
   });
 });
