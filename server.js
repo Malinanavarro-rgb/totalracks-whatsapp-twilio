@@ -62,6 +62,10 @@ const { esGerencial } = require('./modules/permisos');
 const { crearSolicitud: crearSolicitudConocimiento, listarSolicitudes: listarSolicitudesConocimiento, responderSolicitud: responderSolicitudConocimiento, rechazarSolicitud: rechazarSolicitudConocimiento } = require('./modules/knowledge-requests');
 const { subirDocumento: subirDocumentoProveedor, procesarDocumento: procesarDocumentoProveedor, listarDocumentos: listarDocumentosProveedor, confirmarDocumento: confirmarDocumentoProveedor, generarUrlFirmadaDocumento } = require('./modules/documentos-proveedor');
 const {
+  subirDocumentoCliente, clasificarAdjuntoDeMensaje, listarDocumentosCliente, adjuntosSinClasificar,
+  eliminarDocumentoCliente, generarUrlFirmadaDocumentoCliente,
+} = require('./modules/documentos-cliente');
+const {
   confirmarAprendizaje, rechazarAprendizaje, marcarObsoleto,
   listarPropuestasPendientes, listarAprendizajesConfirmados, obtenerResumenEjecutivo,
 } = require('./modules/business-memory-core');
@@ -1770,6 +1774,73 @@ app.get('/api/documentos-proveedor/:id/archivo', requireAuth, async (req, res) =
     if (!documento) return res.status(404).json({ error: 'Documento no encontrado' });
 
     const url = await generarUrlFirmadaDocumento(supabaseServicio, documento.archivo_url);
+    res.redirect(url);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Documentos del cliente clasificados (2026-09-22, ver modules/documentos-cliente.js).
+const uploadDocumentoCliente = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+
+app.post('/api/crm/clientes/:id/documentos', requireAuth, uploadDocumentoCliente.single('archivo'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'archivo requerido' });
+    const documento = await subirDocumentoCliente(supabaseServicio, {
+      company_id: req.usuario.company_id, cliente_id: req.params.id, categoria: req.body?.categoria,
+      buffer: req.file.buffer, mimeType: req.file.mimetype, nombre_archivo: req.file.originalname, subido_por: req.usuario.id,
+    });
+    res.status(201).json(documento);
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message });
+  }
+});
+
+app.post('/api/crm/clientes/:id/documentos/desde-mensaje', requireAuth, async (req, res) => {
+  try {
+    const documento = await clasificarAdjuntoDeMensaje(req.supabase, {
+      company_id: req.usuario.company_id, cliente_id: Number(req.params.id), categoria: req.body?.categoria,
+      mensaje_id: req.body?.mensajeId, subido_por: req.usuario.id,
+    });
+    res.status(201).json(documento);
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message });
+  }
+});
+
+app.get('/api/crm/clientes/:id/documentos', requireAuth, async (req, res) => {
+  try {
+    res.json(await listarDocumentosCliente(req.supabase, req.usuario.company_id, req.params.id, { categoria: req.query.categoria }));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/crm/clientes/:id/documentos/sin-clasificar', requireAuth, async (req, res) => {
+  try {
+    res.json(await adjuntosSinClasificar(req.supabase, req.usuario.company_id, req.params.id));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/crm/documentos/:id', requireAuth, async (req, res) => {
+  try {
+    await eliminarDocumentoCliente(supabaseServicio, req.usuario.company_id, req.params.id);
+    res.status(204).send();
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.get('/api/crm/documentos/:id/archivo', requireAuth, async (req, res) => {
+  try {
+    const { data: documento, error } = await req.supabase
+      .from('documentos_cliente').select('bucket, path').eq('id', req.params.id).eq('company_id', req.usuario.company_id).maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!documento) return res.status(404).json({ error: 'Documento no encontrado' });
+
+    const url = await generarUrlFirmadaDocumentoCliente(supabaseServicio, documento);
     res.redirect(url);
   } catch (e) {
     res.status(500).json({ error: e.message });

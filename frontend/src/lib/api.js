@@ -159,6 +159,26 @@ export const api = {
   confirmarDocumentoProveedor: (id, datos) => pedir(`/api/documentos-proveedor/${id}/confirmar`, { method: 'POST', body: JSON.stringify(datos) }),
   urlArchivoDocumentoProveedor: (id) => `/api/documentos-proveedor/${id}/archivo`,
 
+  documentosCliente: (clienteId) => pedir(`/api/crm/clientes/${clienteId}/documentos`),
+  adjuntosSinClasificar: (clienteId) => pedir(`/api/crm/clientes/${clienteId}/documentos/sin-clasificar`),
+  subirDocumentoCliente: async (clienteId, archivo, categoria) => {
+    const formData = new FormData();
+    formData.append('archivo', archivo);
+    formData.append('categoria', categoria);
+    const respuesta = await fetch(`/api/crm/clientes/${clienteId}/documentos`, { method: 'POST', credentials: 'include', body: formData });
+    const cuerpo = await respuesta.json().catch(() => ({}));
+    if (!respuesta.ok) {
+      const error = new Error(cuerpo.error || `Error ${respuesta.status}`);
+      error.status = respuesta.status;
+      throw error;
+    }
+    return cuerpo;
+  },
+  clasificarAdjuntoDeMensaje: (clienteId, mensajeId, categoria) =>
+    pedir(`/api/crm/clientes/${clienteId}/documentos/desde-mensaje`, { method: 'POST', body: JSON.stringify({ mensajeId, categoria }) }),
+  eliminarDocumentoCliente: (documentoId) => pedir(`/api/crm/documentos/${documentoId}`, { method: 'DELETE' }),
+  urlArchivoDocumentoCliente: (id) => `/api/crm/documentos/${id}/archivo`,
+
   // Panel de Acción Inteligente (Business Memory Core + KCE)
   resumenBmc:            () => pedir('/api/bmc/resumen'),
   aprendizajesPendientes: () => pedir('/api/bmc/aprendizajes?estado=propuesto'),

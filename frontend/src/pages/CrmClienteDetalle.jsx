@@ -10,6 +10,15 @@ const RAZONES_PERDIDA = ['Precio', 'Competencia', 'No responde', 'Sin presupuest
 const ROLES_GERENCIALES = ['owner', 'administrador', 'supervisor'];
 const ESTADOS_CERRADOS = ['Perdido', 'Cerrado', 'Ganado'];
 
+// Mismos valores que modules/documentos-cliente.js::CATEGORIAS — duplicado
+// a propósito en frontend (mismo criterio que ROLES_GERENCIALES arriba).
+const CATEGORIAS_DOCUMENTO = [
+  ['foto_techo', 'Foto de techo'], ['foto_medidor', 'Foto de medidor'], ['foto_centro_carga', 'Foto de centro de carga'],
+  ['identificacion', 'Identificación'], ['contrato', 'Contrato'], ['comprobante_pago', 'Comprobante de pago'],
+  ['recibo_cfe', 'Recibo CFE'], ['otro', 'Otro'],
+];
+const ETIQUETA_CATEGORIA = Object.fromEntries(CATEGORIAS_DOCUMENTO);
+
 // Expediente Solar 360° (auditoría 2026-09-16, Parte A) — tabs en vez de una
 // página interminable. Cada tab reusa datos/funciones que ya existían;
 // donde el dato genuinamente no se captura todavía (datos técnicos del
@@ -82,6 +91,13 @@ export default function CrmClienteDetalle() {
   // refresh, para no pisar lo que el técnico está escribiendo.
   const [formInmueble, setFormInmueble] = useState(null);
   const [guardandoInmueble, setGuardandoInmueble] = useState(false);
+  // Documentos del cliente clasificados (2026-09-22) — se cargan solo al
+  // abrir el tab, no en cada refresh de 4s (no son datos que cambien solos).
+  const [documentosCliente, setDocumentosCliente] = useState(null);
+  const [adjuntosPorClasificar, setAdjuntosPorClasificar] = useState(null);
+  const [categoriaSubida, setCategoriaSubida] = useState('foto_techo');
+  const [subiendoDocumento, setSubiendoDocumento] = useState(false);
+  const [categoriaPorAdjunto, setCategoriaPorAdjunto] = useState({}); // { [mensajeId]: categoria }
 
   function cargar() {
     Promise.all([api.fichaCliente(clienteId), api.seguimientos(clienteId), api.cotizaciones(clienteId)])
@@ -160,6 +176,53 @@ export default function CrmClienteDetalle() {
       setError(e2.message);
     } finally {
       setGuardandoInmueble(false);
+    }
+  }
+
+  function cargarDocumentos() {
+    api.documentosCliente(clienteId).then(setDocumentosCliente).catch((e) => setError(e.message));
+    api.adjuntosSinClasificar(clienteId).then(setAdjuntosPorClasificar).catch(() => setAdjuntosPorClasificar([]));
+  }
+
+  useEffect(() => {
+    if (tabActiva !== 'documentos') return;
+    cargarDocumentos();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- cargarDocumentos usa clienteId, no cambia entre renders del mismo cliente
+  }, [tabActiva, clienteId]);
+
+  async function subirDocumentoClienteActual(e) {
+    e.preventDefault();
+    const archivo = e.target.elements.archivo.files?.[0];
+    if (!archivo) return;
+    setSubiendoDocumento(true);
+    setError(null);
+    try {
+      await api.subirDocumentoCliente(clienteId, archivo, categoriaSubida);
+      e.target.reset();
+      cargarDocumentos();
+    } catch (e2) {
+      setError(e2.message);
+    } finally {
+      setSubiendoDocumento(false);
+    }
+  }
+
+  async function clasificarAdjunto(mensajeId) {
+    const categoria = categoriaPorAdjunto[mensajeId] || 'otro';
+    try {
+      await api.clasificarAdjuntoDeMensaje(clienteId, mensajeId, categoria);
+      cargarDocumentos();
+    } catch (e2) {
+      setError(e2.message);
+    }
+  }
+
+  async function eliminarDocumentoClienteActual(documentoId) {
+    try {
+      await api.eliminarDocumentoCliente(documentoId);
+      cargarDocumentos();
+    } catch (e2) {
+      setError(e2.message);
     }
   }
 
@@ -780,11 +843,54 @@ export default function CrmClienteDetalle() {
       {tabActiva === 'documentos' && (
         <section className="crm-seccion">
           <h2>Documentos</h2>
-          <p className="operaciones-nota">
-            Todavía no existe un expediente documental clasificado por cliente (recibo CFE, identificación, fotos de
-            techo/medidor/centro de carga, contrato, comprobantes, garantías) — hoy solo hay adjuntos crudos del chat de
-            WhatsApp, visibles en la pestaña Conversación. Pendiente, ver auditoría Fase 3.
-          </p>
+
+          <h3>Subir documento</h3>
+          <form className="config-form-inline" onSubmit={subirDocumentoClienteActual}>
+            <input type="file" name="archivo" required />
+            <select value={categoriaSubida} onChange={(e) => setCategoriaSubida(e.target.value)}>
+              {CATEGORIAS_DOCUMENTO.map(([valor, etiqueta]) => <option key={valor} value={valor}>{etiqueta}</option>)}
+            </select>
+            <button type="submit" disabled={subiendoDocumento}>{subiendoDocumento ? 'Subiendo…' : 'Subir'}</button>
+          </form>
+
+          <h3>Expediente</h3>
+          {documentosCliente === null ? (
+            <p className="operaciones-nota">Cargando…</p>
+          ) : documentosCliente.length === 0 ? (
+            <p className="operaciones-nota">Sin documentos clasificados todavía.</p>
+          ) : (
+            <ul className="config-kb-lista">
+              {documentosCliente.map((d) => (
+                <li key={d.id} className="config-kb-item">
+                  <span className="pill pill--neutral">{ETIQUETA_CATEGORIA[d.categoria] || d.categoria}</span>
+                  {' '}
+                  <a href={api.urlArchivoDocumentoCliente(d.id)} target="_blank" rel="noreferrer">Ver archivo</a>
+                  {' — '}{formatearFechaHora(d.created_at)}
+                  {d.origen === 'mensaje_inbox' && <span className="operaciones-nota"> (del chat de WhatsApp)</span>}
+                  {' '}<button type="button" className="boton-enlace" onClick={() => eliminarDocumentoClienteActual(d.id)}>Quitar</button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {adjuntosPorClasificar?.length > 0 && (
+            <>
+              <h3>Adjuntos del chat sin clasificar</h3>
+              <p className="operaciones-nota">El cliente ya mandó estos archivos por WhatsApp — clasifícalos aquí sin volver a subirlos.</p>
+              <ul className="config-kb-lista">
+                {adjuntosPorClasificar.map((m) => (
+                  <li key={m.id} className="config-kb-item">
+                    {m.tipo_contenido} — {formatearFechaHora(m.created_at)}
+                    {' '}
+                    <select value={categoriaPorAdjunto[m.id] || 'otro'} onChange={(e) => setCategoriaPorAdjunto({ ...categoriaPorAdjunto, [m.id]: e.target.value })}>
+                      {CATEGORIAS_DOCUMENTO.map(([valor, etiqueta]) => <option key={valor} value={valor}>{etiqueta}</option>)}
+                    </select>
+                    {' '}<button type="button" className="boton-enlace" onClick={() => clasificarAdjunto(m.id)}>Clasificar</button>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </section>
       )}
 
