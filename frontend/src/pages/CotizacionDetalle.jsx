@@ -12,6 +12,8 @@ function formatearFechaHora(iso) {
   return new Date(iso).toLocaleString('es-MX', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
+const ETIQUETAS_PROPUESTA = { economica: 'Económica', recomendada: 'Recomendada', ampliada: 'Ampliada' };
+
 function formatearMonto(monto) {
   if (monto == null) return '—';
   return `$${Number(monto).toLocaleString('es-MX')}`;
@@ -58,12 +60,21 @@ export default function CotizacionDetalle() {
   // Quick win (auditoría 2026-09-16, sección N.4) — autorizarPrecioFinal ya
   // existía en el backend desde Fase 3, sin ningún botón que lo usara.
   const [precioFinalInput, setPrecioFinalInput] = useState('');
+  const [propuestas, setPropuestas] = useState(null);
 
   function cargar() {
     api.cotizacion(cotizacionId).then(setCotizacion).catch((e) => setError(e.message));
   }
 
   useEffect(cargar, [cotizacionId]);
+
+  // "3 propuestas": solo si ya hay un cálculo de ingeniería que comparar. Si la
+  // consulta falla, la sección simplemente no aparece — es información adicional,
+  // nunca debe tumbar el detalle de la cotización.
+  useEffect(() => {
+    if (!cotizacion?.calculo) { setPropuestas(null); return; }
+    api.propuestasCotizacion(cotizacionId).then(setPropuestas).catch(() => setPropuestas(null));
+  }, [cotizacionId, cotizacion?.calculo, cotizacion?.paquete_recomendado_id]);
 
   async function reenviar() {
     setReenviando(true);
@@ -194,6 +205,55 @@ export default function CotizacionDetalle() {
                 Usar este paquete
               </button>
             </p>
+          )}
+        </section>
+      )}
+
+      {propuestas && (propuestas.propuestas.length > 0 || propuestas.motivo) && (
+        <section className="crm-seccion">
+          <h2>Propuestas</h2>
+          {propuestas.propuestas.length === 0 ? (
+            <p className="operaciones-nota">{propuestas.motivo}</p>
+          ) : (
+            <>
+              <p className="operaciones-nota">
+                Tres opciones reales de tu catálogo de paquetes, calculadas con el consumo de este cliente.
+                El ahorro y la recuperación son estimados simples (costo efectivo actual del recibo, sin inflación de tarifa).
+              </p>
+              <div className="catalogo-tecnico-grid">
+                {propuestas.propuestas.map((p) => (
+                  <div
+                    key={p.tipo}
+                    className="catalogo-tecnico-tarjeta"
+                    style={p.tipo === 'recomendada' ? { borderColor: 'var(--acento)', borderWidth: 2 } : undefined}
+                  >
+                    <div className="catalogo-tecnico-marca">{ETIQUETAS_PROPUESTA[p.tipo]}</div>
+                    <div className="catalogo-tecnico-modelo">{p.paquete.nombre}</div>
+                    <p><strong>{formatearMonto(p.paquete.precio_contado)}</strong> de contado</p>
+                    <p className="operaciones-nota">
+                      {p.paquete.cantidad_paneles} paneles · {p.kwp != null ? `${p.kwp.toFixed(2)} kWp${p.kwp_fuente === 'estimada_con_panel_del_calculo' ? ' (estimado)' : ''}` : '— kWp'}
+                    </p>
+                    <p>Cobertura: <strong>{p.cobertura_pct != null ? `${p.cobertura_pct.toFixed(0)} %` : '—'}</strong></p>
+                    <p>Ahorro anual: <strong>{formatearMonto(p.ahorro_anual != null ? Math.round(p.ahorro_anual) : null)}</strong></p>
+                    <p>Recuperación: <strong>{p.periodo_recuperacion_anios != null ? `${p.periodo_recuperacion_anios.toFixed(1)} años` : '—'}</strong></p>
+                    {p.excede_consumo && (
+                      <p className="operaciones-nota">Produce más de lo que consume: el ahorro ya no crece y la recuperación se alarga.</p>
+                    )}
+                    {p.motivos.map((m, i) => <p key={i} className="operaciones-nota">{m}</p>)}
+                    {p.tipo === 'recomendada' && (
+                      <span className="pill pill--success">
+                        {propuestas.paquete_recomendado_actual_id === p.paquete.id ? 'Paquete recomendado de esta cotización' : 'Recomendada'}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {propuestas.propuestas.some((p) => p.kwp_fuente === 'estimada_con_panel_del_calculo') && (
+                <p className="operaciones-nota">
+                  (estimado): los paquetes aún no tienen su potencia registrada, así que los kWp se estiman con el panel elegido en el cálculo.
+                </p>
+              )}
+            </>
           )}
         </section>
       )}

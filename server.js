@@ -49,6 +49,7 @@ const { marcarPredimensionamientoRevisado, marcarIngenieriaValidada, puedeEnviar
 const { listarLineas, agregarLinea, actualizarLinea, eliminarLinea, aplicarCalculoALineas } = require('./modules/cotizacion-lineas');
 const { generarPdfCotizacion, generarYEnviarCotizacion, BUCKET_COTIZACIONES_PDF } = require('./modules/cotizacion-pdf');
 const { listarPaquetes, crearPaquete, actualizarPaquete, desactivarPaquete, eliminarPaquete, listarPaquetesConCotizaciones } = require('./modules/paquetes-solares');
+const { generarPropuestasCotizacion } = require('./modules/propuestas-solares');
 const { transcribirAudio, describirImagen } = require('./modules/adjuntos-ia');
 const { procesarReciboCFE, extraerDatosReciboCFE, normalizarDatosRecibo } = require('./modules/recibo-cfe');
 const { esGerencial } = require('./modules/permisos');
@@ -2410,6 +2411,19 @@ app.post('/api/cotizaciones/:id/validar-ingenieria', requireAuth, async (req, re
     res.json(cotizacion);
   } catch (e) {
     res.status(e.status || 409).json({ error: e.message });
+  }
+});
+
+// "3 propuestas" (económica / recomendada / ampliada) a partir de los paquetes
+// vigentes y el cálculo de ingeniería ya guardado — solo lectura, no modifica
+// la cotización (ver modules/propuestas-solares.js).
+app.get('/api/cotizaciones/:id/propuestas', requireAuth, async (req, res) => {
+  try {
+    const propuestas = await generarPropuestasCotizacion(req.supabase, { companyId: req.usuario.company_id, cotizacionId: req.params.id });
+    if (!propuestas) return res.status(404).json({ error: 'Cotización no encontrada' });
+    res.json(propuestas);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
