@@ -512,6 +512,41 @@ async function crearCotizacionBorrador(supabase, { companyId, clienteId, ejecuti
  * @param {string} [datos.calculadoPor]
  * @returns {Promise<{calculo: Object, paquete: Object|null}>}
  */
+/**
+ * Paquete comercial recomendado sobre una cotización YA con cálculo corrido
+ * — capa separada del resultado técnico (Alina, 2026-08-04). Compartida
+ * entre el flujo de WhatsApp y el manual (antes duplicada en los dos).
+ * Nunca redondea hacia abajo ni inventa un precio: si ningún paquete del
+ * catálogo alcanza la cantidad técnica, deja la cotización sin
+ * recomendación.
+ *
+ * También sincroniza `oportunidades.presupuesto_estimado` (2026-09-22 —
+ * fix del síntoma real "$0 en pipeline" de la auditoría, sección E: nunca
+ * se poblaba automáticamente desde el cálculo de ingeniería, así que una
+ * oportunidad con cotización activa seguía mostrando presupuesto vacío).
+ * SOLO ese campo — `presupuesto_confirmado` es la decisión humana, columna
+ * aparte, nunca se pisa aquí. Sin oportunidad asociada, no hace nada ahí.
+ */
+async function _asignarPaqueteRecomendado(supabase, { companyId, cotizacionId, numeroPanelesTecnico }) {
+  if (!numeroPanelesTecnico) return null;
+
+  const paquete = await seleccionarPaqueteRecomendado(supabase, { companyId, numeroPanelesTecnico });
+  if (!paquete) return null;
+
+  const { data: cotizacion } = await supabase
+    .from('cotizaciones')
+    .update({ paquete_recomendado_id: paquete.id, precio_paquete_recomendado: paquete.precio_contado })
+    .eq('id', cotizacionId)
+    .select('oportunidad_id')
+    .maybeSingle();
+
+  if (cotizacion?.oportunidad_id) {
+    await supabase.from('oportunidades').update({ presupuesto_estimado: paquete.precio_contado }).eq('id', cotizacion.oportunidad_id);
+  }
+
+  return paquete;
+}
+
 async function correrCalculoCotizacionManual(supabase, { companyId, cotizacionId, infoTecnica: infoTecnicaCruda, panelSeleccionadoId, temperaturaMinSitio, inversionNeta, calculadoPor }) {
   const { infoTecnica, temperaturaMinSitio: temperaturaDefault } = mapearCapturedFieldsAInfoTecnica(infoTecnicaCruda || {});
   infoTecnica.ubicacion = await _normalizarUbicacion(supabase, infoTecnica.ubicacion);
@@ -524,17 +559,7 @@ async function correrCalculoCotizacionManual(supabase, { companyId, cotizacionId
     calculadoPor: calculadoPor || null,
   });
 
-  const numeroPanelesTecnico = calculo.resultados?.numero_paneles?.valor;
-  let paquete = null;
-  if (numeroPanelesTecnico) {
-    paquete = await seleccionarPaqueteRecomendado(supabase, { companyId, numeroPanelesTecnico });
-    if (paquete) {
-      await supabase.from('cotizaciones').update({
-        paquete_recomendado_id: paquete.id,
-        precio_paquete_recomendado: paquete.precio_contado,
-      }).eq('id', cotizacionId);
-    }
-  }
+  const paquete = await _asignarPaqueteRecomendado(supabase, { companyId, cotizacionId, numeroPanelesTecnico: calculo.resultados?.numero_paneles?.valor });
 
   return { calculo, paquete };
 }
@@ -707,22 +732,10 @@ async function correrCotizacionDesdeWorkflow(supabase, { companyId, clienteId, c
     calculadoPor: calculadoPor || null,
   });
 
-  // Paquete comercial recomendado (Alina, 2026-08-04): capa separada del
-  // resultado técnico — calculos_ingenieria.resultados nunca se toca aquí.
-  // Si ningún paquete del catálogo alcanza la cantidad técnica, se deja
-  // sin recomendación (nunca se "redondea hacia abajo" ni se inventa un
-  // precio) — el asesor arma un paquete a la medida en la bandeja.
+  // Paquete comercial recomendado + sincronizar presupuesto_estimado de la
+  // oportunidad — ver _asignarPaqueteRecomendado().
   const numeroPanelesTecnico = calculo.resultados?.numero_paneles?.valor;
-  let paquete = null;
-  if (numeroPanelesTecnico) {
-    paquete = await seleccionarPaqueteRecomendado(supabase, { companyId, numeroPanelesTecnico });
-    if (paquete) {
-      await supabase.from('cotizaciones').update({
-        paquete_recomendado_id: paquete.id,
-        precio_paquete_recomendado: paquete.precio_contado,
-      }).eq('id', cotizacion.id);
-    }
-  }
+  const paquete = await _asignarPaqueteRecomendado(supabase, { companyId, cotizacionId: cotizacion.id, numeroPanelesTecnico });
 
   // Cierre automático (Alina, 2026-08-10, punto 6-7 de la especificación de
   // recibo CFE: "debe pasar automáticamente al cálculo... y continuar con

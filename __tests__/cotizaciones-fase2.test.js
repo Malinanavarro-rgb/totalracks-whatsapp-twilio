@@ -320,6 +320,50 @@ describe('correrCotizacionDesdeWorkflow()', () => {
     expect(payloadUpdateCotizacion).toEqual({ paquete_recomendado_id: 'pkg-8', precio_paquete_recomendado: 64000 });
   });
 
+  test('cotización CON oportunidad asociada → sincroniza presupuesto_estimado con el precio del paquete (fix "$0 en pipeline", 2026-09-22)', async () => {
+    let payloadUpdateOportunidad = null;
+    const db = crearMockDbPorTabla({
+      cotizaciones: { data: { id: 42, company_id: COMPANY_A, oportunidad_id: 'op-9' }, error: null },
+      calculos_ingenieria: { data: { id: 'calc-1', estado_calculo: 'completo', version: 1, alertas: [], resultados: { numero_paneles: { valor: 7 } } }, error: null },
+      paquetes_solares: { data: { id: 'pkg-8', cantidad_paneles: 8, precio_contado: 64000 }, error: null },
+    });
+    const fromOriginal = db.from;
+    db.from = jest.fn((tabla) => {
+      const builder = fromOriginal(tabla);
+      if (tabla === 'oportunidades') {
+        const updateOriginal = builder.update;
+        builder.update = jest.fn((payload) => { payloadUpdateOportunidad = payload; return updateOriginal.call(builder, payload); });
+      }
+      return builder;
+    });
+
+    await correrCotizacionDesdeWorkflow(db, { companyId: COMPANY_A, clienteId: 7, capturedFields: {} });
+
+    expect(db.from).toHaveBeenCalledWith('oportunidades');
+    expect(payloadUpdateOportunidad).toEqual({ presupuesto_estimado: 64000 });
+  });
+
+  test('cotización SIN oportunidad asociada → nunca actualiza presupuesto_estimado (oportunidades sí se consulta aparte, para resolver la del cliente)', async () => {
+    let seActualizoPresupuesto = false;
+    const db = crearMockDbPorTabla({
+      cotizaciones: { data: { id: 42, company_id: COMPANY_A, oportunidad_id: null }, error: null },
+      calculos_ingenieria: { data: { id: 'calc-1', estado_calculo: 'completo', version: 1, alertas: [], resultados: { numero_paneles: { valor: 7 } } }, error: null },
+      paquetes_solares: { data: { id: 'pkg-8', cantidad_paneles: 8, precio_contado: 64000 }, error: null },
+    });
+    const fromOriginal = db.from;
+    db.from = jest.fn((tabla) => {
+      const builder = fromOriginal(tabla);
+      if (tabla === 'oportunidades') {
+        const updateOriginal = builder.update;
+        builder.update = jest.fn((payload) => { if (payload.presupuesto_estimado !== undefined) seActualizoPresupuesto = true; return updateOriginal.call(builder, payload); });
+      }
+      return builder;
+    });
+
+    await correrCotizacionDesdeWorkflow(db, { companyId: COMPANY_A, clienteId: 7, capturedFields: {} });
+    expect(seActualizoPresupuesto).toBe(false);
+  });
+
   test('con numero_paneles técnico pero NINGÚN paquete alcanza → no actualiza cotizaciones con paquete (queda null)', async () => {
     const db = crearMockDbPorTabla({
       calculos_ingenieria: { data: { id: 'calc-1', estado_calculo: 'completo', version: 1, alertas: [], resultados: { numero_paneles: { valor: 30 } } }, error: null },
@@ -425,6 +469,28 @@ describe('correrCalculoCotizacionManual()', () => {
 
     expect(paquete).toEqual({ id: 'pkg-8', cantidad_paneles: 8, precio_contado: 64000 });
     expect(db.from).toHaveBeenCalledWith('paquetes_solares');
+  });
+
+  test('flujo manual — cotización con oportunidad asociada → también sincroniza presupuesto_estimado (misma ruta compartida)', async () => {
+    let payloadUpdateOportunidad = null;
+    const db = crearMockDbPorTabla({
+      cotizaciones: { data: { id: 42, company_id: COMPANY_A, oportunidad_id: 'op-9' }, error: null },
+      calculos_ingenieria: { data: { id: 'calc-1', estado_calculo: 'completo', version: 1, alertas: [], resultados: { numero_paneles: { valor: 7 } } }, error: null },
+      paquetes_solares: { data: { id: 'pkg-8', cantidad_paneles: 8, precio_contado: 64000 }, error: null },
+    });
+    const fromOriginal = db.from;
+    db.from = jest.fn((tabla) => {
+      const builder = fromOriginal(tabla);
+      if (tabla === 'oportunidades') {
+        const updateOriginal = builder.update;
+        builder.update = jest.fn((payload) => { payloadUpdateOportunidad = payload; return updateOriginal.call(builder, payload); });
+      }
+      return builder;
+    });
+
+    await correrCalculoCotizacionManual(db, { companyId: COMPANY_A, cotizacionId: 42, infoTecnica: { ubicacion: 'Monterrey' }, panelSeleccionadoId: 'panel-1' });
+
+    expect(payloadUpdateOportunidad).toEqual({ presupuesto_estimado: 64000 });
   });
 
   test('calculo bloqueado (sin numero_paneles) → nunca consulta paquetes_solares y regresa paquete null', async () => {
