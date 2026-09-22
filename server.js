@@ -54,6 +54,7 @@ const {
   desactivarPlan: desactivarPlanFinanciamiento, eliminarPlan: eliminarPlanFinanciamiento, simularFinanciamientoCotizacion,
 } = require('./modules/planes-financiamiento');
 const { generarPropuestasCotizacion, simularRangoCotizacion } = require('./modules/propuestas-solares');
+const { calcularRentabilidadCotizacion } = require('./modules/rentabilidad');
 const { aplicarDescuento: aplicarDescuentoCotizacion, autorizarDescuento: autorizarDescuentoCotizacion } = require('./modules/cotizacion-descuento');
 const { transcribirAudio, describirImagen } = require('./modules/adjuntos-ia');
 const { procesarReciboCFE, extraerDatosReciboCFE, normalizarDatosRecibo } = require('./modules/recibo-cfe');
@@ -2501,6 +2502,19 @@ app.get('/api/cotizaciones/:id/financiamiento', requireAuth, async (req, res) =>
     const financiamiento = await simularFinanciamientoCotizacion(req.supabase, { companyId: req.usuario.company_id, cotizacionId: req.params.id });
     if (!financiamiento) return res.status(404).json({ error: 'Cotización no encontrada' });
     res.json(financiamiento);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Rentabilidad (margen vs. markup, 2026-09-22, ver modules/rentabilidad.js) —
+// INTERNO, gerencial-only: costo/margen nunca debe llegar a un asesor ni al
+// cliente, mismo criterio que catalogo-tecnico.js::sanearProducto().
+app.get('/api/cotizaciones/:id/rentabilidad', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    const rentabilidad = await calcularRentabilidadCotizacion(req.supabase, { companyId: req.usuario.company_id, cotizacionId: req.params.id });
+    if (!rentabilidad) return res.status(404).json({ error: 'Cotización no encontrada' });
+    res.json(rentabilidad);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

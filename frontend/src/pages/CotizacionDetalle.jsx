@@ -76,6 +76,7 @@ export default function CotizacionDetalle() {
   const [simulacion, setSimulacion] = useState(null);
   const [indiceSimulador, setIndiceSimulador] = useState(0);
   const [financiamiento, setFinanciamiento] = useState(null);
+  const [rentabilidad, setRentabilidad] = useState(null);
 
   function cargar() {
     api.cotizacion(cotizacionId).then(setCotizacion).catch((e) => setError(e.message));
@@ -109,6 +110,13 @@ export default function CotizacionDetalle() {
     if (!cotizacion?.total && !cotizacion?.precio_final_autorizado) { setFinanciamiento(null); return; }
     api.financiamientoCotizacion(cotizacionId).then(setFinanciamiento).catch(() => setFinanciamiento(null));
   }, [cotizacionId, cotizacion?.total, cotizacion?.precio_final_autorizado]);
+
+  // Rentabilidad: INTERNO, gerencial-only (nunca se pide si no aplica —
+  // el backend igual la rechazaría con 403, esto solo evita la llamada de más).
+  useEffect(() => {
+    if (!esGerencial || !cotizacion?.lineas?.length) { setRentabilidad(null); return; }
+    api.rentabilidadCotizacion(cotizacionId).then(setRentabilidad).catch(() => setRentabilidad(null));
+  }, [cotizacionId, esGerencial, cotizacion?.lineas]);
 
   async function reenviar() {
     setReenviando(true);
@@ -451,6 +459,34 @@ export default function CotizacionDetalle() {
               </div>
             </>
           )}
+        </section>
+      )}
+
+      {esGerencial && rentabilidad && (
+        <section className="crm-seccion">
+          <h2>Rentabilidad <span className="pill pill--neutral">interno — nunca visible al cliente</span></h2>
+          <p>
+            <strong>Margen sobre venta:</strong> {rentabilidad.agregado.margen_sobre_venta_pct != null ? `${rentabilidad.agregado.margen_sobre_venta_pct.toFixed(1)}%` : '—'}
+            {' · '}
+            <strong>Markup sobre costo:</strong> {rentabilidad.agregado.markup_sobre_costo_pct != null ? `${rentabilidad.agregado.markup_sobre_costo_pct.toFixed(1)}%` : '—'}
+          </p>
+          <p className="operaciones-nota">
+            Venta: {formatearMonto(rentabilidad.agregado.total_venta)} · Costo conocido: {formatearMonto(rentabilidad.agregado.total_costo_conocido)}
+            {rentabilidad.lineas_sin_costo > 0 && ` — ${rentabilidad.lineas_sin_costo} línea(s) sin costo capturado, excluida(s) de este cálculo`}
+          </p>
+          <table>
+            <thead><tr><th>Línea</th><th>Costo</th><th>Margen s/venta</th><th>Markup s/costo</th></tr></thead>
+            <tbody>
+              {rentabilidad.lineas.map((l) => (
+                <tr key={l.id}>
+                  <td>{l.descripcion}</td>
+                  <td>{formatearMonto(l.costo_total)}</td>
+                  <td>{l.margen_sobre_venta_pct != null ? `${l.margen_sobre_venta_pct.toFixed(1)}%` : 'sin costo'}</td>
+                  <td>{l.markup_sobre_costo_pct != null ? `${l.markup_sobre_costo_pct.toFixed(1)}%` : 'sin costo'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </section>
       )}
 
