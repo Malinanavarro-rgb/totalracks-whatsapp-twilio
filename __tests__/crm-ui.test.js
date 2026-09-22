@@ -9,7 +9,7 @@ jest.mock('../modules/conversaciones', () => ({
 const {
   listarClientes, obtenerFichaCliente, actualizarCliente, eliminarCliente, eliminarClienteConHistorial,
   listarSeguimientos, crearSeguimiento, actualizarSeguimiento,
-  listarOportunidades, crearOportunidad, actualizarOportunidad, eliminarOportunidad,
+  listarOportunidades, crearOportunidad, actualizarOportunidad, eliminarOportunidad, actualizarDatosInmueble,
 } = require('../modules/crm-ui');
 
 // ─── Mock Builder ─────────────────────────────────────────────────────────────
@@ -363,6 +363,56 @@ describe('crm-ui', () => {
     test('eliminarOportunidad() lanza si Supabase devuelve error', async () => {
       const db = crearMockDb({ error: new Error('boom') });
       await expect(eliminarOportunidad(db, COMPANY_A, 'op1')).rejects.toThrow('No se pudo eliminar la oportunidad');
+    });
+  });
+
+  describe('actualizarDatosInmueble() — datos técnicos del inmueble (2026-09-22)', () => {
+    test('aplica solo los campos permitidos + SIEMPRE capturado_por/capturado_en, filtrando por company_id', async () => {
+      const db = crearMockDb({ data: { id: 'op1', tipo_techo: 'lámina' }, error: null });
+      const resultado = await actualizarDatosInmueble(db, COMPANY_A, 'op1', 'user-1', {
+        tipo_techo: 'lámina', orientacion_techo: 'sur', sombras_presentes: true, sombras_descripcion: 'árbol al sur',
+        area_techo_m2: 45, ubicacion_centro_carga: 'fachada', capacidad_centro_carga_a: 60,
+      });
+
+      const builder = db.from.mock.results[0].value;
+      expect(builder.update).toHaveBeenCalledWith(expect.objectContaining({
+        tipo_techo: 'lámina', orientacion_techo: 'sur', sombras_presentes: true, sombras_descripcion: 'árbol al sur',
+        area_techo_m2: 45, ubicacion_centro_carga: 'fachada', capacidad_centro_carga_a: 60,
+        datos_inmueble_capturado_por: 'user-1',
+      }));
+      expect(builder.update.mock.calls[0][0].datos_inmueble_capturado_en).toEqual(expect.any(String));
+      expect(builder.eq).toHaveBeenCalledWith('company_id', COMPANY_A);
+      expect(resultado.tipo_techo).toBe('lámina');
+    });
+
+    test('campos fuera del whitelist (ej. cliente_id, estado) se ignoran', async () => {
+      const db = crearMockDb({ data: { id: 'op1' }, error: null });
+      await actualizarDatosInmueble(db, COMPANY_A, 'op1', 'user-1', { tipo_techo: 'concreto', cliente_id: 999, estado: 'Ganado' });
+
+      const builder = db.from.mock.results[0].value;
+      const payload = builder.update.mock.calls[0][0];
+      expect(payload.cliente_id).toBeUndefined();
+      expect(payload.estado).toBeUndefined();
+      expect(payload.tipo_techo).toBe('concreto');
+    });
+
+    test('capturado_por/capturado_en NUNCA se toman del body — siempre los del usuario que hace la llamada', async () => {
+      const db = crearMockDb({ data: { id: 'op1' }, error: null });
+      await actualizarDatosInmueble(db, COMPANY_A, 'op1', 'user-real', { tipo_techo: 'losa', datos_inmueble_capturado_por: 'user-falso' });
+
+      const builder = db.from.mock.results[0].value;
+      expect(builder.update.mock.calls[0][0].datos_inmueble_capturado_por).toBe('user-real');
+    });
+
+    test('oportunidad inexistente o de otra empresa → 404', async () => {
+      const db = crearMockDb({ data: null, error: null });
+      await expect(actualizarDatosInmueble(db, COMPANY_A, 'op1', 'user-1', { tipo_techo: 'losa' }))
+        .rejects.toMatchObject({ status: 404 });
+    });
+
+    test('sin ningún campo de inmueble en el body → igual actualiza (solo capturado_por/en), no lanza 400', async () => {
+      const db = crearMockDb({ data: { id: 'op1' }, error: null });
+      await expect(actualizarDatosInmueble(db, COMPANY_A, 'op1', 'user-1', {})).resolves.toBeTruthy();
     });
   });
 });

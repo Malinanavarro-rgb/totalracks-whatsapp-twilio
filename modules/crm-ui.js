@@ -437,6 +437,44 @@ async function eliminarOportunidad(supabase, company_id, oportunidadId) {
   if (error) throw new Error('No se pudo eliminar la oportunidad');
 }
 
+const CAMPOS_DATOS_INMUEBLE = [
+  'tipo_techo', 'orientacion_techo', 'inclinacion_techo_grados', 'sombras_presentes', 'sombras_descripcion',
+  'area_techo_m2', 'ubicacion_centro_carga', 'capacidad_centro_carga_a',
+];
+
+/**
+ * Datos técnicos del inmueble (auditoría 2026-09-16, Parte A — Alina,
+ * 2026-09-22): tipo de techo, orientación, sombras, área real, centro de
+ * carga — lo que hoy solo se ve en una visita técnica, no por WhatsApp.
+ *
+ * Separada de actualizarOportunidad() (whitelist genérico) porque además
+ * registra QUIÉN y CUÁNDO lo levantó — mismo criterio de trazabilidad que
+ * marcarIngenieriaValidada(): nunca implícito, y `capturado_por`/`capturado_en`
+ * nunca deben poder venir del body de un request (se fijan aquí, no en el
+ * whitelist que el cliente controla).
+ */
+async function actualizarDatosInmueble(supabase, company_id, oportunidadId, usuarioId, datos) {
+  const payload = { datos_inmueble_capturado_por: usuarioId, datos_inmueble_capturado_en: new Date().toISOString() };
+  for (const campo of CAMPOS_DATOS_INMUEBLE) {
+    if (datos[campo] !== undefined) payload[campo] = datos[campo];
+  }
+
+  const { data, error } = await supabase
+    .from('oportunidades')
+    .update(payload)
+    .eq('id', oportunidadId)
+    .eq('company_id', company_id)
+    .select()
+    .maybeSingle();
+
+  if (error || !data) {
+    const err = new Error('Oportunidad no encontrada');
+    err.status = 404;
+    throw err;
+  }
+  return data;
+}
+
 module.exports = {
   listarClientes,
   obtenerFichaCliente,
@@ -450,4 +488,5 @@ module.exports = {
   crearOportunidad,
   actualizarOportunidad,
   eliminarOportunidad,
+  actualizarDatosInmueble,
 };

@@ -76,6 +76,12 @@ export default function CrmClienteDetalle() {
   const [subiendoRecibo, setSubiendoRecibo] = useState(false);
   const [borradorRecibo, setBorradorRecibo] = useState(null); // datos extraídos, sin guardar todavía
   const [erroRecibo, setErrorRecibo] = useState(null);
+  // Datos técnicos del inmueble (2026-09-22) — se capturan en la visita
+  // técnica, no por WhatsApp. Formulario separado del de "Datos generales":
+  // se re-inicializa cuando cambia la oportunidad principal, no en cada
+  // refresh, para no pisar lo que el técnico está escribiendo.
+  const [formInmueble, setFormInmueble] = useState(null);
+  const [guardandoInmueble, setGuardandoInmueble] = useState(false);
 
   function cargar() {
     Promise.all([api.fichaCliente(clienteId), api.seguimientos(clienteId), api.cotizaciones(clienteId)])
@@ -112,6 +118,50 @@ export default function CrmClienteDetalle() {
     api.pipelineEtapas().then((etapas) => setEtapasPipeline(etapas.filter((et) => et.activo)));
     api.asesores().then(setAsesores).catch(() => {});
   }, []);
+
+  // Movida antes del early-return de abajo (con encadenamiento opcional, ya
+  // que `ficha` puede seguir siendo null aquí) para que el useEffect de
+  // datos del inmueble pueda depender de su id — los hooks no pueden
+  // llamarse condicionalmente. Se reutiliza tal cual más abajo, después de
+  // que `ficha` ya esté garantizado.
+  const oportunidadPrincipal = ficha?.oportunidades?.find((op) => !ESTADOS_CERRADOS.includes(op.estado)) || ficha?.oportunidades?.[0] || null;
+
+  // Datos técnicos del inmueble (2026-09-22) — se re-inicializa solo cuando
+  // cambia DE oportunidad (su id), no en cada refresh de 4s, para no pisar
+  // lo que el técnico está escribiendo en ese momento.
+  useEffect(() => {
+    if (!oportunidadPrincipal) { setFormInmueble(null); return; }
+    setFormInmueble({
+      tipo_techo: oportunidadPrincipal.tipo_techo || '',
+      orientacion_techo: oportunidadPrincipal.orientacion_techo || '',
+      inclinacion_techo_grados: oportunidadPrincipal.inclinacion_techo_grados ?? '',
+      sombras_presentes: oportunidadPrincipal.sombras_presentes ?? '',
+      sombras_descripcion: oportunidadPrincipal.sombras_descripcion || '',
+      area_techo_m2: oportunidadPrincipal.area_techo_m2 ?? '',
+      ubicacion_centro_carga: oportunidadPrincipal.ubicacion_centro_carga || '',
+      capacidad_centro_carga_a: oportunidadPrincipal.capacidad_centro_carga_a ?? '',
+    });
+  }, [oportunidadPrincipal?.id]);
+
+  async function guardarDatosInmueble(e) {
+    e.preventDefault();
+    if (!oportunidadPrincipal) return;
+    setGuardandoInmueble(true);
+    try {
+      await api.actualizarDatosInmueble(oportunidadPrincipal.id, {
+        ...formInmueble,
+        inclinacion_techo_grados: formInmueble.inclinacion_techo_grados === '' ? null : Number(formInmueble.inclinacion_techo_grados),
+        area_techo_m2: formInmueble.area_techo_m2 === '' ? null : Number(formInmueble.area_techo_m2),
+        capacidad_centro_carga_a: formInmueble.capacidad_centro_carga_a === '' ? null : Number(formInmueble.capacidad_centro_carga_a),
+        sombras_presentes: formInmueble.sombras_presentes === '' ? null : formInmueble.sombras_presentes === 'true',
+      });
+      cargar();
+    } catch (e2) {
+      setError(e2.message);
+    } finally {
+      setGuardandoInmueble(false);
+    }
+  }
 
   async function guardarEdicion(e) {
     e.preventDefault();
@@ -322,7 +372,8 @@ export default function CrmClienteDetalle() {
   if (!ficha) return <p className="operaciones-nota">Cargando…</p>;
 
   const { cliente, historial, citas, oportunidades } = ficha;
-  const oportunidadPrincipal = oportunidades.find((op) => !ESTADOS_CERRADOS.includes(op.estado)) || oportunidades[0] || null;
+  // oportunidadPrincipal ya se calculó arriba (antes del early-return, para
+  // que el useEffect de datos del inmueble pudiera depender de su id).
   const score = scoreBadge(cliente.score_interes);
   const ultimoMensaje = historial[historial.length - 1];
   const proximoSeguimiento = seguimientos.filter((s) => !s.completado && s.fecha_programada).sort((a, b) => a.fecha_programada.localeCompare(b.fecha_programada))[0];
@@ -604,10 +655,76 @@ export default function CrmClienteDetalle() {
             <dt>Paneles sugeridos</dt><dd>{oportunidadPrincipal?.paneles_estimados || '—'}</dd>
             <dt>kWp estimado</dt><dd>{oportunidadPrincipal?.kwp_estimado || '—'}</dd>
           </dl>
-          <p className="operaciones-nota">
-            Datos técnicos del inmueble (tipo de techo, orientación, sombras, área disponible, centro de carga, cargas por
-            equipo y cargas futuras) todavía no se capturan por este canal — pendiente, ver auditoría Fase 3.
-          </p>
+          <h3>Datos técnicos del inmueble</h3>
+          {!oportunidadPrincipal ? (
+            <p className="operaciones-nota">Este cliente no tiene una oportunidad abierta donde guardar estos datos — créala primero en el tab Resumen.</p>
+          ) : !formInmueble ? (
+            <p className="operaciones-nota">Cargando…</p>
+          ) : (
+            <>
+              <p className="operaciones-nota">Se levanta en la visita técnica — el workflow de WhatsApp no captura nada de esto.</p>
+              <form className="config-form-inline" onSubmit={guardarDatosInmueble}>
+                <label>
+                  Tipo de techo
+                  <select value={formInmueble.tipo_techo} onChange={(e) => setFormInmueble({ ...formInmueble, tipo_techo: e.target.value })}>
+                    <option value="">—</option>
+                    <option value="concreto">Concreto</option>
+                    <option value="lámina">Lámina</option>
+                    <option value="teja">Teja</option>
+                    <option value="losa">Losa</option>
+                  </select>
+                </label>
+                <label>
+                  Orientación
+                  <select value={formInmueble.orientacion_techo} onChange={(e) => setFormInmueble({ ...formInmueble, orientacion_techo: e.target.value })}>
+                    <option value="">—</option>
+                    <option value="norte">Norte</option>
+                    <option value="sur">Sur</option>
+                    <option value="este">Este</option>
+                    <option value="oeste">Oeste</option>
+                    <option value="plano">Plano</option>
+                  </select>
+                </label>
+                <label>
+                  Inclinación (°)
+                  <input type="number" min="0" max="90" value={formInmueble.inclinacion_techo_grados}
+                    onChange={(e) => setFormInmueble({ ...formInmueble, inclinacion_techo_grados: e.target.value })} />
+                </label>
+                <label>
+                  Área del techo (m²)
+                  <input type="number" min="0" value={formInmueble.area_techo_m2}
+                    onChange={(e) => setFormInmueble({ ...formInmueble, area_techo_m2: e.target.value })} />
+                </label>
+                <label>
+                  ¿Hay sombras?
+                  <select value={formInmueble.sombras_presentes} onChange={(e) => setFormInmueble({ ...formInmueble, sombras_presentes: e.target.value })}>
+                    <option value="">—</option>
+                    <option value="true">Sí</option>
+                    <option value="false">No</option>
+                  </select>
+                </label>
+                {formInmueble.sombras_presentes === 'true' && (
+                  <input type="text" placeholder="Descripción de las sombras (ej. árbol al sur, 3pm-5pm)"
+                    value={formInmueble.sombras_descripcion} onChange={(e) => setFormInmueble({ ...formInmueble, sombras_descripcion: e.target.value })} />
+                )}
+                <label>
+                  Ubicación del centro de carga
+                  <input type="text" placeholder="ej. fachada exterior, lado izquierdo"
+                    value={formInmueble.ubicacion_centro_carga} onChange={(e) => setFormInmueble({ ...formInmueble, ubicacion_centro_carga: e.target.value })} />
+                </label>
+                <label>
+                  Capacidad del centro de carga (A)
+                  <input type="number" min="0" value={formInmueble.capacidad_centro_carga_a}
+                    onChange={(e) => setFormInmueble({ ...formInmueble, capacidad_centro_carga_a: e.target.value })} />
+                </label>
+                <button type="submit" disabled={guardandoInmueble}>{guardandoInmueble ? 'Guardando…' : 'Guardar datos del inmueble'}</button>
+              </form>
+              {oportunidadPrincipal.datos_inmueble_capturado_en && (
+                <p className="operaciones-nota">Última actualización: {formatearFechaHora(oportunidadPrincipal.datos_inmueble_capturado_en)}</p>
+              )}
+            </>
+          )}
+          <p className="operaciones-nota">Cargas por equipo y cargas futuras todavía no se capturan — pendiente.</p>
         </section>
       )}
 

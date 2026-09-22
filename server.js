@@ -72,7 +72,7 @@ const { interpretarComando, confirmarComando, cancelarComando } = require('./mod
 const {
   listarClientes, obtenerFichaCliente, actualizarCliente, eliminarCliente, eliminarClienteConHistorial,
   listarSeguimientos, crearSeguimiento, actualizarSeguimiento,
-  listarOportunidades, crearOportunidad, actualizarOportunidad, eliminarOportunidad,
+  listarOportunidades, crearOportunidad, actualizarOportunidad, eliminarOportunidad, actualizarDatosInmueble,
 }                                        = require('./modules/crm-ui');
 const {
   obtenerPersonalidad, actualizarPersonalidad,
@@ -1809,6 +1809,17 @@ app.post('/api/crm/clientes/:id/oportunidades', requireAuth, async (req, res) =>
 app.patch('/api/crm/oportunidades/:id', requireAuth, async (req, res) => {
   try {
     const oportunidad = await actualizarOportunidad(req.supabase, req.usuario.company_id, req.params.id, req.body);
+    res.json(oportunidad);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// Datos técnicos del inmueble (2026-09-22, ver modules/crm-ui.js) — separada
+// del PATCH genérico de arriba porque además registra quién/cuándo lo levantó.
+app.patch('/api/crm/oportunidades/:id/inmueble', requireAuth, async (req, res) => {
+  try {
+    const oportunidad = await actualizarDatosInmueble(req.supabase, req.usuario.company_id, req.params.id, req.usuario.id, req.body);
     res.json(oportunidad);
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });

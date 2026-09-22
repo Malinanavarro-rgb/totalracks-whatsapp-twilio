@@ -182,6 +182,8 @@ export const api = {
   actualizarOportunidad: (oportunidadId, cambios) =>
     pedir(`/api/crm/oportunidades/${oportunidadId}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
   eliminarOportunidad: (oportunidadId) => pedir(`/api/crm/oportunidades/${oportunidadId}`, { method: 'DELETE' }),
+  actualizarDatosInmueble: (oportunidadId, datos) =>
+    pedir(`/api/crm/oportunidades/${oportunidadId}/inmueble`, { method: 'PATCH', body: JSON.stringify(datos) }),
   oportunidades:      () => pedir('/api/crm/oportunidades'),
 
   // Panel de Cotizaciones (Fase Panel de Cotizaciones)
