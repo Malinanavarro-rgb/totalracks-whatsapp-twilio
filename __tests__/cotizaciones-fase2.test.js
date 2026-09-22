@@ -208,6 +208,25 @@ describe('puedeEnviarCotizacion()', () => {
     expect(resultado.puede).toBe(false);
     expect(resultado.motivo).toMatch(/no encontrada/i);
   });
+
+  test('descuento excede el límite y no ha sido autorizado → rechaza (ver modules/cotizacion-descuento.js)', async () => {
+    const db = crearMockDb({ data: { ingenieria_validada_para_cotizar_en: '2026-08-04T10:00:00Z', limite_descuento_excedido: true, descuento_autorizado_por: null }, error: null });
+    const resultado = await puedeEnviarCotizacion(db, 1);
+    expect(resultado.puede).toBe(false);
+    expect(resultado.motivo).toMatch(/descuento/i);
+  });
+
+  test('descuento excede el límite pero YA fue autorizado → acepta', async () => {
+    const db = crearMockDb({ data: { ingenieria_validada_para_cotizar_en: '2026-08-04T10:00:00Z', limite_descuento_excedido: true, descuento_autorizado_por: 'user-1' }, error: null });
+    const resultado = await puedeEnviarCotizacion(db, 1);
+    expect(resultado).toEqual({ puede: true, motivo: null });
+  });
+
+  test('descuento dentro del límite (limite_descuento_excedido: false) → acepta aunque no tenga autorizador explícito', async () => {
+    const db = crearMockDb({ data: { ingenieria_validada_para_cotizar_en: '2026-08-04T10:00:00Z', limite_descuento_excedido: false, descuento_autorizado_por: null }, error: null });
+    const resultado = await puedeEnviarCotizacion(db, 1);
+    expect(resultado).toEqual({ puede: true, motivo: null });
+  });
 });
 
 describe('correrCotizacionDesdeWorkflow()', () => {

@@ -1,11 +1,17 @@
 import { useEffect, useState } from 'react';
 import { useParams, NavLink } from 'react-router-dom';
 import { api } from '../lib/api';
+import { useAuth } from '../context/AuthContext';
 
 const SEVERIDAD_ESTADO = {
   aceptada: 'success', enviada: 'warning', vista: 'warning',
   rechazada: 'error', vencida: 'error', borrador: 'neutral',
 };
+
+// Mismo criterio que modules/permisos.js::esGerencial() en el backend —
+// duplicado a propósito en frontend, mismo patrón ya usado en
+// Configuracion.jsx/Shell.jsx (sin un módulo compartido cliente/servidor).
+const ROLES_GERENCIALES = ['owner', 'administrador', 'supervisor'];
 
 function formatearFechaHora(iso) {
   if (!iso) return '—';
@@ -52,6 +58,8 @@ function construirHistorial(cotizacion) {
 
 export default function CotizacionDetalle() {
   const { cotizacionId } = useParams();
+  const { sesion } = useAuth();
+  const esGerencial = ROLES_GERENCIALES.includes(sesion?.empresaActiva?.rol);
   const [cotizacion, setCotizacion] = useState(null);
   const [error, setError] = useState(null);
   const [reenviando, setReenviando] = useState(false);
@@ -60,6 +68,10 @@ export default function CotizacionDetalle() {
   // Quick win (auditoría 2026-09-16, sección N.4) — autorizarPrecioFinal ya
   // existía en el backend desde Fase 3, sin ningún botón que lo usara.
   const [precioFinalInput, setPrecioFinalInput] = useState('');
+  // Aprobación de descuentos (2026-09-22, ver modules/cotizacion-descuento.js).
+  const [descuentoPctInput, setDescuentoPctInput] = useState('');
+  const [descuentoMontoInput, setDescuentoMontoInput] = useState('');
+  const [descuentoMotivoInput, setDescuentoMotivoInput] = useState('');
   const [propuestas, setPropuestas] = useState(null);
   const [simulacion, setSimulacion] = useState(null);
   const [indiceSimulador, setIndiceSimulador] = useState(0);
@@ -130,6 +142,17 @@ export default function CotizacionDetalle() {
     setPrecioFinalInput('');
   }
 
+  async function proponerDescuento(e) {
+    e.preventDefault();
+    const pct = descuentoPctInput.trim() ? Number(descuentoPctInput) : undefined;
+    const monto = descuentoMontoInput.trim() ? Number(descuentoMontoInput) : undefined;
+    if (pct == null && monto == null) { setError('Captura un % o un monto de descuento.'); return; }
+    await conAnimoDeEspera(() => api.aplicarDescuentoCotizacion(cotizacionId, { descuentoPct: pct, descuentoMonto: monto, motivo: descuentoMotivoInput.trim() || undefined }));
+    setDescuentoPctInput(''); setDescuentoMontoInput(''); setDescuentoMotivoInput('');
+  }
+
+  const autorizarDescuentoPendiente = () => conAnimoDeEspera(() => api.autorizarDescuentoCotizacion(cotizacionId));
+
   async function agregarLinea(e) {
     e.preventDefault();
     if (!nuevaLinea.descripcion.trim()) return;
@@ -161,8 +184,42 @@ export default function CotizacionDetalle() {
         <p><strong>Fecha:</strong> {formatearFechaHora(cotizacion.created_at)}</p>
         <p><strong>Versión:</strong> V{cotizacion.version || 1}</p>
         <p><strong>Total:</strong> {formatearMonto(cotizacion.total)}</p>
-        {(cotizacion.descuento_pct || cotizacion.descuento_monto) && (
-          <p><strong>Descuento:</strong> {cotizacion.descuento_pct ? `${cotizacion.descuento_pct}%` : formatearMonto(cotizacion.descuento_monto)}</p>
+        {(cotizacion.descuento_pct || cotizacion.descuento_monto) ? (
+          <div>
+            <p>
+              <strong>Descuento:</strong> {cotizacion.descuento_pct ? `${cotizacion.descuento_pct}%` : formatearMonto(cotizacion.descuento_monto)}
+              {cotizacion.descuento_motivo && ` — ${cotizacion.descuento_motivo}`}
+            </p>
+            {cotizacion.limite_descuento_excedido && !cotizacion.descuento_autorizado_por && (
+              <p className="login-error">
+                Excede el límite permitido — pendiente de autorización de un gerencial.
+                {esGerencial && cotizacion.estado === 'borrador' && (
+                  <>{' '}<button type="button" className="boton-enlace" disabled={procesando} onClick={autorizarDescuentoPendiente}>Autorizar este descuento</button></>
+                )}
+              </p>
+            )}
+            {cotizacion.descuento_autorizado_por && (
+              <p className="operaciones-nota">Autorizado el {formatearFechaHora(cotizacion.descuento_autorizado_en)}.</p>
+            )}
+          </div>
+        ) : null}
+        {cotizacion.estado === 'borrador' && (
+          <form className="config-form-inline" onSubmit={proponerDescuento}>
+            <input
+              type="number" min="0" max="100" step="0.1" placeholder="Descuento %"
+              value={descuentoPctInput} onChange={(e) => { setDescuentoPctInput(e.target.value); setDescuentoMontoInput(''); }}
+            />
+            <span className="operaciones-nota">o</span>
+            <input
+              type="number" min="0" placeholder="Descuento en $"
+              value={descuentoMontoInput} onChange={(e) => { setDescuentoMontoInput(e.target.value); setDescuentoPctInput(''); }}
+            />
+            <input
+              type="text" placeholder="Motivo (opcional)"
+              value={descuentoMotivoInput} onChange={(e) => setDescuentoMotivoInput(e.target.value)}
+            />
+            <button type="submit" disabled={procesando}>Proponer descuento</button>
+          </form>
         )}
         {cotizacion.paquetes_solares?.nombre && <p><strong>Paquete:</strong> {cotizacion.paquetes_solares.nombre}</p>}
         <p>

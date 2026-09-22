@@ -202,6 +202,8 @@ export const api = {
   propuestasCotizacion:    (id) => pedir(`/api/cotizaciones/${id}/propuestas`),
   simuladorCotizacion:     (id, desde, hasta) => pedir(`/api/cotizaciones/${id}/simulador${desde != null ? `?desde=${desde}&hasta=${hasta}` : ''}`),
   autorizarPrecioCotizacion: (id, precioFinal) => pedir(`/api/cotizaciones/${id}/autorizar-precio`, { method: 'POST', body: JSON.stringify({ precioFinal }) }),
+  aplicarDescuentoCotizacion: (id, datos) => pedir(`/api/cotizaciones/${id}/descuento`, { method: 'POST', body: JSON.stringify(datos) }),
+  autorizarDescuentoCotizacion: (id) => pedir(`/api/cotizaciones/${id}/descuento/autorizar`, { method: 'POST' }),
   lineasCotizacion:        (id) => pedir(`/api/cotizaciones/${id}/lineas`),
   agregarLineaCotizacion:  (id, datos) => pedir(`/api/cotizaciones/${id}/lineas`, { method: 'POST', body: JSON.stringify(datos) }),
   actualizarLineaCotizacion: (lineaId, cambios) => pedir(`/api/cotizaciones/lineas/${lineaId}`, { method: 'PATCH', body: JSON.stringify(cambios) }),

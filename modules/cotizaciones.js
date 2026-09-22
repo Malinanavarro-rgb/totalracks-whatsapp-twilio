@@ -799,13 +799,20 @@ async function _cerrarYEnviarCotizacionAutomaticamente(supabase, { cotizacion, c
 async function puedeEnviarCotizacion(supabase, cotizacionId) {
   const { data: cotizacion, error } = await supabase
     .from('cotizaciones')
-    .select('ingenieria_validada_para_cotizar_en')
+    .select('ingenieria_validada_para_cotizar_en, limite_descuento_excedido, descuento_autorizado_por')
     .eq('id', cotizacionId)
     .maybeSingle();
 
   if (error || !cotizacion) return { puede: false, motivo: 'Cotización no encontrada.' };
   if (!cotizacion.ingenieria_validada_para_cotizar_en) {
     return { puede: false, motivo: 'La ingeniería todavía no está validada para cotizar (ingenieria_validada_para_cotizar_en vacío).' };
+  }
+  // Aprobación de descuentos (2026-09-22, ver modules/cotizacion-descuento.js):
+  // un descuento por encima del límite queda pendiente hasta que un gerencial
+  // lo autorice — mismo criterio que la ingeniería, un solo lugar gobierna
+  // "se puede enviar esta cotización".
+  if (cotizacion.limite_descuento_excedido && !cotizacion.descuento_autorizado_por) {
+    return { puede: false, motivo: 'El descuento aplicado excede el límite permitido y todavía no ha sido autorizado por un gerencial.' };
   }
   return { puede: true, motivo: null };
 }

@@ -50,6 +50,7 @@ const { listarLineas, agregarLinea, actualizarLinea, eliminarLinea, aplicarCalcu
 const { generarPdfCotizacion, generarYEnviarCotizacion, BUCKET_COTIZACIONES_PDF } = require('./modules/cotizacion-pdf');
 const { listarPaquetes, crearPaquete, actualizarPaquete, desactivarPaquete, eliminarPaquete, listarPaquetesConCotizaciones } = require('./modules/paquetes-solares');
 const { generarPropuestasCotizacion, simularRangoCotizacion } = require('./modules/propuestas-solares');
+const { aplicarDescuento: aplicarDescuentoCotizacion, autorizarDescuento: autorizarDescuentoCotizacion } = require('./modules/cotizacion-descuento');
 const { transcribirAudio, describirImagen } = require('./modules/adjuntos-ia');
 const { procesarReciboCFE, extraerDatosReciboCFE, normalizarDatosRecibo } = require('./modules/recibo-cfe');
 const { esGerencial } = require('./modules/permisos');
@@ -2458,6 +2459,32 @@ app.get('/api/cotizaciones/:id/puede-enviar', requireAuth, async (req, res) => {
 app.post('/api/cotizaciones/:id/autorizar-precio', requireAuth, async (req, res) => {
   try {
     const cotizacion = await autorizarPrecioFinal(req.supabase, { cotizacionId: req.params.id, usuarioId: req.usuario.id, precioFinal: req.body?.precioFinal });
+    res.json(cotizacion);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// Aprobación de descuentos (2026-09-22, ver modules/cotizacion-descuento.js):
+// cualquier usuario autenticado puede PROPONER un descuento (queda pendiente
+// si excede el límite configurado); solo un gerencial puede autorizarlo.
+app.post('/api/cotizaciones/:id/descuento', requireAuth, async (req, res) => {
+  try {
+    const resultado = await aplicarDescuentoCotizacion(req.supabase, {
+      companyId: req.usuario.company_id, cotizacionId: req.params.id, usuarioId: req.usuario.id, rolUsuario: req.usuario.rol,
+      descuentoPct: req.body?.descuentoPct != null ? Number(req.body.descuentoPct) : undefined,
+      descuentoMonto: req.body?.descuentoMonto != null ? Number(req.body.descuentoMonto) : undefined,
+      motivo: req.body?.motivo,
+    });
+    res.json(resultado);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/cotizaciones/:id/descuento/autorizar', requireAuth, async (req, res) => {
+  try {
+    const cotizacion = await autorizarDescuentoCotizacion(req.supabase, { companyId: req.usuario.company_id, cotizacionId: req.params.id, usuarioId: req.usuario.id, rolUsuario: req.usuario.rol });
     res.json(cotizacion);
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
