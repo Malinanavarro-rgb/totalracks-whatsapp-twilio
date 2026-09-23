@@ -55,6 +55,7 @@ const {
 } = require('./modules/planes-financiamiento');
 const { generarPropuestasCotizacion, simularRangoCotizacion } = require('./modules/propuestas-solares');
 const { calcularRentabilidadCotizacion } = require('./modules/rentabilidad');
+const { marcarCotizacionAceptadaYCrearProyecto, obtenerProyecto, obtenerProyectoDeCliente, obtenerProyectoDeCotizacion } = require('./modules/proyectos');
 const { aplicarDescuento: aplicarDescuentoCotizacion, autorizarDescuento: autorizarDescuentoCotizacion } = require('./modules/cotizacion-descuento');
 const { transcribirAudio, describirImagen } = require('./modules/adjuntos-ia');
 const { procesarReciboCFE, extraerDatosReciboCFE, normalizarDatosRecibo } = require('./modules/recibo-cfe');
@@ -2597,6 +2598,48 @@ app.get('/api/cotizaciones/:id/rentabilidad', requireAuth, soloGerencial, async 
     const rentabilidad = await calcularRentabilidadCotizacion(req.supabase, { companyId: req.usuario.company_id, cotizacionId: req.params.id });
     if (!rentabilidad) return res.status(404).json({ error: 'Cotización no encontrada' });
     res.json(rentabilidad);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Subfase 2A — proyecto solar / venta (2026-09-22, ver modules/proyectos.js
+// y NORT_ENERGY_PORTAL_PLAN.md). Una sola acción de negocio: acepta la
+// cotización (si no lo estaba ya) y crea/recupera su proyecto — nunca dos
+// pasos separados, para que un doble clic no pueda dejar la cotización
+// aceptada sin proyecto.
+app.post('/api/cotizaciones/:id/marcar-aceptada', requireAuth, async (req, res) => {
+  try {
+    const resultado = await marcarCotizacionAceptadaYCrearProyecto(req.supabase, {
+      companyId: req.usuario.company_id, cotizacionId: req.params.id, usuarioId: req.usuario.id,
+    });
+    res.json(resultado);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.get('/api/proyectos/:id', requireAuth, async (req, res) => {
+  try {
+    const proyecto = await obtenerProyecto(req.supabase, req.usuario.company_id, req.params.id);
+    if (!proyecto) return res.status(404).json({ error: 'Proyecto no encontrado' });
+    res.json(proyecto);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/crm/clientes/:id/proyecto', requireAuth, async (req, res) => {
+  try {
+    res.json(await obtenerProyectoDeCliente(req.supabase, req.usuario.company_id, req.params.id));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/cotizaciones/:id/proyecto', requireAuth, async (req, res) => {
+  try {
+    res.json(await obtenerProyectoDeCotizacion(req.supabase, req.usuario.company_id, req.params.id));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

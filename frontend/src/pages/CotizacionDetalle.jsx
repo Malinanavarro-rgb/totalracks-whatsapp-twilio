@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, NavLink } from 'react-router-dom';
+import { useParams, useNavigate, NavLink, Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 
@@ -58,6 +58,7 @@ function construirHistorial(cotizacion) {
 
 export default function CotizacionDetalle() {
   const { cotizacionId } = useParams();
+  const navigate = useNavigate();
   const { sesion } = useAuth();
   const esGerencial = ROLES_GERENCIALES.includes(sesion?.empresaActiva?.rol);
   const [cotizacion, setCotizacion] = useState(null);
@@ -77,6 +78,9 @@ export default function CotizacionDetalle() {
   const [indiceSimulador, setIndiceSimulador] = useState(0);
   const [financiamiento, setFinanciamiento] = useState(null);
   const [rentabilidad, setRentabilidad] = useState(null);
+  // Subfase 2A (2026-09-22) — cotización aceptada → proyecto.
+  const [proyecto, setProyecto] = useState(null);
+  const [aceptando, setAceptando] = useState(false);
 
   function cargar() {
     api.cotizacion(cotizacionId).then(setCotizacion).catch((e) => setError(e.message));
@@ -117,6 +121,27 @@ export default function CotizacionDetalle() {
     if (!esGerencial || !cotizacion?.lineas?.length) { setRentabilidad(null); return; }
     api.rentabilidadCotizacion(cotizacionId).then(setRentabilidad).catch(() => setRentabilidad(null));
   }, [cotizacionId, esGerencial, cotizacion?.lineas]);
+
+  // Proyecto (2026-09-22): si esta cotización ya se aceptó, puede tener un
+  // proyecto — se busca para mostrar "Ver proyecto" en vez del botón de aceptar.
+  useEffect(() => {
+    if (cotizacion?.estado !== 'aceptada') { setProyecto(null); return; }
+    api.proyectoDeCotizacion(cotizacionId).then(setProyecto).catch(() => setProyecto(null));
+  }, [cotizacionId, cotizacion?.estado]);
+
+  async function marcarComoAceptada() {
+    if (!window.confirm('¿Confirmas que el cliente aceptó esta cotización? Esto la marca como aceptada y crea su proyecto operativo — no se puede deshacer desde aquí.')) return;
+    setAceptando(true);
+    setError(null);
+    try {
+      const resultado = await api.marcarCotizacionAceptada(cotizacionId);
+      navigate(`/proyectos/${resultado.proyecto.id}`);
+    } catch (e2) {
+      setError(e2.message);
+    } finally {
+      setAceptando(false);
+    }
+  }
 
   async function reenviar() {
     setReenviando(true);
@@ -209,7 +234,17 @@ export default function CotizacionDetalle() {
     <div>
       <div className="crm-seccion-header">
         <h1>{cotizacion.folio || `Cotización #${cotizacion.id}`}</h1>
-        <span className={`pill pill--${SEVERIDAD_ESTADO[cotizacion.estado] || 'neutral'}`}>{cotizacion.estado}</span>
+        <div>
+          <span className={`pill pill--${SEVERIDAD_ESTADO[cotizacion.estado] || 'neutral'}`}>{cotizacion.estado}</span>
+          {' '}
+          {cotizacion.estado === 'aceptada' ? (
+            proyecto && <Link to={`/proyectos/${proyecto.id}`}>Ver proyecto {proyecto.numero_proyecto}</Link>
+          ) : cotizacion.estado !== 'rechazada' && cotizacion.estado !== 'vencida' && (
+            <button type="button" onClick={marcarComoAceptada} disabled={aceptando}>
+              {aceptando ? 'Marcando…' : 'Marcar como aceptada'}
+            </button>
+          )}
+        </div>
       </div>
 
       <section className="crm-seccion">

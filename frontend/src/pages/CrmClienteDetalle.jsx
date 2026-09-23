@@ -91,6 +91,8 @@ export default function CrmClienteDetalle() {
   // refresh, para no pisar lo que el técnico está escribiendo.
   const [formInmueble, setFormInmueble] = useState(null);
   const [guardandoInmueble, setGuardandoInmueble] = useState(false);
+  // Subfase 2A (2026-09-22) — si este cliente ya tiene una venta aceptada.
+  const [proyectoCliente, setProyectoCliente] = useState(null);
   // Documentos del cliente clasificados (2026-09-22) — se cargan solo al
   // abrir el tab, no en cada refresh de 4s (no son datos que cambien solos).
   const [documentosCliente, setDocumentosCliente] = useState(null);
@@ -134,6 +136,10 @@ export default function CrmClienteDetalle() {
     api.pipelineEtapas().then((etapas) => setEtapasPipeline(etapas.filter((et) => et.activo)));
     api.asesores().then(setAsesores).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    api.proyectoDeCliente(clienteId).then(setProyectoCliente).catch(() => setProyectoCliente(null));
+  }, [clienteId]);
 
   // Movida antes del early-return de abajo (con encadenamiento opcional, ya
   // que `ficha` puede seguir siendo null aquí) para que el useEffect de
@@ -481,6 +487,9 @@ export default function CrmClienteDetalle() {
         </div>
 
         <div className="expediente-acciones-rapidas">
+          {proyectoCliente && (
+            <Link to={`/proyectos/${proyectoCliente.id}`} className="pregunta-tara-chip">Proyecto {proyectoCliente.numero_proyecto}</Link>
+          )}
           <Link to={`/conversaciones/${clienteId}`} className="pregunta-tara-chip">WhatsApp</Link>
           <Link to={`/cotizaciones/nueva?clienteId=${clienteId}`} className="pregunta-tara-chip">Cotizar</Link>
           <button type="button" className="pregunta-tara-chip" onClick={() => { irATab('operacion'); setMostrarNuevaCita(true); }}>Agendar</button>
