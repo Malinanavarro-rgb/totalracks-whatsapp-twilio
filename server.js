@@ -56,6 +56,7 @@ const {
 const { generarPropuestasCotizacion, simularRangoCotizacion } = require('./modules/propuestas-solares');
 const { calcularRentabilidadCotizacion } = require('./modules/rentabilidad');
 const { marcarCotizacionAceptadaYCrearProyecto, obtenerProyecto, obtenerProyectoDeCliente, obtenerProyectoDeCotizacion } = require('./modules/proyectos');
+const { obtenerResumenCobranza, registrarAbono, actualizarAnticipoRequerido } = require('./modules/cobranza');
 const { aplicarDescuento: aplicarDescuentoCotizacion, autorizarDescuento: autorizarDescuentoCotizacion } = require('./modules/cotizacion-descuento');
 const { transcribirAudio, describirImagen } = require('./modules/adjuntos-ia');
 const { procesarReciboCFE, extraerDatosReciboCFE, normalizarDatosRecibo } = require('./modules/recibo-cfe');
@@ -2642,6 +2643,39 @@ app.get('/api/cotizaciones/:id/proyecto', requireAuth, async (req, res) => {
     res.json(await obtenerProyectoDeCotizacion(req.supabase, req.usuario.company_id, req.params.id));
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// Subfase 2B — cobranza del cliente (2026-09-23, ver modules/cobranza.js).
+// `pagos_cliente` — NUNCA la tabla `pagos` (facturación SaaS de TARA).
+app.get('/api/proyectos/:id/cobranza', requireAuth, async (req, res) => {
+  try {
+    res.json(await obtenerResumenCobranza(req.supabase, req.usuario.company_id, req.params.id));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/proyectos/:id/cobranza/abonos', requireAuth, async (req, res) => {
+  try {
+    const resultado = await registrarAbono(req.supabase, {
+      companyId: req.usuario.company_id, proyectoId: req.params.id, usuarioId: req.usuario.id,
+      monto: req.body?.monto != null ? Number(req.body.monto) : undefined,
+      formaPago: req.body?.formaPago, referencia: req.body?.referencia, fecha: req.body?.fecha,
+      comprobanteDocumentoId: req.body?.comprobanteDocumentoId, notas: req.body?.notas,
+    });
+    res.status(201).json(resultado);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/proyectos/:id/cobranza/anticipo', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    const anticipoPct = req.body?.anticipoPct != null ? Number(req.body.anticipoPct) : null;
+    res.json(await actualizarAnticipoRequerido(req.supabase, { companyId: req.usuario.company_id, proyectoId: req.params.id, anticipoPct, usuarioId: req.usuario.id }));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
   }
 });
 

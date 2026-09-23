@@ -1,11 +1,16 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../lib/api';
+import { useAuth } from '../context/AuthContext';
 
-// Progreso del proyecto (Subfase 2A, 2026-09-22) — solo "Venta" tiene datos
-// reales hoy (el proyecto existe = la venta se cerró). El resto de los
-// pasos se muestran deliberadamente como "todavía no existe ese módulo" en
-// vez de simular un estado — se activan uno por uno en las subfases 2B-2I.
+// Mismo criterio que modules/permisos.js::esGerencial() en el backend —
+// duplicado a propósito en frontend (patrón ya usado en CotizacionDetalle.jsx).
+const ROLES_GERENCIALES = ['owner', 'administrador', 'supervisor'];
+
+// Progreso del proyecto (Subfase 2A, 2026-09-22) — "Venta" y "Cobranza" ya
+// tienen datos reales; el resto se muestra deliberadamente como "todavía no
+// existe ese módulo" en vez de simular un estado — se activan uno por uno
+// en las subfases 2C-2I.
 const PASOS_PROGRESO = [
   { clave: 'venta', etiqueta: 'Venta' },
   { clave: 'cobranza', etiqueta: 'Cobranza' },
@@ -17,9 +22,20 @@ const PASOS_PROGRESO = [
   { clave: 'postventa', etiqueta: 'Garantía / Postventa' },
 ];
 
+const ETIQUETA_ESTADO_COBRANZA = {
+  pendiente_anticipo: 'Pendiente de anticipo', anticipo_recibido: 'Anticipo recibido',
+  pago_parcial: 'Pago parcial', liquidado: 'Liquidado', vencido: 'Vencido',
+};
+const SEVERIDAD_ESTADO_COBRANZA = { liquidado: 'success', pago_parcial: 'warning', anticipo_recibido: 'warning', vencido: 'error', pendiente_anticipo: 'neutral' };
+
 function formatearFechaHora(iso) {
   if (!iso) return '—';
   return new Date(iso).toLocaleString('es-MX', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+function formatearFecha(fecha) {
+  if (!fecha) return '—';
+  return new Date(`${fecha}T00:00:00`).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 function formatearMonto(monto) {
@@ -29,12 +45,60 @@ function formatearMonto(monto) {
 
 export default function ProyectoDetalle() {
   const { proyectoId } = useParams();
+  const { sesion } = useAuth();
+  const esGerencial = ROLES_GERENCIALES.includes(sesion?.empresaActiva?.rol);
   const [proyecto, setProyecto] = useState(null);
   const [error, setError] = useState(null);
+  const [cobranza, setCobranza] = useState(null);
+  const [errorCobranza, setErrorCobranza] = useState(null);
+  const [formAbono, setFormAbono] = useState({ monto: '', formaPago: 'transferencia', referencia: '', fecha: '', notas: '' });
+  const [registrando, setRegistrando] = useState(false);
+  const [anticipoInput, setAnticipoInput] = useState('');
+  const [guardandoAnticipo, setGuardandoAnticipo] = useState(false);
 
   useEffect(() => {
     api.proyecto(proyectoId).then(setProyecto).catch((e) => setError(e.message));
   }, [proyectoId]);
+
+  function cargarCobranza() {
+    api.cobranzaProyecto(proyectoId).then((r) => { setCobranza(r); setErrorCobranza(null); }).catch((e) => setErrorCobranza(e.message));
+  }
+
+  useEffect(cargarCobranza, [proyectoId]);
+
+  async function registrarAbonoActual(e) {
+    e.preventDefault();
+    const monto = Number(formAbono.monto);
+    if (!(monto > 0)) { setErrorCobranza('Captura un monto mayor a 0.'); return; }
+    setRegistrando(true);
+    setErrorCobranza(null);
+    try {
+      await api.registrarAbono(proyectoId, {
+        monto, formaPago: formAbono.formaPago || undefined, referencia: formAbono.referencia || undefined,
+        fecha: formAbono.fecha || undefined, notas: formAbono.notas || undefined,
+      });
+      setFormAbono({ monto: '', formaPago: 'transferencia', referencia: '', fecha: '', notas: '' });
+      cargarCobranza();
+    } catch (e2) {
+      setErrorCobranza(e2.message);
+    } finally {
+      setRegistrando(false);
+    }
+  }
+
+  async function guardarAnticipo(e) {
+    e.preventDefault();
+    setGuardandoAnticipo(true);
+    try {
+      await api.actualizarAnticipoRequerido(proyectoId, anticipoInput.trim() === '' ? null : Number(anticipoInput));
+      setAnticipoInput('');
+      cargarCobranza();
+    } catch (e2) {
+      setErrorCobranza(e2.message);
+    } finally {
+      setGuardandoAnticipo(false);
+    }
+  }
 
   if (error) return <p className="login-error">{error}</p>;
   if (!proyecto) return <p className="operaciones-nota">Cargando…</p>;
@@ -86,17 +150,95 @@ export default function ProyectoDetalle() {
       </section>
 
       <section className="crm-seccion">
+        <h2>Cobranza</h2>
+        {errorCobranza && <p className="login-error">{errorCobranza}</p>}
+        {!cobranza ? (
+          <p className="operaciones-nota">Cargando…</p>
+        ) : (
+          <>
+            <dl className="crm-datos-lista">
+              <dt>Total vendido</dt><dd>{formatearMonto(cobranza.total_vendido)}</dd>
+              <dt>Anticipo requerido</dt>
+              <dd>
+                {formatearMonto(cobranza.anticipo_requerido_monto)}{cobranza.anticipo_requerido_pct != null ? ` (${cobranza.anticipo_requerido_pct}%)` : ''}
+                {!cobranza.anticipo_requerido_pct && ' — no capturado en la cotización'}
+              </dd>
+              <dt>Total pagado</dt><dd>{formatearMonto(cobranza.total_pagado)}</dd>
+              <dt>Saldo</dt><dd>{formatearMonto(cobranza.saldo)}</dd>
+              <dt>% pagado</dt><dd>{cobranza.pct_pagado != null ? `${cobranza.pct_pagado.toFixed(0)}%` : '—'}</dd>
+              <dt>Estado</dt><dd><span className={`pill pill--${SEVERIDAD_ESTADO_COBRANZA[cobranza.estado] || 'neutral'}`}>{ETIQUETA_ESTADO_COBRANZA[cobranza.estado] || '—'}</span></dd>
+            </dl>
+
+            {esGerencial && (
+              <form className="config-form-inline" onSubmit={guardarAnticipo}>
+                <input type="number" min="0" max="100" step="0.01" placeholder="% de anticipo requerido"
+                  value={anticipoInput} onChange={(e) => setAnticipoInput(e.target.value)} />
+                <button type="submit" disabled={guardandoAnticipo}>Confirmar anticipo</button>
+              </form>
+            )}
+
+            <h3>Abonos</h3>
+            {cobranza.abonos.length === 0 ? (
+              <p className="operaciones-nota">Sin pagos registrados todavía.</p>
+            ) : (
+              <table>
+                <thead><tr><th>Fecha</th><th>Monto</th><th>Forma de pago</th><th>Referencia</th><th>Notas</th></tr></thead>
+                <tbody>
+                  {cobranza.abonos.map((a) => (
+                    <tr key={a.id}>
+                      <td>{formatearFecha(a.fecha)}</td><td>{formatearMonto(a.monto)}</td>
+                      <td>{a.forma_pago || '—'}</td><td>{a.referencia || '—'}</td><td>{a.notas || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+
+            <h3>Registrar pago</h3>
+            <form className="config-form-inline" onSubmit={registrarAbonoActual}>
+              <input type="number" min="0" step="0.01" placeholder="Monto" required
+                value={formAbono.monto} onChange={(e) => setFormAbono({ ...formAbono, monto: e.target.value })} />
+              <select value={formAbono.formaPago} onChange={(e) => setFormAbono({ ...formAbono, formaPago: e.target.value })}>
+                <option value="transferencia">Transferencia</option>
+                <option value="efectivo">Efectivo</option>
+                <option value="tarjeta">Tarjeta</option>
+                <option value="cheque">Cheque</option>
+                <option value="otro">Otro</option>
+              </select>
+              <input type="text" placeholder="Referencia" value={formAbono.referencia} onChange={(e) => setFormAbono({ ...formAbono, referencia: e.target.value })} />
+              <input type="date" value={formAbono.fecha} onChange={(e) => setFormAbono({ ...formAbono, fecha: e.target.value })} />
+              <input type="text" placeholder="Notas" value={formAbono.notas} onChange={(e) => setFormAbono({ ...formAbono, notas: e.target.value })} />
+              <button type="submit" disabled={registrando}>{registrando ? 'Guardando…' : 'Registrar pago'}</button>
+            </form>
+          </>
+        )}
+      </section>
+
+      <section className="crm-seccion">
         <h2>Progreso</h2>
         <ul className="config-kb-lista">
-          {PASOS_PROGRESO.map((paso) => (
-            <li key={paso.clave} className="config-kb-item">
-              {paso.clave === 'venta' ? (
-                <><span className="pill pill--success">✓</span> {paso.etiqueta} — {formatearFechaHora(proyecto.created_at)}</>
-              ) : (
-                <><span className="pill pill--neutral">—</span> {paso.etiqueta} <span className="operaciones-nota">(módulo todavía no implementado)</span></>
-              )}
-            </li>
-          ))}
+          {PASOS_PROGRESO.map((paso) => {
+            if (paso.clave === 'venta') {
+              return (
+                <li key={paso.clave} className="config-kb-item">
+                  <span className="pill pill--success">✓</span> {paso.etiqueta} — {formatearFechaHora(proyecto.created_at)}
+                </li>
+              );
+            }
+            if (paso.clave === 'cobranza' && cobranza?.estado) {
+              return (
+                <li key={paso.clave} className="config-kb-item">
+                  <span className={`pill pill--${SEVERIDAD_ESTADO_COBRANZA[cobranza.estado] || 'neutral'}`}>{cobranza.estado === 'liquidado' ? '✓' : '·'}</span>
+                  {' '}{paso.etiqueta} — {ETIQUETA_ESTADO_COBRANZA[cobranza.estado]}
+                </li>
+              );
+            }
+            return (
+              <li key={paso.clave} className="config-kb-item">
+                <span className="pill pill--neutral">—</span> {paso.etiqueta} <span className="operaciones-nota">(módulo todavía no implementado)</span>
+              </li>
+            );
+          })}
         </ul>
       </section>
     </div>
