@@ -57,6 +57,10 @@ const { generarPropuestasCotizacion, simularRangoCotizacion } = require('./modul
 const { calcularRentabilidadCotizacion } = require('./modules/rentabilidad');
 const { marcarCotizacionAceptadaYCrearProyecto, obtenerProyecto, obtenerProyectoDeCliente, obtenerProyectoDeCotizacion } = require('./modules/proyectos');
 const { obtenerResumenCobranza, registrarAbono, actualizarAnticipoRequerido } = require('./modules/cobranza');
+const {
+  obtenerChecklistConfig, guardarChecklistConfig, crearInstalacion, obtenerInstalacion,
+  listarInstalacionesDeProyecto, listarInstalaciones, actualizarInstalacion, actualizarEstadoInstalacion, actualizarChecklistItem,
+} = require('./modules/instalaciones');
 const { aplicarDescuento: aplicarDescuentoCotizacion, autorizarDescuento: autorizarDescuentoCotizacion } = require('./modules/cotizacion-descuento');
 const { transcribirAudio, describirImagen } = require('./modules/adjuntos-ia');
 const { procesarReciboCFE, extraerDatosReciboCFE, normalizarDatosRecibo } = require('./modules/recibo-cfe');
@@ -2674,6 +2678,90 @@ app.patch('/api/proyectos/:id/cobranza/anticipo', requireAuth, soloGerencial, as
   try {
     const anticipoPct = req.body?.anticipoPct != null ? Number(req.body.anticipoPct) : null;
     res.json(await actualizarAnticipoRequerido(req.supabase, { companyId: req.usuario.company_id, proyectoId: req.params.id, anticipoPct, usuarioId: req.usuario.id }));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// Subfase 2C — instalaciones (2026-09-23, ver modules/instalaciones.js).
+app.get('/api/checklists-config/:tipo', requireAuth, async (req, res) => {
+  try {
+    res.json(await obtenerChecklistConfig(req.supabase, req.usuario.company_id, req.params.tipo));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.put('/api/checklists-config/:tipo', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    res.json(await guardarChecklistConfig(req.supabase, req.usuario.company_id, req.params.tipo, req.body?.items || []));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.get('/api/instalaciones', requireAuth, async (req, res) => {
+  try {
+    res.json(await listarInstalaciones(req.supabase, req.usuario.company_id, { estado: req.query.estado }));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/instalaciones/:id', requireAuth, async (req, res) => {
+  try {
+    const instalacion = await obtenerInstalacion(req.supabase, req.usuario.company_id, req.params.id);
+    if (!instalacion) return res.status(404).json({ error: 'Instalación no encontrada' });
+    res.json(instalacion);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/proyectos/:id/instalaciones', requireAuth, async (req, res) => {
+  try {
+    res.json(await listarInstalacionesDeProyecto(req.supabase, req.usuario.company_id, req.params.id));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/proyectos/:id/instalaciones', requireAuth, async (req, res) => {
+  try {
+    const instalacion = await crearInstalacion(req.supabase, {
+      companyId: req.usuario.company_id, proyectoId: req.params.id, usuarioId: req.usuario.id,
+      sucursalId: req.body?.sucursalId, responsableId: req.body?.responsableId,
+      fechaProgramada: req.body?.fechaProgramada, horaProgramada: req.body?.horaProgramada,
+      cuadrilla: req.body?.cuadrilla, observaciones: req.body?.observaciones,
+    });
+    res.status(201).json(instalacion);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/instalaciones/:id', requireAuth, async (req, res) => {
+  try {
+    res.json(await actualizarInstalacion(req.supabase, { companyId: req.usuario.company_id, instalacionId: req.params.id, cambios: req.body || {} }));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/instalaciones/:id/estado', requireAuth, async (req, res) => {
+  try {
+    res.json(await actualizarEstadoInstalacion(req.supabase, { companyId: req.usuario.company_id, instalacionId: req.params.id, estado: req.body?.estado, usuarioId: req.usuario.id }));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/instalaciones/:id/checklist', requireAuth, async (req, res) => {
+  try {
+    res.json(await actualizarChecklistItem(req.supabase, {
+      companyId: req.usuario.company_id, instalacionId: req.params.id, usuarioId: req.usuario.id,
+      clave: req.body?.clave, completado: !!req.body?.completado,
+    }));
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
   }

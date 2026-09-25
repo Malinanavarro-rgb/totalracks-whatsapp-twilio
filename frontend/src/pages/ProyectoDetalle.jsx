@@ -28,6 +28,14 @@ const ETIQUETA_ESTADO_COBRANZA = {
 };
 const SEVERIDAD_ESTADO_COBRANZA = { liquidado: 'success', pago_parcial: 'warning', anticipo_recibido: 'warning', vencido: 'error', pendiente_anticipo: 'neutral' };
 
+// Subfase 2C (2026-09-23) — mismos 10 estados que modules/instalaciones.js::ESTADOS_INSTALACION.
+const ETIQUETA_ESTADO_INSTALACION = {
+  por_programar: 'Por programar', programada: 'Programada', preparando_material: 'Preparando material',
+  lista_para_instalacion: 'Lista para instalación', en_camino: 'En camino', instalando: 'Instalando',
+  pruebas: 'Pruebas', terminada: 'Terminada', pendiente_documentacion: 'Pendiente de documentación', entregada: 'Entregada',
+};
+const SEVERIDAD_ESTADO_INSTALACION = { entregada: 'success', terminada: 'success', por_programar: 'neutral' };
+
 function formatearFechaHora(iso) {
   if (!iso) return '—';
   return new Date(iso).toLocaleString('es-MX', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
@@ -55,6 +63,10 @@ export default function ProyectoDetalle() {
   const [registrando, setRegistrando] = useState(false);
   const [anticipoInput, setAnticipoInput] = useState('');
   const [guardandoAnticipo, setGuardandoAnticipo] = useState(false);
+  // Subfase 2C (2026-09-23) — instalaciones de este proyecto.
+  const [instalaciones, setInstalaciones] = useState(null);
+  const [errorInstalacion, setErrorInstalacion] = useState(null);
+  const [creandoInstalacion, setCreandoInstalacion] = useState(false);
 
   useEffect(() => {
     api.proyecto(proyectoId).then(setProyecto).catch((e) => setError(e.message));
@@ -65,6 +77,43 @@ export default function ProyectoDetalle() {
   }
 
   useEffect(cargarCobranza, [proyectoId]);
+
+  function cargarInstalaciones() {
+    api.instalacionesDeProyecto(proyectoId).then((r) => { setInstalaciones(r); setErrorInstalacion(null); }).catch((e) => setErrorInstalacion(e.message));
+  }
+
+  useEffect(cargarInstalaciones, [proyectoId]);
+
+  async function crearInstalacionActual() {
+    setCreandoInstalacion(true);
+    setErrorInstalacion(null);
+    try {
+      await api.crearInstalacion(proyectoId, {});
+      cargarInstalaciones();
+    } catch (e2) {
+      setErrorInstalacion(e2.message);
+    } finally {
+      setCreandoInstalacion(false);
+    }
+  }
+
+  async function cambiarEstadoInstalacion(instalacionId, estado) {
+    try {
+      await api.actualizarEstadoInstalacion(instalacionId, estado);
+      cargarInstalaciones();
+    } catch (e2) {
+      setErrorInstalacion(e2.message);
+    }
+  }
+
+  async function marcarChecklistItem(instalacionId, clave, completado) {
+    try {
+      await api.actualizarChecklistItem(instalacionId, clave, completado);
+      cargarInstalaciones();
+    } catch (e2) {
+      setErrorInstalacion(e2.message);
+    }
+  }
 
   async function registrarAbonoActual(e) {
     e.preventDefault();
@@ -215,6 +264,66 @@ export default function ProyectoDetalle() {
       </section>
 
       <section className="crm-seccion">
+        <h2>Instalación</h2>
+        {errorInstalacion && <p className="login-error">{errorInstalacion}</p>}
+        {instalaciones === null ? (
+          <p className="operaciones-nota">Cargando…</p>
+        ) : instalaciones.length === 0 ? (
+          <>
+            <p className="operaciones-nota">Este proyecto todavía no tiene una instalación programada.</p>
+            <button type="button" onClick={crearInstalacionActual} disabled={creandoInstalacion}>
+              {creandoInstalacion ? 'Creando…' : 'Crear instalación'}
+            </button>
+          </>
+        ) : (
+          instalaciones.map((inst) => {
+            const totalItems = inst.checklist?.length || 0;
+            const completados = (inst.checklist || []).filter((it) => it.completado).length;
+            return (
+              <div key={inst.id} style={{ marginBottom: '1.5rem' }}>
+                <dl className="crm-datos-lista">
+                  <dt>Estado</dt>
+                  <dd>
+                    <select value={inst.estado} onChange={(e) => cambiarEstadoInstalacion(inst.id, e.target.value)}>
+                      {Object.entries(ETIQUETA_ESTADO_INSTALACION).map(([valor, etiqueta]) => <option key={valor} value={valor}>{etiqueta}</option>)}
+                    </select>
+                    {' '}<span className={`pill pill--${SEVERIDAD_ESTADO_INSTALACION[inst.estado] || 'warning'}`}>{ETIQUETA_ESTADO_INSTALACION[inst.estado]}</span>
+                  </dd>
+                  <dt>Fecha programada</dt><dd>{inst.fecha_programada ? formatearFecha(inst.fecha_programada) : '—'}{inst.hora_programada ? ` · ${inst.hora_programada}` : ''}</dd>
+                  <dt>Sucursal</dt><dd>{inst.sucursal_nombre || '—'}</dd>
+                  <dt>Responsable</dt><dd>{inst.responsable_nombre || '—'}</dd>
+                  <dt>Cuadrilla</dt><dd>{inst.cuadrilla?.length ? inst.cuadrilla.join(', ') : '—'}</dd>
+                  <dt>Sistema</dt>
+                  <dd>
+                    {inst.detalle_tecnico?.numero_paneles ?? '—'} paneles · {inst.detalle_tecnico?.potencia_kwp != null ? `${inst.detalle_tecnico.potencia_kwp.toFixed(2)} kWp` : '—'}
+                    {' · '}{inst.detalle_tecnico?.inversor ? `${inst.detalle_tecnico.inversor.marca} ${inst.detalle_tecnico.inversor.modelo}` : 'inversor —'}
+                    {' · '}estructura: {inst.detalle_tecnico?.estructura || '— (sin capturar)'}
+                  </dd>
+                </dl>
+
+                <h3>Checklist ({completados}/{totalItems})</h3>
+                {totalItems === 0 ? (
+                  <p className="operaciones-nota">Esta empresa todavía no tiene un checklist de instalación configurado.</p>
+                ) : (
+                  <ul className="config-kb-lista">
+                    {inst.checklist.map((item) => (
+                      <li key={item.clave} className="config-kb-item">
+                        <label>
+                          <input type="checkbox" checked={item.completado} onChange={(e) => marcarChecklistItem(inst.id, item.clave, e.target.checked)} />
+                          {' '}{item.etiqueta}
+                        </label>
+                        {item.completado && <span className="operaciones-nota"> — {formatearFechaHora(item.completado_en)}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            );
+          })
+        )}
+      </section>
+
+      <section className="crm-seccion">
         <h2>Progreso</h2>
         <ul className="config-kb-lista">
           {PASOS_PROGRESO.map((paso) => {
@@ -230,6 +339,16 @@ export default function ProyectoDetalle() {
                 <li key={paso.clave} className="config-kb-item">
                   <span className={`pill pill--${SEVERIDAD_ESTADO_COBRANZA[cobranza.estado] || 'neutral'}`}>{cobranza.estado === 'liquidado' ? '✓' : '·'}</span>
                   {' '}{paso.etiqueta} — {ETIQUETA_ESTADO_COBRANZA[cobranza.estado]}
+                </li>
+              );
+            }
+            if (paso.clave === 'instalacion' && instalaciones?.length > 0) {
+              const inst = instalaciones[0];
+              const completada = inst.estado === 'entregada' || inst.estado === 'terminada';
+              return (
+                <li key={paso.clave} className="config-kb-item">
+                  <span className={`pill pill--${SEVERIDAD_ESTADO_INSTALACION[inst.estado] || 'warning'}`}>{completada ? '✓' : '·'}</span>
+                  {' '}{paso.etiqueta} — {ETIQUETA_ESTADO_INSTALACION[inst.estado]}
                 </li>
               );
             }
