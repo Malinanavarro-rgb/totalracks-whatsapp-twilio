@@ -41,8 +41,14 @@ function extensionDeMime(mimeType) {
   return subtipo.split(';')[0];
 }
 
-/** Sube un archivo NUEVO (no un adjunto de chat existente) y lo clasifica en un solo paso. */
-async function subirDocumentoCliente(supabase, { company_id, cliente_id, categoria, buffer, mimeType, nombre_archivo, subido_por }) {
+/**
+ * Sube un archivo NUEVO (no un adjunto de chat existente) y lo clasifica en
+ * un solo paso. `instalacion_id`/`fase` son opcionales — solo los usa el
+ * flujo de evidencias de instalación (subfase 2D, POST
+ * /api/instalaciones/:id/evidencias); una subida normal del expediente los
+ * deja en null, sin cambiar su comportamiento.
+ */
+async function subirDocumentoCliente(supabase, { company_id, cliente_id, categoria, buffer, mimeType, nombre_archivo, subido_por, instalacion_id, fase }) {
   if (!company_id || !cliente_id) throw new Error('documentos-cliente.subirDocumentoCliente: company_id y cliente_id son requeridos');
   if (!categoria) throw new Error('documentos-cliente.subirDocumentoCliente: categoria es requerida');
   if (!buffer?.length) throw new Error('documentos-cliente.subirDocumentoCliente: archivo vacío o faltante');
@@ -59,6 +65,7 @@ async function subirDocumentoCliente(supabase, { company_id, cliente_id, categor
   const { data, error } = await supabase.from('documentos_cliente').insert({
     company_id, cliente_id, categoria, bucket: BUCKET, path,
     nombre_archivo: nombre_archivo || null, origen: 'subida_manual', subido_por: subido_por || null,
+    instalacion_id: instalacion_id || null, fase: fase || null,
   }).select().single();
   if (error) throw new Error(`documentos-cliente.subirDocumentoCliente: ${error.message}`);
 
@@ -106,6 +113,14 @@ async function clasificarAdjuntoDeMensaje(supabase, { company_id, cliente_id, ca
 async function listarDocumentosCliente(supabase, companyId, clienteId, { categoria } = {}) {
   let query = supabase.from('documentos_cliente').select('*').eq('company_id', companyId).eq('cliente_id', clienteId).order('created_at', { ascending: false });
   if (categoria) query = query.eq('categoria', categoria);
+  const { data, error } = await query;
+  return error ? [] : (data || []);
+}
+
+/** Evidencias de UNA instalación (2D) — opcionalmente filtradas por fase (antes/durante/después). */
+async function listarEvidenciasDeInstalacion(supabase, companyId, instalacionId, { fase } = {}) {
+  let query = supabase.from('documentos_cliente').select('*').eq('company_id', companyId).eq('instalacion_id', instalacionId).order('created_at', { ascending: true });
+  if (fase) query = query.eq('fase', fase);
   const { data, error } = await query;
   return error ? [] : (data || []);
 }
@@ -160,6 +175,6 @@ async function generarUrlFirmadaDocumentoCliente(supabase, documento, segundos =
 
 module.exports = {
   BUCKET, CATEGORIAS, extensionDeMime,
-  subirDocumentoCliente, clasificarAdjuntoDeMensaje, listarDocumentosCliente, adjuntosSinClasificar,
+  subirDocumentoCliente, clasificarAdjuntoDeMensaje, listarDocumentosCliente, listarEvidenciasDeInstalacion, adjuntosSinClasificar,
   eliminarDocumentoCliente, generarUrlFirmadaDocumentoCliente,
 };

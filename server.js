@@ -61,6 +61,10 @@ const {
   obtenerChecklistConfig, guardarChecklistConfig, crearInstalacion, obtenerInstalacion,
   listarInstalacionesDeProyecto, listarInstalaciones, actualizarInstalacion, actualizarEstadoInstalacion, actualizarChecklistItem,
 } = require('./modules/instalaciones');
+const {
+  crearEquipoInstalado, listarEquiposDeProyecto, listarEquiposDeInstalacion, actualizarEquipoInstalado,
+} = require('./modules/equipos-instalados');
+const { registrarMovimiento, listarSaldos, listarMovimientos, reservarMaterialInstalacion, consumirMaterialInstalacion } = require('./modules/inventario');
 const { aplicarDescuento: aplicarDescuentoCotizacion, autorizarDescuento: autorizarDescuentoCotizacion } = require('./modules/cotizacion-descuento');
 const { transcribirAudio, describirImagen } = require('./modules/adjuntos-ia');
 const { procesarReciboCFE, extraerDatosReciboCFE, normalizarDatosRecibo } = require('./modules/recibo-cfe');
@@ -68,7 +72,7 @@ const { esGerencial } = require('./modules/permisos');
 const { crearSolicitud: crearSolicitudConocimiento, listarSolicitudes: listarSolicitudesConocimiento, responderSolicitud: responderSolicitudConocimiento, rechazarSolicitud: rechazarSolicitudConocimiento } = require('./modules/knowledge-requests');
 const { subirDocumento: subirDocumentoProveedor, procesarDocumento: procesarDocumentoProveedor, listarDocumentos: listarDocumentosProveedor, confirmarDocumento: confirmarDocumentoProveedor, generarUrlFirmadaDocumento } = require('./modules/documentos-proveedor');
 const {
-  subirDocumentoCliente, clasificarAdjuntoDeMensaje, listarDocumentosCliente, adjuntosSinClasificar,
+  subirDocumentoCliente, clasificarAdjuntoDeMensaje, listarDocumentosCliente, listarEvidenciasDeInstalacion, adjuntosSinClasificar,
   eliminarDocumentoCliente, generarUrlFirmadaDocumentoCliente,
 } = require('./modules/documentos-cliente');
 const {
@@ -2762,6 +2766,139 @@ app.patch('/api/instalaciones/:id/checklist', requireAuth, async (req, res) => {
       companyId: req.usuario.company_id, instalacionId: req.params.id, usuarioId: req.usuario.id,
       clave: req.body?.clave, completado: !!req.body?.completado,
     }));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// Subfase 2D — evidencias / equipos instalados (2026-09-25, ver
+// modules/equipos-instalados.js). Es la fuente de "mis paneles/productos"
+// para el futuro portal del cliente — por eso el listado real vive en
+// GET /api/proyectos/:id/equipos, no solo por instalación.
+app.post('/api/instalaciones/:id/evidencias', requireAuth, uploadDocumentoCliente.single('archivo'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'archivo requerido' });
+    const instalacion = await obtenerInstalacion(req.supabase, req.usuario.company_id, req.params.id);
+    if (!instalacion) return res.status(404).json({ error: 'Instalación no encontrada' });
+    const proyecto = await obtenerProyecto(req.supabase, req.usuario.company_id, instalacion.proyecto_id);
+    if (!proyecto?.cliente_id) return res.status(409).json({ error: 'Este proyecto no tiene cliente asociado todavía' });
+
+    const documento = await subirDocumentoCliente(supabaseServicio, {
+      company_id: req.usuario.company_id, cliente_id: proyecto.cliente_id, categoria: req.body?.categoria || 'otro',
+      buffer: req.file.buffer, mimeType: req.file.mimetype, nombre_archivo: req.file.originalname, subido_por: req.usuario.id,
+      instalacion_id: req.params.id, fase: req.body?.fase,
+    });
+    res.status(201).json(documento);
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message });
+  }
+});
+
+app.get('/api/instalaciones/:id/evidencias', requireAuth, async (req, res) => {
+  try {
+    res.json(await listarEvidenciasDeInstalacion(req.supabase, req.usuario.company_id, req.params.id, { fase: req.query.fase }));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/instalaciones/:id/equipos', requireAuth, async (req, res) => {
+  try {
+    const instalacion = await obtenerInstalacion(req.supabase, req.usuario.company_id, req.params.id);
+    if (!instalacion) return res.status(404).json({ error: 'Instalación no encontrada' });
+
+    const equipo = await crearEquipoInstalado(req.supabase, {
+      companyId: req.usuario.company_id, proyectoId: instalacion.proyecto_id, instalacionId: req.params.id, usuarioId: req.usuario.id,
+      tipoEquipo: req.body?.tipoEquipo, marca: req.body?.marca, modelo: req.body?.modelo, numeroSerie: req.body?.numeroSerie,
+      potenciaCapacidad: req.body?.potenciaCapacidad, proveedor: req.body?.proveedor, fechaInstalacion: req.body?.fechaInstalacion,
+      garantiaMeses: req.body?.garantiaMeses != null ? Number(req.body.garantiaMeses) : undefined,
+      productoId: req.body?.productoId, documentoEvidenciaId: req.body?.documentoEvidenciaId, notas: req.body?.notas,
+    });
+    res.status(201).json(equipo);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.get('/api/instalaciones/:id/equipos', requireAuth, async (req, res) => {
+  try {
+    res.json(await listarEquiposDeInstalacion(req.supabase, req.usuario.company_id, req.params.id));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Mismo endpoint que usará el futuro portal del cliente (autenticación
+// distinta, misma función de negocio) — "mis paneles/productos" de TODO el proyecto.
+app.get('/api/proyectos/:id/equipos', requireAuth, async (req, res) => {
+  try {
+    res.json(await listarEquiposDeProyecto(req.supabase, req.usuario.company_id, req.params.id));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/equipos-instalados/:id', requireAuth, async (req, res) => {
+  try {
+    res.json(await actualizarEquipoInstalado(req.supabase, { companyId: req.usuario.company_id, equipoId: req.params.id, cambios: req.body || {} }));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// Subfase 2F — inventario (2026-09-25, ver modules/inventario.js).
+app.get('/api/inventario/saldos', requireAuth, async (req, res) => {
+  try {
+    res.json(await listarSaldos(req.supabase, req.usuario.company_id, { sucursalId: req.query.sucursalId, tipoProducto: req.query.tipoProducto }));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/inventario/movimientos', requireAuth, async (req, res) => {
+  try {
+    res.json(await listarMovimientos(req.supabase, req.usuario.company_id, {
+      productoId: req.query.productoId, sucursalId: req.query.sucursalId, proyectoId: req.query.proyectoId,
+    }));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/inventario/movimientos', requireAuth, async (req, res) => {
+  try {
+    const resultado = await registrarMovimiento(req.supabase, {
+      companyId: req.usuario.company_id, usuarioId: req.usuario.id,
+      productoId: req.body?.productoId, sucursalId: req.body?.sucursalId, tipo: req.body?.tipo,
+      cantidad: req.body?.cantidad != null ? Number(req.body.cantidad) : undefined,
+      proyectoId: req.body?.proyectoId, referencia: req.body?.referencia, motivo: req.body?.motivo, observaciones: req.body?.observaciones,
+    });
+    res.status(201).json(resultado);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// Una instalación reserva/consume el material que ya tiene programado —
+// items: [{productoId, cantidad}]. Cruza pertenencia vía obtenerInstalacion
+// (ya filtra por company_id) antes de tocar cualquier movimiento.
+app.post('/api/instalaciones/:id/inventario/reservar', requireAuth, async (req, res) => {
+  try {
+    const instalacion = await obtenerInstalacion(req.supabase, req.usuario.company_id, req.params.id);
+    if (!instalacion) return res.status(404).json({ error: 'Instalación no encontrada' });
+    const resultado = await reservarMaterialInstalacion(req.supabase, { companyId: req.usuario.company_id, instalacion, items: req.body?.items || [], usuarioId: req.usuario.id });
+    res.status(201).json(resultado);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/instalaciones/:id/inventario/consumir', requireAuth, async (req, res) => {
+  try {
+    const instalacion = await obtenerInstalacion(req.supabase, req.usuario.company_id, req.params.id);
+    if (!instalacion) return res.status(404).json({ error: 'Instalación no encontrada' });
+    const resultado = await consumirMaterialInstalacion(req.supabase, { companyId: req.usuario.company_id, instalacion, items: req.body?.items || [], usuarioId: req.usuario.id });
+    res.status(201).json(resultado);
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
   }

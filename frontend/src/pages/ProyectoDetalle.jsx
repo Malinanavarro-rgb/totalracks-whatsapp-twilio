@@ -67,6 +67,11 @@ export default function ProyectoDetalle() {
   const [instalaciones, setInstalaciones] = useState(null);
   const [errorInstalacion, setErrorInstalacion] = useState(null);
   const [creandoInstalacion, setCreandoInstalacion] = useState(false);
+  // Subfase 2D (2026-09-25) — equipos instalados ("mis paneles/productos" a futuro para el cliente).
+  const [equipos, setEquipos] = useState(null);
+  const [errorEquipos, setErrorEquipos] = useState(null);
+  const [formEquipo, setFormEquipo] = useState({ tipoEquipo: 'panel', marca: '', modelo: '', numeroSerie: '', potenciaCapacidad: '', garantiaMeses: '' });
+  const [registrandoEquipo, setRegistrandoEquipo] = useState(false);
 
   useEffect(() => {
     api.proyecto(proyectoId).then(setProyecto).catch((e) => setError(e.message));
@@ -103,6 +108,30 @@ export default function ProyectoDetalle() {
       cargarInstalaciones();
     } catch (e2) {
       setErrorInstalacion(e2.message);
+    }
+  }
+
+  function cargarEquipos() {
+    api.equiposDeProyecto(proyectoId).then((r) => { setEquipos(r); setErrorEquipos(null); }).catch((e) => setErrorEquipos(e.message));
+  }
+
+  useEffect(cargarEquipos, [proyectoId]);
+
+  async function registrarEquipo(instalacionId, e) {
+    e.preventDefault();
+    setRegistrandoEquipo(true);
+    setErrorEquipos(null);
+    try {
+      await api.crearEquipoInstalado(instalacionId, {
+        ...formEquipo,
+        garantiaMeses: formEquipo.garantiaMeses === '' ? undefined : Number(formEquipo.garantiaMeses),
+      });
+      setFormEquipo({ tipoEquipo: 'panel', marca: '', modelo: '', numeroSerie: '', potenciaCapacidad: '', garantiaMeses: '' });
+      cargarEquipos();
+    } catch (e2) {
+      setErrorEquipos(e2.message);
+    } finally {
+      setRegistrandoEquipo(false);
     }
   }
 
@@ -317,9 +346,50 @@ export default function ProyectoDetalle() {
                     ))}
                   </ul>
                 )}
+
+                <h3>Registrar equipo</h3>
+                <form className="config-form-inline" onSubmit={(e) => registrarEquipo(inst.id, e)}>
+                  <select value={formEquipo.tipoEquipo} onChange={(e) => setFormEquipo({ ...formEquipo, tipoEquipo: e.target.value })}>
+                    <option value="panel">Panel</option>
+                    <option value="inversor">Inversor</option>
+                    <option value="microinversor">Microinversor</option>
+                    <option value="estructura">Estructura</option>
+                    <option value="bateria">Batería</option>
+                    <option value="otro">Otro</option>
+                  </select>
+                  <input type="text" placeholder="Marca" value={formEquipo.marca} onChange={(e) => setFormEquipo({ ...formEquipo, marca: e.target.value })} />
+                  <input type="text" placeholder="Modelo" value={formEquipo.modelo} onChange={(e) => setFormEquipo({ ...formEquipo, modelo: e.target.value })} />
+                  <input type="text" placeholder="Número de serie" value={formEquipo.numeroSerie} onChange={(e) => setFormEquipo({ ...formEquipo, numeroSerie: e.target.value })} />
+                  <input type="text" placeholder="Potencia/capacidad (ej. 435W)" value={formEquipo.potenciaCapacidad} onChange={(e) => setFormEquipo({ ...formEquipo, potenciaCapacidad: e.target.value })} />
+                  <input type="number" placeholder="Garantía (meses)" value={formEquipo.garantiaMeses} onChange={(e) => setFormEquipo({ ...formEquipo, garantiaMeses: e.target.value })} />
+                  <button type="submit" disabled={registrandoEquipo}>{registrandoEquipo ? 'Guardando…' : 'Registrar equipo'}</button>
+                </form>
               </div>
             );
           })
+        )}
+      </section>
+
+      <section className="crm-seccion">
+        <h2>Equipos instalados</h2>
+        <p className="operaciones-nota">Esto es lo que el cliente verá como "mis paneles/productos" en su portal.</p>
+        {errorEquipos && <p className="login-error">{errorEquipos}</p>}
+        {equipos === null ? (
+          <p className="operaciones-nota">Cargando…</p>
+        ) : equipos.length === 0 ? (
+          <p className="operaciones-nota">Todavía no hay equipos registrados para este proyecto.</p>
+        ) : (
+          <ul className="config-kb-lista">
+            {equipos.map((eq) => (
+              <li key={eq.id} className="config-kb-item">
+                <strong>{eq.tipo_equipo}</strong>{eq.marca ? ` ${eq.marca}` : ''}{eq.modelo ? ` ${eq.modelo}` : ''}
+                {eq.numero_serie ? ` — S/N ${eq.numero_serie}` : ''}
+                {eq.potencia_capacidad ? ` · ${eq.potencia_capacidad}` : ''}
+                {eq.garantia_meses ? ` · Garantía: ${eq.garantia_meses} meses` : ' · Garantía: sin definir'}
+                {eq.fecha_instalacion && <span className="operaciones-nota"> — instalado {formatearFecha(eq.fecha_instalacion)}</span>}
+              </li>
+            ))}
+          </ul>
         )}
       </section>
 
