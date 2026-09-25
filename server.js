@@ -64,6 +64,10 @@ const {
 const {
   crearEquipoInstalado, listarEquiposDeProyecto, listarEquiposDeInstalacion, actualizarEquipoInstalado,
 } = require('./modules/equipos-instalados');
+const {
+  solicitarCodigoAcceso, verificarCodigoAcceso, resolverSesionPortal, cerrarSesionPortal,
+} = require('./modules/portal-cliente');
+const { enviarCorreoCodigoAcceso } = require('./modules/email');
 const { registrarMovimiento, listarSaldos, listarMovimientos, reservarMaterialInstalacion, consumirMaterialInstalacion } = require('./modules/inventario');
 const { aplicarDescuento: aplicarDescuentoCotizacion, autorizarDescuento: autorizarDescuentoCotizacion } = require('./modules/cotizacion-descuento');
 const { transcribirAudio, describirImagen } = require('./modules/adjuntos-ia');
@@ -185,6 +189,27 @@ app.use(express.urlencoded({ extended: false }));
 // request ya estaría consumido).
 app.use(express.json({ verify: (req, _res, buf) => { req.rawBody = buf; } }));
 app.use(cookieParser());
+
+// Portal del cliente (2026-09-25) — se llama desde el navegador del cliente
+// en un dominio DISTINTO (ej. nortenergy.com.mx, sitio estático sin
+// backend propio), nunca desde el panel de TARA. CORS deliberadamente
+// SOLO en /api/portal/* — el resto de la API sigue sin CORS, mismo
+// origen que siempre. Lista de orígenes permitidos por variable de
+// entorno (nunca "*", porque la cookie de sesión del portal viaja con
+// credentials:true).
+const ORIGENES_PORTAL_PERMITIDOS = (process.env.PORTAL_ALLOWED_ORIGINS || '').split(',').map((o) => o.trim()).filter(Boolean);
+app.use('/api/portal', (req, res, next) => {
+  const origen = req.headers.origin;
+  if (origen && ORIGENES_PORTAL_PERMITIDOS.includes(origen)) {
+    res.setHeader('Access-Control-Allow-Origin', origen);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Vary', 'Origin');
+  }
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
 
 // ── Cola por conversación ─────────────────────────────────────────────────────
 // Serializa mensajes del mismo número para evitar race conditions cuando el
@@ -2846,6 +2871,90 @@ app.patch('/api/equipos-instalados/:id', requireAuth, async (req, res) => {
   }
 });
 
+// ── Portal del cliente (2026-09-25, ver modules/portal-cliente.js) ─────────────
+// Sesión propia, NUNCA tara_session/tara_company (los clientes no son
+// usuarios de TARA). Cookie con SameSite=None+Secure porque se consume
+// desde un dominio distinto (ej. nortenergy.com.mx) — a diferencia de
+// COOKIE_OPTS (Lax), que asume mismo sitio.
+const PORTAL_COOKIE_OPTS = {
+  httpOnly: true,
+  secure: true,
+  sameSite: 'none',
+  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 días, igual que la vigencia de la sesión en DB
+};
+
+async function requirePortalAuth(req, res, next) {
+  const token = req.cookies?.tara_portal_session;
+  const sesion = await resolverSesionPortal(supabaseServicio, token);
+  if (!sesion) return res.status(401).json({ error: 'No autenticado' });
+  req.portalCliente = sesion; // { companyId, clienteId }
+  next();
+}
+
+app.post('/api/portal/solicitar-codigo', async (req, res) => {
+  try {
+    if (!req.body?.companyId || !req.body?.correo) return res.status(400).json({ error: 'companyId y correo son requeridos' });
+    res.json(await solicitarCodigoAcceso(supabaseServicio, { companyId: req.body.companyId, correo: req.body.correo }, { enviarCorreo: enviarCorreoCodigoAcceso }));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/portal/verificar-codigo', async (req, res) => {
+  try {
+    const { token, cliente } = await verificarCodigoAcceso(supabaseServicio, {
+      companyId: req.body?.companyId, correo: req.body?.correo, codigo: req.body?.codigo,
+    });
+    res.cookie('tara_portal_session', token, PORTAL_COOKIE_OPTS);
+    res.json({ cliente });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/portal/logout', async (req, res) => {
+  await cerrarSesionPortal(supabaseServicio, req.cookies?.tara_portal_session);
+  res.clearCookie('tara_portal_session', PORTAL_COOKIE_OPTS);
+  res.status(204).send();
+});
+
+// "Mis paneles/productos" y "mi facturación" — MISMAS funciones de negocio
+// que ya usa el panel de empleados (listarEquiposDeProyecto,
+// obtenerResumenCobranza), solo con una fuente de identidad distinta
+// (req.portalCliente en vez de req.usuario).
+app.get('/api/portal/mi-proyecto', requirePortalAuth, async (req, res) => {
+  try {
+    // obtenerProyectoDeCliente solo trae {id, numero_proyecto} (pensada para
+    // el link "Ver proyecto" del expediente) — el portal necesita el
+    // registro completo, así que se resuelve con obtenerProyecto().
+    const referencia = await obtenerProyectoDeCliente(supabaseServicio, req.portalCliente.companyId, req.portalCliente.clienteId);
+    if (!referencia) return res.json(null);
+    res.json(await obtenerProyecto(supabaseServicio, req.portalCliente.companyId, referencia.id));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/portal/mis-equipos', requirePortalAuth, async (req, res) => {
+  try {
+    const proyecto = await obtenerProyectoDeCliente(supabaseServicio, req.portalCliente.companyId, req.portalCliente.clienteId);
+    if (!proyecto) return res.json([]);
+    res.json(await listarEquiposDeProyecto(supabaseServicio, req.portalCliente.companyId, proyecto.id));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/portal/mi-cobranza', requirePortalAuth, async (req, res) => {
+  try {
+    const proyecto = await obtenerProyectoDeCliente(supabaseServicio, req.portalCliente.companyId, req.portalCliente.clienteId);
+    if (!proyecto) return res.json(null);
+    res.json(await obtenerResumenCobranza(supabaseServicio, req.portalCliente.companyId, proyecto.id));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Subfase 2F — inventario (2026-09-25, ver modules/inventario.js).
 app.get('/api/inventario/saldos', requireAuth, async (req, res) => {
   try {
@@ -3079,6 +3188,14 @@ app.post('/api/invitaciones/:token/aceptar', async (req, res) => {
 
 app.get('/privacidad', (req, res) => res.sendFile(path.join(__dirname, 'legal', 'privacidad.html')));
 app.get('/terminos',   (req, res) => res.sendFile(path.join(__dirname, 'legal', 'terminos.html')));
+
+// ── PORTAL DEL CLIENTE — demo de referencia (2026-09-25) ──────────────────────
+// Página estática independiente del panel de TARA (portal-demo/index.html),
+// servida MISMO ORIGEN que la API — así la cookie de sesión del portal
+// funciona sin depender de PORTAL_ALLOWED_ORIGINS. El sitio real del cliente
+// (ej. nortenergy.com.mx) consumirá /api/portal/* desde su propio dominio,
+// vía el CORS dedicado ya configurado arriba.
+app.get('/portal-demo', (req, res) => res.sendFile(path.join(__dirname, 'portal-demo', 'index.html')));
 
 // ── OAUTH GOOGLE CALENDAR (ANEXO A, TA.5) ─────────────────────────────────────
 // Rutas delgadas — la lógica vive en modules/google-auth.js.
