@@ -102,6 +102,12 @@ async function listarProductosPorTipo(supabase, companyId, tipo) {
   return error ? [] : (data || []);
 }
 
+/** Todos los productos activos de la empresa, sin filtrar por tipo — para selectores genéricos (ej. ítems de una orden de compra, 2G). */
+async function listarProductosActivos(supabase, companyId) {
+  const { data, error } = await supabase.from('productos').select('*').eq('company_id', companyId).eq('activo', true).order('marca', { ascending: true });
+  return error ? [] : (data || []);
+}
+
 /**
  * Corre el motor de ingeniería de la industria de la empresa con datos
  * reales (HSP/parámetros/catálogo resueltos de la DB) y guarda el
@@ -873,7 +879,7 @@ async function autorizarPrecioFinal(supabase, { cotizacionId, usuarioId, precioF
 }
 
 module.exports = {
-  resolverHSP, resolverParametro, resolverParametrosPanelesSolares, listarProductosPorTipo,
+  resolverHSP, resolverParametro, resolverParametrosPanelesSolares, listarProductosPorTipo, listarProductosActivos,
   autorizarPrecioFinal,
   correrYGuardarCalculo, marcarIngenieriaValidada, marcarPredimensionamientoRevisado,
   mapearCapturedFieldsAInfoTecnica, correrCotizacionDesdeWorkflow, enviarProactivoWhatsApp,

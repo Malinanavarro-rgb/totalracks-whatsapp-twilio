@@ -252,7 +252,20 @@ export const api = {
 
   // Catálogo de productos por tipo (panel_solar/inversor/microinversor/...)
   productosPorTipo:    (tipo) => pedir(`/api/productos?tipo=${encodeURIComponent(tipo)}`),
+  productosActivos:    () => pedir('/api/productos'),
+  sucursales:          () => pedir('/api/sucursales'),
   paquetesSolares:     () => pedir('/api/paquetes-solares?activos=true'),
+
+  // Subfase 2G — Compras y proveedores (2026-09-25, ver modules/compras.js).
+  proveedores:              () => pedir('/api/proveedores'),
+  crearProveedor:           (datos) => pedir('/api/proveedores', { method: 'POST', body: JSON.stringify(datos) }),
+  actualizarProveedor:      (id, cambios) => pedir(`/api/proveedores/${id}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
+  ordenesCompra:            () => pedir('/api/ordenes-compra'),
+  ordenCompra:              (id) => pedir(`/api/ordenes-compra/${id}`),
+  crearOrdenCompra:         (datos) => pedir('/api/ordenes-compra', { method: 'POST', body: JSON.stringify(datos) }),
+  actualizarOrdenCompra:    (id, cambios) => pedir(`/api/ordenes-compra/${id}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
+  actualizarEstadoOrdenCompra: (id, estado) => pedir(`/api/ordenes-compra/${id}/estado`, { method: 'PATCH', body: JSON.stringify({ estado }) }),
+  recibirOrdenCompra:       (id) => pedir(`/api/ordenes-compra/${id}/recibir`, { method: 'POST' }),
   planesFinanciamiento:        (soloActivos) => pedir(`/api/planes-financiamiento${soloActivos ? '?activos=true' : ''}`),
   crearPlanFinanciamiento:     (datos) => pedir('/api/planes-financiamiento', { method: 'POST', body: JSON.stringify(datos) }),
   actualizarPlanFinanciamiento: (id, cambios) => pedir(`/api/planes-financiamiento/${id}`, { method: 'PATCH', body: JSON.stringify(cambios) }),

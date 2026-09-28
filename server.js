@@ -45,7 +45,8 @@ const { resolverOCrearHilo, registrarMensaje, listarHilos, obtenerHilo, listarMe
 const { analizarHilo, analizarConversacionPegada, analizarOportunidadParaCierre, programarAnalisis, obtenerAnalisisHilo } = require('./modules/inbox-analisis');
 const { tipoContenidoDeMime, subirAdjunto, generarUrlFirmada } = require('./modules/inbox-adjuntos');
 const { asociarSiHaySesionDeCotizacionActiva, listarAdjuntosDeCotizacion } = require('./modules/cotizacion-adjuntos');
-const { marcarPredimensionamientoRevisado, marcarIngenieriaValidada, puedeEnviarCotizacion, autorizarPrecioFinal, listarCotizaciones, obtenerCotizacion, correrCotizacionDesdeWorkflow, crearCotizacionBorrador, correrCalculoCotizacionManual, listarProductosPorTipo } = require('./modules/cotizaciones');
+const { marcarPredimensionamientoRevisado, marcarIngenieriaValidada, puedeEnviarCotizacion, autorizarPrecioFinal, listarCotizaciones, obtenerCotizacion, correrCotizacionDesdeWorkflow, crearCotizacionBorrador, correrCalculoCotizacionManual, listarProductosPorTipo, listarProductosActivos } = require('./modules/cotizaciones');
+const { listarSucursales } = require('./modules/sucursales');
 const { listarLineas, agregarLinea, actualizarLinea, eliminarLinea, aplicarCalculoALineas, aplicarBomALineas } = require('./modules/cotizacion-lineas');
 const { generarPdfCotizacion, generarYEnviarCotizacion, BUCKET_COTIZACIONES_PDF } = require('./modules/cotizacion-pdf');
 const { listarPaquetes, crearPaquete, actualizarPaquete, desactivarPaquete, eliminarPaquete, listarPaquetesConCotizaciones } = require('./modules/paquetes-solares');
@@ -69,6 +70,10 @@ const {
 } = require('./modules/portal-cliente');
 const { enviarCorreoCodigoAcceso } = require('./modules/email');
 const { registrarMovimiento, listarSaldos, listarMovimientos, reservarMaterialInstalacion, consumirMaterialInstalacion } = require('./modules/inventario');
+const {
+  crearProveedor, listarProveedores, actualizarProveedor,
+  crearOrdenCompra, obtenerOrdenCompra, listarOrdenesCompra, actualizarOrdenCompra, actualizarEstadoOrdenCompra, recibirOrdenCompra,
+} = require('./modules/compras');
 const { aplicarDescuento: aplicarDescuentoCotizacion, autorizarDescuento: autorizarDescuentoCotizacion } = require('./modules/cotizacion-descuento');
 const { transcribirAudio, describirImagen } = require('./modules/adjuntos-ia');
 const { procesarReciboCFE, extraerDatosReciboCFE, normalizarDatosRecibo } = require('./modules/recibo-cfe');
@@ -2375,8 +2380,21 @@ app.get('/api/paquetes-solares', requireAuth, async (req, res) => {
 // 'microinversor', etc.
 app.get('/api/productos', requireAuth, async (req, res) => {
   try {
-    if (!req.query.tipo) return res.status(400).json({ error: 'Falta el parámetro tipo' });
-    res.json(await listarProductosPorTipo(req.supabase, req.usuario.company_id, req.query.tipo));
+    // Sin `tipo` → catálogo completo (selector genérico, ej. ítems de una
+    // orden de compra en 2G); con `tipo` → el filtro de siempre para el motor.
+    res.json(req.query.tipo
+      ? await listarProductosPorTipo(req.supabase, req.usuario.company_id, req.query.tipo)
+      : await listarProductosActivos(req.supabase, req.usuario.company_id));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Primer endpoint propio de sucursales (existían desde la migración 076 pero
+// nunca se pudieron listar desde el frontend) — ver modules/sucursales.js.
+app.get('/api/sucursales', requireAuth, async (req, res) => {
+  try {
+    res.json(await listarSucursales(req.supabase, req.usuario.company_id, { soloActivas: req.query.soloActivas !== 'false' }));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -3008,6 +3026,93 @@ app.post('/api/instalaciones/:id/inventario/consumir', requireAuth, async (req, 
     if (!instalacion) return res.status(404).json({ error: 'Instalación no encontrada' });
     const resultado = await consumirMaterialInstalacion(req.supabase, { companyId: req.usuario.company_id, instalacion, items: req.body?.items || [], usuarioId: req.usuario.id });
     res.status(201).json(resultado);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// Subfase 2G — compras y proveedores (2026-09-25, ver modules/compras.js).
+// Crear/editar/recibir gateadas a soloGerencial (compromete dinero/inventario
+// real) — las lecturas quedan abiertas a cualquier usuario de la empresa,
+// mismo criterio que el resto del bloque operativo.
+app.get('/api/proveedores', requireAuth, async (req, res) => {
+  try {
+    res.json(await listarProveedores(req.supabase, req.usuario.company_id, { soloActivos: req.query.soloActivos !== 'false' }));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/proveedores', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    const proveedor = await crearProveedor(req.supabase, {
+      companyId: req.usuario.company_id, nombre: req.body?.nombre, contactoNombre: req.body?.contactoNombre,
+      contactoTelefono: req.body?.contactoTelefono, contactoEmail: req.body?.contactoEmail, notas: req.body?.notas,
+    });
+    res.status(201).json(proveedor);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/proveedores/:id', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    res.json(await actualizarProveedor(req.supabase, { companyId: req.usuario.company_id, proveedorId: req.params.id, cambios: req.body || {} }));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.get('/api/ordenes-compra', requireAuth, async (req, res) => {
+  try {
+    res.json(await listarOrdenesCompra(req.supabase, req.usuario.company_id, { estado: req.query.estado, proveedorId: req.query.proveedorId }));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/ordenes-compra/:id', requireAuth, async (req, res) => {
+  try {
+    const orden = await obtenerOrdenCompra(req.supabase, req.usuario.company_id, req.params.id);
+    if (!orden) return res.status(404).json({ error: 'Orden de compra no encontrada' });
+    res.json(orden);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/ordenes-compra', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    const orden = await crearOrdenCompra(req.supabase, {
+      companyId: req.usuario.company_id, proveedorId: req.body?.proveedorId, sucursalId: req.body?.sucursalId, proyectoId: req.body?.proyectoId,
+      items: req.body?.items || [], fechaSolicitada: req.body?.fechaSolicitada, fechaEsperada: req.body?.fechaEsperada,
+      notas: req.body?.notas, usuarioId: req.usuario.id,
+    });
+    res.status(201).json(orden);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/ordenes-compra/:id', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    res.json(await actualizarOrdenCompra(req.supabase, { companyId: req.usuario.company_id, ordenId: req.params.id, cambios: req.body || {} }));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/ordenes-compra/:id/estado', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    res.json(await actualizarEstadoOrdenCompra(req.supabase, { companyId: req.usuario.company_id, ordenId: req.params.id, estado: req.body?.estado, usuarioId: req.usuario.id }));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/ordenes-compra/:id/recibir', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    res.json(await recibirOrdenCompra(req.supabase, { companyId: req.usuario.company_id, ordenId: req.params.id, usuarioId: req.usuario.id }));
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
   }
