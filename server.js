@@ -74,6 +74,9 @@ const {
   crearProveedor, listarProveedores, actualizarProveedor,
   crearOrdenCompra, obtenerOrdenCompra, listarOrdenesCompra, actualizarOrdenCompra, actualizarEstadoOrdenCompra, recibirOrdenCompra,
 } = require('./modules/compras');
+const {
+  crearTramiteCfe, obtenerTramiteCfe, obtenerTramiteDeProyecto, listarTramitesCfe, actualizarTramiteCfe, actualizarEstadoTramiteCfe,
+} = require('./modules/tramites-cfe');
 const { aplicarDescuento: aplicarDescuentoCotizacion, autorizarDescuento: autorizarDescuentoCotizacion } = require('./modules/cotizacion-descuento');
 const { transcribirAudio, describirImagen } = require('./modules/adjuntos-ia');
 const { procesarReciboCFE, extraerDatosReciboCFE, normalizarDatosRecibo } = require('./modules/recibo-cfe');
@@ -3113,6 +3116,61 @@ app.patch('/api/ordenes-compra/:id/estado', requireAuth, soloGerencial, async (r
 app.post('/api/ordenes-compra/:id/recibir', requireAuth, soloGerencial, async (req, res) => {
   try {
     res.json(await recibirOrdenCompra(req.supabase, { companyId: req.usuario.company_id, ordenId: req.params.id, usuarioId: req.usuario.id }));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// Subfase 2E — trámites CFE (2026-09-28, ver modules/tramites-cfe.js).
+// Sin integración directa con CFE — seguimiento manual, abierto a
+// cualquier usuario de la empresa (no compromete dinero ni inventario,
+// mismo criterio que instalaciones — a diferencia de compras/cobranza).
+app.get('/api/proyectos/:id/tramite-cfe', requireAuth, async (req, res) => {
+  try {
+    res.json(await obtenerTramiteDeProyecto(req.supabase, req.usuario.company_id, req.params.id));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/proyectos/:id/tramite-cfe', requireAuth, async (req, res) => {
+  try {
+    const tramite = await crearTramiteCfe(req.supabase, { companyId: req.usuario.company_id, proyectoId: req.params.id, usuarioId: req.usuario.id });
+    res.status(201).json(tramite);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.get('/api/tramites-cfe', requireAuth, async (req, res) => {
+  try {
+    res.json(await listarTramitesCfe(req.supabase, req.usuario.company_id, { estado: req.query.estado }));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/tramites-cfe/:id', requireAuth, async (req, res) => {
+  try {
+    const tramite = await obtenerTramiteCfe(req.supabase, req.usuario.company_id, req.params.id);
+    if (!tramite) return res.status(404).json({ error: 'Trámite CFE no encontrado' });
+    res.json(tramite);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/tramites-cfe/:id', requireAuth, async (req, res) => {
+  try {
+    res.json(await actualizarTramiteCfe(req.supabase, { companyId: req.usuario.company_id, tramiteId: req.params.id, cambios: req.body || {} }));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/tramites-cfe/:id/estado', requireAuth, async (req, res) => {
+  try {
+    res.json(await actualizarEstadoTramiteCfe(req.supabase, { companyId: req.usuario.company_id, tramiteId: req.params.id, estado: req.body?.estado, usuarioId: req.usuario.id }));
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
   }

@@ -36,6 +36,20 @@ const ETIQUETA_ESTADO_INSTALACION = {
 };
 const SEVERIDAD_ESTADO_INSTALACION = { entregada: 'success', terminada: 'success', por_programar: 'neutral' };
 
+// Subfase 2E (2026-09-28) — mismos 10 estados que modules/tramites-cfe.js::ESTADOS_TRAMITE_CFE.
+const ESTADOS_CFE = [
+  'pendiente', 'documentos_en_revision', 'ingresado_cfe', 'en_revision_cfe',
+  'visita_tecnica_programada', 'visita_tecnica_realizada', 'contrato_firmado',
+  'medidor_solicitado', 'medidor_instalado', 'interconexion_completada',
+];
+const ETIQUETA_ESTADO_CFE = {
+  pendiente: 'Pendiente', documentos_en_revision: 'Documentos en revisión', ingresado_cfe: 'Ingresado a CFE',
+  en_revision_cfe: 'En revisión por CFE', visita_tecnica_programada: 'Visita técnica programada',
+  visita_tecnica_realizada: 'Visita técnica realizada', contrato_firmado: 'Contrato firmado',
+  medidor_solicitado: 'Medidor solicitado', medidor_instalado: 'Medidor instalado', interconexion_completada: 'Interconexión completada',
+};
+const SEVERIDAD_ESTADO_CFE = { interconexion_completada: 'success', pendiente: 'neutral' };
+
 function formatearFechaHora(iso) {
   if (!iso) return '—';
   return new Date(iso).toLocaleString('es-MX', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
@@ -72,6 +86,13 @@ export default function ProyectoDetalle() {
   const [errorEquipos, setErrorEquipos] = useState(null);
   const [formEquipo, setFormEquipo] = useState({ tipoEquipo: 'panel', marca: '', modelo: '', numeroSerie: '', potenciaCapacidad: '', garantiaMeses: '' });
   const [registrandoEquipo, setRegistrandoEquipo] = useState(false);
+  // Subfase 2E (2026-09-28) — trámite CFE de este proyecto.
+  const [tramiteCfe, setTramiteCfe] = useState(undefined); // undefined = cargando, null = no existe todavía
+  const [errorCfe, setErrorCfe] = useState(null);
+  const [iniciandoCfe, setIniciandoCfe] = useState(false);
+  const [cambiandoEstadoCfe, setCambiandoEstadoCfe] = useState(false);
+  const [documentosCfe, setDocumentosCfe] = useState(null);
+  const [subiendoDocCfe, setSubiendoDocCfe] = useState(false);
 
   useEffect(() => {
     api.proyecto(proyectoId).then(setProyecto).catch((e) => setError(e.message));
@@ -132,6 +153,72 @@ export default function ProyectoDetalle() {
       setErrorEquipos(e2.message);
     } finally {
       setRegistrandoEquipo(false);
+    }
+  }
+
+  function cargarTramiteCfe() {
+    api.tramiteCfeDeProyecto(proyectoId).then((r) => { setTramiteCfe(r); setErrorCfe(null); }).catch((e) => setErrorCfe(e.message));
+  }
+
+  useEffect(cargarTramiteCfe, [proyectoId]);
+
+  function cargarDocumentosCfe(clienteId) {
+    api.documentosCliente(clienteId, 'tramite_cfe').then(setDocumentosCfe).catch((e) => setErrorCfe(e.message));
+  }
+
+  useEffect(() => {
+    if (proyecto?.cliente_id) cargarDocumentosCfe(proyecto.cliente_id);
+  }, [proyecto?.cliente_id]);
+
+  async function iniciarTramiteCfe() {
+    setIniciandoCfe(true);
+    setErrorCfe(null);
+    try {
+      await api.crearTramiteCfe(proyectoId);
+      cargarTramiteCfe();
+    } catch (e2) {
+      setErrorCfe(e2.message);
+    } finally {
+      setIniciandoCfe(false);
+    }
+  }
+
+  async function cambiarEstadoCfe(estado) {
+    setCambiandoEstadoCfe(true);
+    setErrorCfe(null);
+    try {
+      await api.actualizarEstadoTramiteCfe(tramiteCfe.id, estado);
+      cargarTramiteCfe();
+    } catch (e2) {
+      setErrorCfe(e2.message);
+    } finally {
+      setCambiandoEstadoCfe(false);
+    }
+  }
+
+  async function guardarCampoCfe(campo, valor) {
+    setErrorCfe(null);
+    try {
+      await api.actualizarTramiteCfe(tramiteCfe.id, { [campo]: valor });
+      cargarTramiteCfe();
+    } catch (e2) {
+      setErrorCfe(e2.message);
+    }
+  }
+
+  async function subirDocumentoCfeActual(e) {
+    const archivo = e.target.files?.[0];
+    if (!archivo || !proyecto?.cliente_id) return;
+    setSubiendoDocCfe(true);
+    setErrorCfe(null);
+    try {
+      await api.subirDocumentoCliente(proyecto.cliente_id, archivo, 'tramite_cfe');
+      cargarDocumentosCfe(proyecto.cliente_id);
+    } catch (e2) {
+      setErrorCfe(e2.message);
+    } finally {
+      setSubiendoDocCfe(false);
+      e.target.value = '';
     }
   }
 
@@ -394,6 +481,63 @@ export default function ProyectoDetalle() {
       </section>
 
       <section className="crm-seccion">
+        <h2>Trámite CFE</h2>
+        {errorCfe && <p className="login-error">{errorCfe}</p>}
+        {tramiteCfe === undefined ? (
+          <p className="operaciones-nota">Cargando…</p>
+        ) : tramiteCfe === null ? (
+          <>
+            <p className="operaciones-nota">Todavía no se ha iniciado el trámite ante CFE para este proyecto.</p>
+            <button type="button" onClick={iniciarTramiteCfe} disabled={iniciandoCfe}>{iniciandoCfe ? 'Iniciando…' : 'Iniciar trámite CFE'}</button>
+          </>
+        ) : (
+          <>
+            <dl className="crm-datos-lista">
+              <dt>Estado</dt>
+              <dd>
+                <span className={`pill pill--${SEVERIDAD_ESTADO_CFE[tramiteCfe.estado] || 'warning'}`}>{ETIQUETA_ESTADO_CFE[tramiteCfe.estado]}</span>
+                {tramiteCfe.alerta && <span className="pill pill--error"> ⚠ {tramiteCfe.dias_sin_actualizacion} días sin actualizar</span>}
+              </dd>
+              <dt>Folio CFE</dt><dd>{tramiteCfe.folio_cfe || '—'}</dd>
+              <dt>Fecha de ingreso</dt><dd>{formatearFecha(tramiteCfe.fecha_ingreso)}</dd>
+              <dt>Medidor bidireccional</dt><dd>{tramiteCfe.medidor_bidireccional ? 'Sí' : 'No'}</dd>
+              <dt>Notas</dt><dd>{tramiteCfe.notas || '—'}</dd>
+            </dl>
+
+            <form className="config-form-inline" onSubmit={(e) => e.preventDefault()}>
+              <select onChange={(e) => e.target.value && cambiarEstadoCfe(e.target.value)} value="" disabled={cambiandoEstadoCfe}>
+                <option value="">Cambiar estado…</option>
+                {ESTADOS_CFE.filter((e) => e !== tramiteCfe.estado).map((e) => <option key={e} value={e}>{ETIQUETA_ESTADO_CFE[e]}</option>)}
+              </select>
+              <input type="text" placeholder="Folio CFE" defaultValue={tramiteCfe.folio_cfe || ''} onBlur={(e) => e.target.value !== (tramiteCfe.folio_cfe || '') && guardarCampoCfe('folio_cfe', e.target.value)} />
+              <input type="date" defaultValue={tramiteCfe.fecha_ingreso || ''} onChange={(e) => guardarCampoCfe('fecha_ingreso', e.target.value)} />
+              <label>
+                <input type="checkbox" checked={tramiteCfe.medidor_bidireccional} onChange={(e) => guardarCampoCfe('medidor_bidireccional', e.target.checked)} /> Medidor bidireccional
+              </label>
+            </form>
+
+            <h3>Documentos del trámite</h3>
+            {documentosCfe === null ? (
+              <p className="operaciones-nota">Cargando…</p>
+            ) : documentosCfe.length === 0 ? (
+              <p className="operaciones-nota">Sin documentos subidos todavía (identificación, comprobante de domicilio, contrato de interconexión, dictamen técnico…).</p>
+            ) : (
+              <ul className="config-kb-lista">
+                {documentosCfe.map((d) => (
+                  <li key={d.id} className="config-kb-item">
+                    <a href={api.urlArchivoDocumentoCliente(d.id)} target="_blank" rel="noreferrer">{d.nombre_archivo || 'Documento'}</a>
+                    {' — '}{formatearFechaHora(d.created_at)}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <input type="file" onChange={subirDocumentoCfeActual} disabled={subiendoDocCfe} />
+            {subiendoDocCfe && <span className="operaciones-nota"> Subiendo…</span>}
+          </>
+        )}
+      </section>
+
+      <section className="crm-seccion">
         <h2>Progreso</h2>
         <ul className="config-kb-lista">
           {PASOS_PROGRESO.map((paso) => {
@@ -419,6 +563,15 @@ export default function ProyectoDetalle() {
                 <li key={paso.clave} className="config-kb-item">
                   <span className={`pill pill--${SEVERIDAD_ESTADO_INSTALACION[inst.estado] || 'warning'}`}>{completada ? '✓' : '·'}</span>
                   {' '}{paso.etiqueta} — {ETIQUETA_ESTADO_INSTALACION[inst.estado]}
+                </li>
+              );
+            }
+            if (paso.clave === 'cfe' && tramiteCfe) {
+              const completado = tramiteCfe.estado === 'interconexion_completada';
+              return (
+                <li key={paso.clave} className="config-kb-item">
+                  <span className={`pill pill--${SEVERIDAD_ESTADO_CFE[tramiteCfe.estado] || 'warning'}`}>{completado ? '✓' : '·'}</span>
+                  {' '}{paso.etiqueta} — {ETIQUETA_ESTADO_CFE[tramiteCfe.estado]}
                 </li>
               );
             }

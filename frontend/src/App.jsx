@@ -26,6 +26,7 @@ import CotizacionDetalle from './pages/CotizacionDetalle';
 import ProyectoDetalle from './pages/ProyectoDetalle';
 import Compras from './pages/Compras';
 import OrdenCompraDetalle from './pages/OrdenCompraDetalle';
+import TramitesCfe from './pages/TramitesCfe';
 import Paquetes from './pages/Paquetes';
 import AceptarInvitacion from './pages/AceptarInvitacion';
 import Registro from './pages/Registro';
@@ -94,6 +95,7 @@ export default function App() {
             <Route path="/proyectos/:proyectoId" element={<ProyectoDetalle />} />
             <Route path="/compras" element={<Compras />} />
             <Route path="/compras/:ordenId" element={<OrdenCompraDetalle />} />
+            <Route path="/tramites-cfe" element={<TramitesCfe />} />
             <Route path="/paquetes" element={<Paquetes />} />
           </Route>
 

@@ -159,7 +159,7 @@ export const api = {
   confirmarDocumentoProveedor: (id, datos) => pedir(`/api/documentos-proveedor/${id}/confirmar`, { method: 'POST', body: JSON.stringify(datos) }),
   urlArchivoDocumentoProveedor: (id) => `/api/documentos-proveedor/${id}/archivo`,
 
-  documentosCliente: (clienteId) => pedir(`/api/crm/clientes/${clienteId}/documentos`),
+  documentosCliente: (clienteId, categoria) => pedir(`/api/crm/clientes/${clienteId}/documentos${categoria ? `?categoria=${encodeURIComponent(categoria)}` : ''}`),
   adjuntosSinClasificar: (clienteId) => pedir(`/api/crm/clientes/${clienteId}/documentos/sin-clasificar`),
   subirDocumentoCliente: async (clienteId, archivo, categoria) => {
     const formData = new FormData();
@@ -266,6 +266,13 @@ export const api = {
   actualizarOrdenCompra:    (id, cambios) => pedir(`/api/ordenes-compra/${id}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
   actualizarEstadoOrdenCompra: (id, estado) => pedir(`/api/ordenes-compra/${id}/estado`, { method: 'PATCH', body: JSON.stringify({ estado }) }),
   recibirOrdenCompra:       (id) => pedir(`/api/ordenes-compra/${id}/recibir`, { method: 'POST' }),
+
+  // Subfase 2E — Trámites CFE (2026-09-28, ver modules/tramites-cfe.js).
+  tramiteCfeDeProyecto:     (proyectoId) => pedir(`/api/proyectos/${proyectoId}/tramite-cfe`),
+  crearTramiteCfe:          (proyectoId) => pedir(`/api/proyectos/${proyectoId}/tramite-cfe`, { method: 'POST' }),
+  tramitesCfe:              (estado) => pedir(`/api/tramites-cfe${estado ? `?estado=${encodeURIComponent(estado)}` : ''}`),
+  actualizarTramiteCfe:     (id, cambios) => pedir(`/api/tramites-cfe/${id}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
+  actualizarEstadoTramiteCfe: (id, estado) => pedir(`/api/tramites-cfe/${id}/estado`, { method: 'PATCH', body: JSON.stringify({ estado }) }),
   planesFinanciamiento:        (soloActivos) => pedir(`/api/planes-financiamiento${soloActivos ? '?activos=true' : ''}`),
   crearPlanFinanciamiento:     (datos) => pedir('/api/planes-financiamiento', { method: 'POST', body: JSON.stringify(datos) }),
   actualizarPlanFinanciamiento: (id, cambios) => pedir(`/api/planes-financiamiento/${id}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
