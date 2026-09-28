@@ -30,6 +30,7 @@ import TramitesCfe from './pages/TramitesCfe';
 import Garantias from './pages/Garantias';
 import GarantiaDetalle from './pages/GarantiaDetalle';
 import Mantenimientos from './pages/Mantenimientos';
+import Inventario from './pages/Inventario';
 import Tickets from './pages/Tickets';
 import TicketDetalle from './pages/TicketDetalle';
 import Paquetes from './pages/Paquetes';
@@ -104,6 +105,7 @@ export default function App() {
             <Route path="/garantias" element={<Garantias />} />
             <Route path="/garantias/:garantiaId" element={<GarantiaDetalle />} />
             <Route path="/mantenimiento" element={<Mantenimientos />} />
+            <Route path="/inventario" element={<Inventario />} />
             <Route path="/tickets" element={<Tickets />} />
             <Route path="/tickets/:ticketId" element={<TicketDetalle />} />
             <Route path="/paquetes" element={<Paquetes />} />

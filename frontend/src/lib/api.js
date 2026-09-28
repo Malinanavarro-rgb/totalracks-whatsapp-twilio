@@ -304,6 +304,19 @@ export const api = {
   actualizarTicket:           (id, cambios) => pedir(`/api/tickets/${id}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
   actualizarEstadoTicket:     (id, estado) => pedir(`/api/tickets/${id}/estado`, { method: 'PATCH', body: JSON.stringify({ estado }) }),
   comentarTicket:             (id, texto) => pedir(`/api/tickets/${id}/comentarios`, { method: 'POST', body: JSON.stringify({ texto }) }),
+
+  // Subfase 2F — Inventario (2026-09-25/28, ver modules/inventario.js). El
+  // backend ya existía; el frontend se agregó después (2026-09-28) para
+  // cerrar el único módulo del bloque operativo sin pantalla propia.
+  saldosInventario:      (filtros = {}) => {
+    const qs = new URLSearchParams(Object.fromEntries(Object.entries(filtros).filter(([, v]) => v))).toString();
+    return pedir(`/api/inventario/saldos${qs ? `?${qs}` : ''}`);
+  },
+  movimientosInventario: (filtros = {}) => {
+    const qs = new URLSearchParams(Object.fromEntries(Object.entries(filtros).filter(([, v]) => v))).toString();
+    return pedir(`/api/inventario/movimientos${qs ? `?${qs}` : ''}`);
+  },
+  registrarMovimientoInventario: (datos) => pedir('/api/inventario/movimientos', { method: 'POST', body: JSON.stringify(datos) }),
   planesFinanciamiento:        (soloActivos) => pedir(`/api/planes-financiamiento${soloActivos ? '?activos=true' : ''}`),
   crearPlanFinanciamiento:     (datos) => pedir('/api/planes-financiamiento', { method: 'POST', body: JSON.stringify(datos) }),
   actualizarPlanFinanciamiento: (id, cambios) => pedir(`/api/planes-financiamiento/${id}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
