@@ -81,6 +81,13 @@ const {
   crearGarantiaDesdeEquipo, obtenerGarantia, obtenerGarantiaDeEquipo, listarGarantias, actualizarGarantia,
   crearReclamacion, obtenerReclamacion, listarReclamacionesDeGarantia, actualizarEstadoReclamacion, agregarComentarioReclamacion,
 } = require('./modules/garantias');
+const {
+  crearMantenimiento, obtenerMantenimiento, listarMantenimientosDeProyecto, listarMantenimientos,
+  actualizarMantenimiento, actualizarChecklistItemMantenimiento, programarSiguienteMantenimiento,
+} = require('./modules/mantenimientos');
+const {
+  crearTicket, obtenerTicket, listarTickets, actualizarTicket, actualizarEstadoTicket, agregarComentarioTicket,
+} = require('./modules/tickets');
 const { aplicarDescuento: aplicarDescuentoCotizacion, autorizarDescuento: autorizarDescuentoCotizacion } = require('./modules/cotizacion-descuento');
 const { transcribirAudio, describirImagen } = require('./modules/adjuntos-ia');
 const { procesarReciboCFE, extraerDatosReciboCFE, normalizarDatosRecibo } = require('./modules/recibo-cfe');
@@ -3264,6 +3271,132 @@ app.patch('/api/reclamaciones/:id/estado', requireAuth, async (req, res) => {
 app.post('/api/reclamaciones/:id/comentarios', requireAuth, async (req, res) => {
   try {
     res.json(await agregarComentarioReclamacion(req.supabase, { companyId: req.usuario.company_id, reclamacionId: req.params.id, texto: req.body?.texto, usuarioId: req.usuario.id }));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// Subfase 2I — mantenimiento y tickets (2026-09-28, ver
+// modules/mantenimientos.js y modules/tickets.js). Abierto a cualquier
+// usuario autenticado (mismo criterio que instalaciones/trámites CFE/garantías).
+app.post('/api/proyectos/:id/mantenimientos', requireAuth, async (req, res) => {
+  try {
+    const mantenimiento = await crearMantenimiento(req.supabase, {
+      companyId: req.usuario.company_id, proyectoId: req.params.id, tipo: req.body?.tipo,
+      fechaProgramada: req.body?.fechaProgramada, tecnicoId: req.body?.tecnicoId, notas: req.body?.notas, usuarioId: req.usuario.id,
+    });
+    res.status(201).json(mantenimiento);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.get('/api/proyectos/:id/mantenimientos', requireAuth, async (req, res) => {
+  try {
+    res.json(await listarMantenimientosDeProyecto(req.supabase, req.usuario.company_id, req.params.id));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/mantenimientos', requireAuth, async (req, res) => {
+  try {
+    res.json(await listarMantenimientos(req.supabase, req.usuario.company_id));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/mantenimientos/:id', requireAuth, async (req, res) => {
+  try {
+    const mantenimiento = await obtenerMantenimiento(req.supabase, req.usuario.company_id, req.params.id);
+    if (!mantenimiento) return res.status(404).json({ error: 'Mantenimiento no encontrado' });
+    res.json(mantenimiento);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/mantenimientos/:id', requireAuth, async (req, res) => {
+  try {
+    res.json(await actualizarMantenimiento(req.supabase, { companyId: req.usuario.company_id, mantenimientoId: req.params.id, cambios: req.body || {} }));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/mantenimientos/:id/checklist', requireAuth, async (req, res) => {
+  try {
+    res.json(await actualizarChecklistItemMantenimiento(req.supabase, {
+      companyId: req.usuario.company_id, mantenimientoId: req.params.id, clave: req.body?.clave, completado: req.body?.completado, usuarioId: req.usuario.id,
+    }));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/mantenimientos/:id/programar-siguiente', requireAuth, async (req, res) => {
+  try {
+    if (!req.body?.inicio || !req.body?.fin) return res.status(400).json({ error: 'inicio y fin son requeridos' });
+    const resultado = await programarSiguienteMantenimiento(req.supabase, {
+      companyId: req.usuario.company_id, mantenimientoId: req.params.id,
+      inicio: new Date(req.body.inicio), fin: new Date(req.body.fin), usuarioId: req.usuario.id,
+    });
+    res.status(201).json(resultado);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/tickets', requireAuth, async (req, res) => {
+  try {
+    const ticket = await crearTicket(req.supabase, {
+      companyId: req.usuario.company_id, clienteId: req.body?.clienteId, proyectoId: req.body?.proyectoId, equipoInstaladoId: req.body?.equipoInstaladoId,
+      asunto: req.body?.asunto, categoria: req.body?.categoria, prioridad: req.body?.prioridad, usuarioId: req.usuario.id,
+    });
+    res.status(201).json(ticket);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.get('/api/tickets', requireAuth, async (req, res) => {
+  try {
+    res.json(await listarTickets(req.supabase, req.usuario.company_id, { estado: req.query.estado, prioridad: req.query.prioridad, clienteId: req.query.clienteId }));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/tickets/:id', requireAuth, async (req, res) => {
+  try {
+    const ticket = await obtenerTicket(req.supabase, req.usuario.company_id, req.params.id);
+    if (!ticket) return res.status(404).json({ error: 'Ticket no encontrado' });
+    res.json(ticket);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/tickets/:id', requireAuth, async (req, res) => {
+  try {
+    res.json(await actualizarTicket(req.supabase, { companyId: req.usuario.company_id, ticketId: req.params.id, cambios: req.body || {} }));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/tickets/:id/estado', requireAuth, async (req, res) => {
+  try {
+    res.json(await actualizarEstadoTicket(req.supabase, { companyId: req.usuario.company_id, ticketId: req.params.id, estado: req.body?.estado, usuarioId: req.usuario.id }));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/tickets/:id/comentarios', requireAuth, async (req, res) => {
+  try {
+    res.json(await agregarComentarioTicket(req.supabase, { companyId: req.usuario.company_id, ticketId: req.params.id, texto: req.body?.texto, usuarioId: req.usuario.id }));
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
   }

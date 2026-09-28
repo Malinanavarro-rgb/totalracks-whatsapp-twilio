@@ -285,6 +285,25 @@ export const api = {
   reclamacion:                (id) => pedir(`/api/reclamaciones/${id}`),
   actualizarEstadoReclamacion: (id, estado) => pedir(`/api/reclamaciones/${id}/estado`, { method: 'PATCH', body: JSON.stringify({ estado }) }),
   comentarReclamacion:        (id, texto) => pedir(`/api/reclamaciones/${id}/comentarios`, { method: 'POST', body: JSON.stringify({ texto }) }),
+
+  // Subfase 2I — Mantenimiento y Tickets (2026-09-28, ver modules/mantenimientos.js y modules/tickets.js).
+  crearMantenimiento:         (proyectoId, datos) => pedir(`/api/proyectos/${proyectoId}/mantenimientos`, { method: 'POST', body: JSON.stringify(datos) }),
+  mantenimientosDeProyecto:   (proyectoId) => pedir(`/api/proyectos/${proyectoId}/mantenimientos`),
+  mantenimientos:             () => pedir('/api/mantenimientos'),
+  mantenimiento:              (id) => pedir(`/api/mantenimientos/${id}`),
+  actualizarMantenimiento:    (id, cambios) => pedir(`/api/mantenimientos/${id}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
+  actualizarChecklistMantenimiento: (id, clave, completado) => pedir(`/api/mantenimientos/${id}/checklist`, { method: 'PATCH', body: JSON.stringify({ clave, completado }) }),
+  programarSiguienteMantenimiento: (id, inicio, fin) => pedir(`/api/mantenimientos/${id}/programar-siguiente`, { method: 'POST', body: JSON.stringify({ inicio, fin }) }),
+
+  crearTicket:                (datos) => pedir('/api/tickets', { method: 'POST', body: JSON.stringify(datos) }),
+  tickets:                    (filtros = {}) => {
+    const qs = new URLSearchParams(Object.fromEntries(Object.entries(filtros).filter(([, v]) => v))).toString();
+    return pedir(`/api/tickets${qs ? `?${qs}` : ''}`);
+  },
+  ticket:                     (id) => pedir(`/api/tickets/${id}`),
+  actualizarTicket:           (id, cambios) => pedir(`/api/tickets/${id}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
+  actualizarEstadoTicket:     (id, estado) => pedir(`/api/tickets/${id}/estado`, { method: 'PATCH', body: JSON.stringify({ estado }) }),
+  comentarTicket:             (id, texto) => pedir(`/api/tickets/${id}/comentarios`, { method: 'POST', body: JSON.stringify({ texto }) }),
   planesFinanciamiento:        (soloActivos) => pedir(`/api/planes-financiamiento${soloActivos ? '?activos=true' : ''}`),
   crearPlanFinanciamiento:     (datos) => pedir('/api/planes-financiamiento', { method: 'POST', body: JSON.stringify(datos) }),
   actualizarPlanFinanciamiento: (id, cambios) => pedir(`/api/planes-financiamiento/${id}`, { method: 'PATCH', body: JSON.stringify(cambios) }),

@@ -25,6 +25,15 @@ async function _schedulingEngineParaEmpresa(supabase, company_id) {
   return new SchedulingEngine(supabase, provider);
 }
 
+// Exportada (2026-09-28, subfase 2I) para que modules/mantenimientos.js
+// programe la siguiente cita de mantenimiento con el MISMO motor/resolución
+// de CalendarProvider, sin duplicar esta lógica ni tocar el Core (ADR-005:
+// SchedulingEngine se usa, nunca se modifica). A diferencia de crearCita()
+// (que auto-resuelve el asesor del usuario logueado si no es gerencial),
+// un mantenimiento ya conoce su tecnico_id explícito — no necesita esa
+// resolución, así que llama al engine directo, igual que aquí mismo.
+const schedulingEngineParaEmpresa = _schedulingEngineParaEmpresa;
+
 /**
  * Resuelve el `asesores.id` vinculado a un usuario del panel, dentro de su
  * empresa activa. Null si el usuario no tiene un asesor de agenda vinculado
@@ -367,4 +376,5 @@ module.exports = {
   marcarNoShow,
   vincularUsuarioAAsesor,
   resolverAsesorDeUsuario,
+  schedulingEngineParaEmpresa,
 };

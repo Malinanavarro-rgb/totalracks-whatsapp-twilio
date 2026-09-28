@@ -29,6 +29,9 @@ import OrdenCompraDetalle from './pages/OrdenCompraDetalle';
 import TramitesCfe from './pages/TramitesCfe';
 import Garantias from './pages/Garantias';
 import GarantiaDetalle from './pages/GarantiaDetalle';
+import Mantenimientos from './pages/Mantenimientos';
+import Tickets from './pages/Tickets';
+import TicketDetalle from './pages/TicketDetalle';
 import Paquetes from './pages/Paquetes';
 import AceptarInvitacion from './pages/AceptarInvitacion';
 import Registro from './pages/Registro';
@@ -100,6 +103,9 @@ export default function App() {
             <Route path="/tramites-cfe" element={<TramitesCfe />} />
             <Route path="/garantias" element={<Garantias />} />
             <Route path="/garantias/:garantiaId" element={<GarantiaDetalle />} />
+            <Route path="/mantenimiento" element={<Mantenimientos />} />
+            <Route path="/tickets" element={<Tickets />} />
+            <Route path="/tickets/:ticketId" element={<TicketDetalle />} />
             <Route path="/paquetes" element={<Paquetes />} />
           </Route>
 

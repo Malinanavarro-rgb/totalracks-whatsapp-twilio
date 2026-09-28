@@ -50,6 +50,10 @@ const ETIQUETA_ESTADO_CFE = {
 };
 const SEVERIDAD_ESTADO_CFE = { interconexion_completada: 'success', pendiente: 'neutral' };
 
+// Subfase 2I (2026-09-28) — estado derivado, nunca guardado (modules/mantenimientos.js::calcularEstadoMantenimiento).
+const ETIQUETA_ESTADO_MANTENIMIENTO = { pendiente: 'Pendiente', programado: 'Programado', vencido: 'Vencido', realizado: 'Realizado' };
+const SEVERIDAD_ESTADO_MANTENIMIENTO = { realizado: 'success', vencido: 'error', programado: 'warning', pendiente: 'neutral' };
+
 function formatearFechaHora(iso) {
   if (!iso) return '—';
   return new Date(iso).toLocaleString('es-MX', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
@@ -94,6 +98,14 @@ export default function ProyectoDetalle() {
   const [cambiandoEstadoCfe, setCambiandoEstadoCfe] = useState(false);
   const [documentosCfe, setDocumentosCfe] = useState(null);
   const [subiendoDocCfe, setSubiendoDocCfe] = useState(false);
+  // Subfase 2I (2026-09-28) — mantenimientos de este proyecto.
+  const [mantenimientos, setMantenimientos] = useState(null);
+  const [errorMantenimiento, setErrorMantenimiento] = useState(null);
+  const [tecnicos, setTecnicos] = useState([]);
+  const [formMantenimiento, setFormMantenimiento] = useState({ tipo: 'preventivo', tecnicoId: '' });
+  const [creandoMantenimiento, setCreandoMantenimiento] = useState(false);
+  const [formSiguiente, setFormSiguiente] = useState({}); // { [mantenimientoId]: { inicio, fin } }
+  const [programandoId, setProgramandoId] = useState(null);
 
   useEffect(() => {
     api.proyecto(proyectoId).then(setProyecto).catch((e) => setError(e.message));
@@ -232,6 +244,53 @@ export default function ProyectoDetalle() {
     } finally {
       setSubiendoDocCfe(false);
       e.target.value = '';
+    }
+  }
+
+  function cargarMantenimientos() {
+    api.mantenimientosDeProyecto(proyectoId).then((r) => { setMantenimientos(r); setErrorMantenimiento(null); }).catch((e) => setErrorMantenimiento(e.message));
+  }
+
+  useEffect(cargarMantenimientos, [proyectoId]);
+  useEffect(() => { api.asesores().then(setTecnicos).catch(() => {}); }, []);
+
+  async function crearMantenimientoActual(e) {
+    e.preventDefault();
+    setCreandoMantenimiento(true);
+    setErrorMantenimiento(null);
+    try {
+      await api.crearMantenimiento(proyectoId, formMantenimiento);
+      setFormMantenimiento({ tipo: 'preventivo', tecnicoId: '' });
+      cargarMantenimientos();
+    } catch (e2) {
+      setErrorMantenimiento(e2.message);
+    } finally {
+      setCreandoMantenimiento(false);
+    }
+  }
+
+  async function marcarMantenimientoRealizado(mantenimientoId) {
+    try {
+      await api.actualizarMantenimiento(mantenimientoId, { fecha_realizada: new Date().toISOString().slice(0, 10) });
+      cargarMantenimientos();
+    } catch (e2) {
+      setErrorMantenimiento(e2.message);
+    }
+  }
+
+  async function programarSiguienteActual(mantenimientoId) {
+    const datos = formSiguiente[mantenimientoId];
+    if (!datos?.inicio || !datos?.fin) { setErrorMantenimiento('Captura fecha/hora de inicio y fin.'); return; }
+    setProgramandoId(mantenimientoId);
+    setErrorMantenimiento(null);
+    try {
+      await api.programarSiguienteMantenimiento(mantenimientoId, new Date(datos.inicio).toISOString(), new Date(datos.fin).toISOString());
+      setFormSiguiente({ ...formSiguiente, [mantenimientoId]: undefined });
+      cargarMantenimientos();
+    } catch (e2) {
+      setErrorMantenimiento(e2.message);
+    } finally {
+      setProgramandoId(null);
     }
   }
 
@@ -552,6 +611,66 @@ export default function ProyectoDetalle() {
       </section>
 
       <section className="crm-seccion">
+        <h2>Mantenimiento</h2>
+        {errorMantenimiento && <p className="login-error">{errorMantenimiento}</p>}
+        {mantenimientos === null ? (
+          <p className="operaciones-nota">Cargando…</p>
+        ) : mantenimientos.length === 0 ? (
+          <p className="operaciones-nota">Todavía no hay mantenimientos registrados.</p>
+        ) : (
+          <ul className="config-kb-lista">
+            {mantenimientos.map((m) => (
+              <li key={m.id} className="config-kb-item">
+                <span className={`pill pill--${SEVERIDAD_ESTADO_MANTENIMIENTO[m.estado] || 'neutral'}`}>{ETIQUETA_ESTADO_MANTENIMIENTO[m.estado]}</span>
+                {' '}<strong>{m.tipo}</strong>{m.tecnico_nombre ? ` — ${m.tecnico_nombre}` : ' — sin técnico asignado'}
+                {m.fecha_programada && ` · programado ${formatearFecha(m.fecha_programada)}`}
+                {m.fecha_realizada && ` · realizado ${formatearFecha(m.fecha_realizada)}`}
+                {m.proximo_mantenimiento && <span className="operaciones-nota"> · siguiente visita ya programada para {formatearFecha(m.proximo_mantenimiento)}</span>}
+
+                {m.estado !== 'realizado' && (
+                  <div className="config-form-inline">
+                    <button type="button" className="boton-enlace" onClick={() => marcarMantenimientoRealizado(m.id)}>Marcar realizado</button>
+                    {!m.proximo_mantenimiento && (
+                      <>
+                        <input
+                          type="datetime-local" placeholder="Inicio siguiente visita"
+                          value={formSiguiente[m.id]?.inicio || ''}
+                          onChange={(e) => setFormSiguiente({ ...formSiguiente, [m.id]: { ...formSiguiente[m.id], inicio: e.target.value } })}
+                        />
+                        <input
+                          type="datetime-local" placeholder="Fin"
+                          value={formSiguiente[m.id]?.fin || ''}
+                          onChange={(e) => setFormSiguiente({ ...formSiguiente, [m.id]: { ...formSiguiente[m.id], fin: e.target.value } })}
+                        />
+                        <button type="button" onClick={() => programarSiguienteActual(m.id)} disabled={programandoId === m.id}>
+                          {programandoId === m.id ? 'Programando…' : 'Programar siguiente visita'}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <h3>Nuevo mantenimiento</h3>
+        <form className="config-form-inline" onSubmit={crearMantenimientoActual}>
+          <select value={formMantenimiento.tipo} onChange={(e) => setFormMantenimiento({ ...formMantenimiento, tipo: e.target.value })}>
+            <option value="preventivo">Preventivo</option>
+            <option value="correctivo">Correctivo</option>
+            <option value="revision_anual">Revisión anual</option>
+            <option value="otro">Otro</option>
+          </select>
+          <select value={formMantenimiento.tecnicoId} onChange={(e) => setFormMantenimiento({ ...formMantenimiento, tecnicoId: e.target.value })}>
+            <option value="">— técnico (opcional) —</option>
+            {tecnicos.map((t) => <option key={t.id} value={t.id}>{t.nombre}</option>)}
+          </select>
+          <button type="submit" disabled={creandoMantenimiento}>{creandoMantenimiento ? 'Creando…' : 'Crear mantenimiento'}</button>
+        </form>
+      </section>
+
+      <section className="crm-seccion">
         <h2>Progreso</h2>
         <ul className="config-kb-lista">
           {PASOS_PROGRESO.map((paso) => {
@@ -586,6 +705,13 @@ export default function ProyectoDetalle() {
                 <li key={paso.clave} className="config-kb-item">
                   <span className={`pill pill--${SEVERIDAD_ESTADO_CFE[tramiteCfe.estado] || 'warning'}`}>{completado ? '✓' : '·'}</span>
                   {' '}{paso.etiqueta} — {ETIQUETA_ESTADO_CFE[tramiteCfe.estado]}
+                </li>
+              );
+            }
+            if (paso.clave === 'postventa' && mantenimientos?.length > 0) {
+              return (
+                <li key={paso.clave} className="config-kb-item">
+                  <span className="pill pill--success">✓</span> {paso.etiqueta} — {mantenimientos.length} mantenimiento(s) registrado(s)
                 </li>
               );
             }
