@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 
@@ -67,6 +67,7 @@ function formatearMonto(monto) {
 
 export default function ProyectoDetalle() {
   const { proyectoId } = useParams();
+  const navegar = useNavigate();
   const { sesion } = useAuth();
   const esGerencial = ROLES_GERENCIALES.includes(sesion?.empresaActiva?.rol);
   const [proyecto, setProyecto] = useState(null);
@@ -153,6 +154,18 @@ export default function ProyectoDetalle() {
       setErrorEquipos(e2.message);
     } finally {
       setRegistrandoEquipo(false);
+    }
+  }
+
+  // Subfase 2H (2026-09-28) — "Ver garantía": idempotente (crearGarantiaDesdeEquipo
+  // devuelve la existente si ya se había creado), así que un solo botón sirve
+  // tanto para crearla la primera vez como para verla después.
+  async function verGarantiaDeEquipo(equipoId) {
+    try {
+      const garantia = await api.crearGarantiaDesdeEquipo(equipoId);
+      navegar(`/garantias/${garantia.id}`);
+    } catch (e2) {
+      setErrorEquipos(e2.message);
     }
   }
 
@@ -474,6 +487,7 @@ export default function ProyectoDetalle() {
                 {eq.potencia_capacidad ? ` · ${eq.potencia_capacidad}` : ''}
                 {eq.garantia_meses ? ` · Garantía: ${eq.garantia_meses} meses` : ' · Garantía: sin definir'}
                 {eq.fecha_instalacion && <span className="operaciones-nota"> — instalado {formatearFecha(eq.fecha_instalacion)}</span>}
+                {' · '}<button type="button" className="boton-enlace" onClick={() => verGarantiaDeEquipo(eq.id)}>Ver garantía</button>
               </li>
             ))}
           </ul>

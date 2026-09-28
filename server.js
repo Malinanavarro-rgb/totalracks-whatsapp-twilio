@@ -77,6 +77,10 @@ const {
 const {
   crearTramiteCfe, obtenerTramiteCfe, obtenerTramiteDeProyecto, listarTramitesCfe, actualizarTramiteCfe, actualizarEstadoTramiteCfe,
 } = require('./modules/tramites-cfe');
+const {
+  crearGarantiaDesdeEquipo, obtenerGarantia, obtenerGarantiaDeEquipo, listarGarantias, actualizarGarantia,
+  crearReclamacion, obtenerReclamacion, listarReclamacionesDeGarantia, actualizarEstadoReclamacion, agregarComentarioReclamacion,
+} = require('./modules/garantias');
 const { aplicarDescuento: aplicarDescuentoCotizacion, autorizarDescuento: autorizarDescuentoCotizacion } = require('./modules/cotizacion-descuento');
 const { transcribirAudio, describirImagen } = require('./modules/adjuntos-ia');
 const { procesarReciboCFE, extraerDatosReciboCFE, normalizarDatosRecibo } = require('./modules/recibo-cfe');
@@ -3171,6 +3175,95 @@ app.patch('/api/tramites-cfe/:id', requireAuth, async (req, res) => {
 app.patch('/api/tramites-cfe/:id/estado', requireAuth, async (req, res) => {
   try {
     res.json(await actualizarEstadoTramiteCfe(req.supabase, { companyId: req.usuario.company_id, tramiteId: req.params.id, estado: req.body?.estado, usuarioId: req.usuario.id }));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// Subfase 2H — garantías (2026-09-28, ver modules/garantias.js). Abierto a
+// cualquier usuario autenticado (no compromete dinero ni inventario, mismo
+// criterio que instalaciones/trámites CFE).
+app.post('/api/equipos-instalados/:id/garantia', requireAuth, async (req, res) => {
+  try {
+    const garantia = await crearGarantiaDesdeEquipo(req.supabase, { companyId: req.usuario.company_id, equipoInstaladoId: req.params.id, usuarioId: req.usuario.id });
+    res.status(201).json(garantia);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.get('/api/equipos-instalados/:id/garantia', requireAuth, async (req, res) => {
+  try {
+    res.json(await obtenerGarantiaDeEquipo(req.supabase, req.usuario.company_id, req.params.id));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/garantias', requireAuth, async (req, res) => {
+  try {
+    res.json(await listarGarantias(req.supabase, req.usuario.company_id));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/garantias/:id', requireAuth, async (req, res) => {
+  try {
+    const garantia = await obtenerGarantia(req.supabase, req.usuario.company_id, req.params.id);
+    if (!garantia) return res.status(404).json({ error: 'Garantía no encontrada' });
+    res.json(garantia);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/garantias/:id', requireAuth, async (req, res) => {
+  try {
+    res.json(await actualizarGarantia(req.supabase, { companyId: req.usuario.company_id, garantiaId: req.params.id, cambios: req.body || {} }));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/garantias/:id/reclamaciones', requireAuth, async (req, res) => {
+  try {
+    const reclamacion = await crearReclamacion(req.supabase, { companyId: req.usuario.company_id, garantiaId: req.params.id, descripcion: req.body?.descripcion, usuarioId: req.usuario.id });
+    res.status(201).json(reclamacion);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.get('/api/garantias/:id/reclamaciones', requireAuth, async (req, res) => {
+  try {
+    res.json(await listarReclamacionesDeGarantia(req.supabase, req.usuario.company_id, req.params.id));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/reclamaciones/:id', requireAuth, async (req, res) => {
+  try {
+    const reclamacion = await obtenerReclamacion(req.supabase, req.usuario.company_id, req.params.id);
+    if (!reclamacion) return res.status(404).json({ error: 'Reclamación no encontrada' });
+    res.json(reclamacion);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/reclamaciones/:id/estado', requireAuth, async (req, res) => {
+  try {
+    res.json(await actualizarEstadoReclamacion(req.supabase, { companyId: req.usuario.company_id, reclamacionId: req.params.id, estado: req.body?.estado, usuarioId: req.usuario.id }));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/reclamaciones/:id/comentarios', requireAuth, async (req, res) => {
+  try {
+    res.json(await agregarComentarioReclamacion(req.supabase, { companyId: req.usuario.company_id, reclamacionId: req.params.id, texto: req.body?.texto, usuarioId: req.usuario.id }));
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
   }

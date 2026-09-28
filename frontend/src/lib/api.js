@@ -273,6 +273,18 @@ export const api = {
   tramitesCfe:              (estado) => pedir(`/api/tramites-cfe${estado ? `?estado=${encodeURIComponent(estado)}` : ''}`),
   actualizarTramiteCfe:     (id, cambios) => pedir(`/api/tramites-cfe/${id}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
   actualizarEstadoTramiteCfe: (id, estado) => pedir(`/api/tramites-cfe/${id}/estado`, { method: 'PATCH', body: JSON.stringify({ estado }) }),
+
+  // Subfase 2H — Garantías (2026-09-28, ver modules/garantias.js).
+  crearGarantiaDesdeEquipo:   (equipoId) => pedir(`/api/equipos-instalados/${equipoId}/garantia`, { method: 'POST' }),
+  garantiaDeEquipo:           (equipoId) => pedir(`/api/equipos-instalados/${equipoId}/garantia`),
+  garantias:                  () => pedir('/api/garantias'),
+  garantia:                   (id) => pedir(`/api/garantias/${id}`),
+  actualizarGarantia:         (id, cambios) => pedir(`/api/garantias/${id}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
+  crearReclamacion:           (garantiaId, descripcion) => pedir(`/api/garantias/${garantiaId}/reclamaciones`, { method: 'POST', body: JSON.stringify({ descripcion }) }),
+  reclamacionesDeGarantia:    (garantiaId) => pedir(`/api/garantias/${garantiaId}/reclamaciones`),
+  reclamacion:                (id) => pedir(`/api/reclamaciones/${id}`),
+  actualizarEstadoReclamacion: (id, estado) => pedir(`/api/reclamaciones/${id}/estado`, { method: 'PATCH', body: JSON.stringify({ estado }) }),
+  comentarReclamacion:        (id, texto) => pedir(`/api/reclamaciones/${id}/comentarios`, { method: 'POST', body: JSON.stringify({ texto }) }),
   planesFinanciamiento:        (soloActivos) => pedir(`/api/planes-financiamiento${soloActivos ? '?activos=true' : ''}`),
   crearPlanFinanciamiento:     (datos) => pedir('/api/planes-financiamiento', { method: 'POST', body: JSON.stringify(datos) }),
   actualizarPlanFinanciamiento: (id, cambios) => pedir(`/api/planes-financiamiento/${id}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
