@@ -16,7 +16,7 @@ function crearBuilder(resultado = { data: null, error: null }) {
   return builder;
 }
 
-function crearMockDbPorTabla(overrides = {}) {
+function crearMockDbPorTabla(overrides = {}, rpcResultado = { data: [{ abono_id: 'abono-1', total_pagado: 0, saldo: 0 }], error: null }) {
   const defaults = {
     pagos_cliente: { data: null, error: null }, // sin registro todavía por default
     proyectos: { data: { id: 'proy-1', cotizacion_id: 42, cliente_id: 214, config_vendida: { total: 40716, precio_final_autorizado: null } }, error: null },
@@ -24,7 +24,10 @@ function crearMockDbPorTabla(overrides = {}) {
     pagos_cliente_abonos: { data: [], error: null },
   };
   const resultados = { ...defaults, ...overrides };
-  return { from: jest.fn((tabla) => crearBuilder(resultados[tabla] ?? { data: null, error: null })) };
+  return {
+    from: jest.fn((tabla) => crearBuilder(resultados[tabla] ?? { data: null, error: null })),
+    rpc: jest.fn().mockResolvedValue(rpcResultado),
+  };
 }
 
 const COMPANY_A = 'company-aaaa';
@@ -207,68 +210,55 @@ describe('obtenerResumenCobranza()', () => {
   });
 });
 
-describe('registrarAbono()', () => {
-  function dbConPagosClienteExistente(overrides = {}) {
+describe('registrarAbono() — P1.1, ahora vía RPC atómico registrar_abono_cliente', () => {
+  function dbConPagosClienteExistente(overrides = {}, rpcResultado) {
     return crearMockDbPorTabla({
       pagos_cliente: { data: { id: 'pc-1', total_vendido: 40716, anticipo_requerido_monto: null, fecha_limite_pago: null }, error: null },
       pagos_cliente_abonos: { data: [], error: null },
       ...overrides,
-    });
+    }, rpcResultado);
   }
 
-  test('monto <= 0 → 400, nunca inserta', async () => {
+  test('monto <= 0 → 400, nunca llega a llamar al RPC', async () => {
     const db = dbConPagosClienteExistente();
     await expect(registrarAbono(db, { companyId: COMPANY_A, proyectoId: 'proy-1', monto: 0, usuarioId: 'u1' })).rejects.toMatchObject({ status: 400 });
     await expect(registrarAbono(db, { companyId: COMPANY_A, proyectoId: 'proy-1', monto: -100, usuarioId: 'u1' })).rejects.toMatchObject({ status: 400 });
+    expect(db.rpc).not.toHaveBeenCalled();
   });
 
-  test('abono válido → se inserta con los datos correctos y devuelve el resumen actualizado', async () => {
-    let payloadInsert = null;
-    const db = dbConPagosClienteExistente();
-    const fromOriginal = db.from;
-    db.from = jest.fn((tabla) => {
-      const builder = fromOriginal(tabla);
-      if (tabla === 'pagos_cliente_abonos') {
-        const i = builder.insert; builder.insert = jest.fn((p) => { payloadInsert = p[0]; return i.call(builder, p); });
-        builder.single = jest.fn().mockResolvedValue({ data: { id: 'abono-1', ...payloadInsert }, error: null });
-      }
-      return builder;
-    });
+  test('abono válido → llama al RPC con los parámetros correctos y devuelve el resumen actualizado', async () => {
+    const db = dbConPagosClienteExistente({}, { data: [{ abono_id: 'abono-1', total_pagado: 12000, saldo: 28716 }], error: null });
 
     const r = await registrarAbono(db, { companyId: COMPANY_A, proyectoId: 'proy-1', monto: 12000, formaPago: 'transferencia', referencia: 'SPEI123', usuarioId: 'user-1' });
-    expect(payloadInsert).toMatchObject({ company_id: COMPANY_A, pagos_cliente_id: 'pc-1', monto: 12000, forma_pago: 'transferencia', referencia: 'SPEI123', registrado_por: 'user-1' });
+
+    expect(db.rpc).toHaveBeenCalledWith('registrar_abono_cliente', {
+      p_company_id: COMPANY_A, p_pagos_cliente_id: 'pc-1', p_monto: 12000,
+      p_forma_pago: 'transferencia', p_referencia: 'SPEI123', p_fecha: null,
+      p_comprobante_documento_id: null, p_notas: null, p_registrado_por: 'user-1',
+    });
     expect(r.abono.id).toBe('abono-1');
   });
 
-  test('abono que excede el saldo pendiente → 409, nunca lo inserta (nunca saldo negativo)', async () => {
-    let seIntentoInsertar = false;
-    const db = dbConPagosClienteExistente({ pagos_cliente_abonos: { data: [{ monto: 35000 }], error: null } }); // saldo restante: 5716
-    const fromOriginal = db.from;
-    db.from = jest.fn((tabla) => {
-      const builder = fromOriginal(tabla);
-      if (tabla === 'pagos_cliente_abonos') { const i = builder.insert; builder.insert = jest.fn((p) => { seIntentoInsertar = true; return i.call(builder, p); }); }
-      return builder;
-    });
+  test('el RPC rechaza (RAISE EXCEPTION — excede el saldo) → 409 con el mensaje real, nunca un 500 genérico', async () => {
+    const db = dbConPagosClienteExistente({}, { data: null, error: { message: 'El abono (10000) excede el saldo pendiente (5716)' } });
 
-    await expect(registrarAbono(db, { companyId: COMPANY_A, proyectoId: 'proy-1', monto: 10000, usuarioId: 'u1' })).rejects.toMatchObject({ status: 409 });
-    expect(seIntentoInsertar).toBe(false);
+    await expect(registrarAbono(db, { companyId: COMPANY_A, proyectoId: 'proy-1', monto: 10000, usuarioId: 'u1' }))
+      .rejects.toMatchObject({ status: 409, message: expect.stringContaining('excede el saldo pendiente') });
   });
 
-  test('abono que cubre EXACTO el saldo restante → se permite (liquida)', async () => {
-    const db = dbConPagosClienteExistente({ pagos_cliente_abonos: { data: [{ monto: 30716 }], error: null } }); // saldo: 10000
-    const fromOriginal = db.from;
-    db.from = jest.fn((tabla) => {
-      const builder = fromOriginal(tabla);
-      if (tabla === 'pagos_cliente_abonos') builder.single = jest.fn().mockResolvedValue({ data: { id: 'abono-final' }, error: null });
-      return builder;
-    });
-
+  test('abono que cubre exacto el saldo restante → el RPC lo acepta (comportamiento delegado a la función atómica, no hay lógica duplicada aquí)', async () => {
+    const db = dbConPagosClienteExistente({}, { data: [{ abono_id: 'abono-final', total_pagado: 40716, saldo: 0 }], error: null });
     await expect(registrarAbono(db, { companyId: COMPANY_A, proyectoId: 'proy-1', monto: 10000, usuarioId: 'u1' })).resolves.toMatchObject({ abono: { id: 'abono-final' } });
   });
 
-  test('sin registro de cobranza todavía → lo crea de paso, primer abono queda ligado a él', async () => {
-    let pagosClienteIdUsado = null;
-    const db = crearMockDbPorTabla();
+  test('el RPC responde un objeto único (no arreglo) → también funciona', async () => {
+    const db = dbConPagosClienteExistente({}, { data: { abono_id: 'abono-1', total_pagado: 5000, saldo: 35716 }, error: null });
+    const r = await registrarAbono(db, { companyId: COMPANY_A, proyectoId: 'proy-1', monto: 5000, usuarioId: 'u1' });
+    expect(r.abono.id).toBe('abono-1');
+  });
+
+  test('sin registro de cobranza todavía → lo crea de paso, y el RPC se llama con el pagos_cliente_id recién creado', async () => {
+    const db = crearMockDbPorTabla({}, { data: [{ abono_id: 'abono-1', total_pagado: 5000, saldo: 35716 }], error: null });
     const fromOriginal = db.from;
     db.from = jest.fn((tabla) => {
       const builder = fromOriginal(tabla);
@@ -276,15 +266,11 @@ describe('registrarAbono()', () => {
         builder.maybeSingle = jest.fn().mockResolvedValueOnce({ data: null, error: null }).mockResolvedValue({ data: { id: 'pc-nuevo', total_vendido: 40716 }, error: null });
         builder.single = jest.fn().mockResolvedValue({ data: { id: 'pc-nuevo', total_vendido: 40716 }, error: null });
       }
-      if (tabla === 'pagos_cliente_abonos') {
-        const i = builder.insert; builder.insert = jest.fn((p) => { pagosClienteIdUsado = p[0].pagos_cliente_id; return i.call(builder, p); });
-        builder.single = jest.fn().mockResolvedValue({ data: { id: 'abono-1' }, error: null });
-      }
       return builder;
     });
 
     await registrarAbono(db, { companyId: COMPANY_A, proyectoId: 'proy-1', monto: 5000, usuarioId: 'u1' });
-    expect(pagosClienteIdUsado).toBe('pc-nuevo');
+    expect(db.rpc).toHaveBeenCalledWith('registrar_abono_cliente', expect.objectContaining({ p_pagos_cliente_id: 'pc-nuevo' }));
   });
 });
 

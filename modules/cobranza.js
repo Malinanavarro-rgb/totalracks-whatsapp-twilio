@@ -129,9 +129,16 @@ async function obtenerResumenCobranza(supabase, companyId, proyectoId) {
 
 /**
  * Registra un abono — nunca deja que el total pagado exceda el total
- * vendido (rechaza el abono con un mensaje claro en vez de dejar un saldo
- * negativo silencioso, mismo criterio que "nunca stock negativo" de
- * inventario).
+ * vendido. CORREGIDO (auditoría NORT_ENERGY_AUDIT_V1.md, P1.1, 2026-09-28):
+ * la versión anterior leía el saldo y luego insertaba en dos pasos
+ * separados sin lock — dos abonos concurrentes sobre el MISMO proyecto
+ * podían ambos leer el mismo saldo, ambos pasar la validación y ambos
+ * insertarse (sobrepago real bajo carrera). Ahora TODO el cálculo +
+ * validación + inserción pasa por `registrar_abono_cliente()` (migración
+ * 123), un RPC atómico de Postgres con SELECT...FOR UPDATE sobre la fila
+ * de `pagos_cliente` — mismo patrón ya probado en
+ * registrar_movimiento_inventario() (2F). La protección vive en la base
+ * de datos, no en el frontend ni en un candado de aplicación.
  */
 async function registrarAbono(supabase, { companyId, proyectoId, monto, formaPago, referencia, fecha, comprobanteDocumentoId, notas, usuarioId }) {
   if (!(Number.isFinite(monto) && monto > 0)) {
@@ -142,24 +149,21 @@ async function registrarAbono(supabase, { companyId, proyectoId, monto, formaPag
 
   const pagosCliente = await _obtenerOCrearPagosCliente(supabase, { companyId, proyectoId });
 
-  const { data: abonosPrevios } = await supabase.from('pagos_cliente_abonos').select('monto').eq('company_id', companyId).eq('pagos_cliente_id', pagosCliente.id);
-  const totalPagadoPrevio = (abonosPrevios || []).reduce((acumulado, a) => acumulado + Number(a.monto), 0);
-  const saldoPrevio = Number(pagosCliente.total_vendido) - totalPagadoPrevio;
+  const { data, error } = await supabase.rpc('registrar_abono_cliente', {
+    p_company_id: companyId, p_pagos_cliente_id: pagosCliente.id, p_monto: monto,
+    p_forma_pago: formaPago || null, p_referencia: referencia || null, p_fecha: fecha || null,
+    p_comprobante_documento_id: comprobanteDocumentoId || null, p_notas: notas || null, p_registrado_por: usuarioId || null,
+  });
 
-  if (monto > saldoPrevio + 0.01) { // tolerancia de centavo por redondeo
-    const err = new Error(`El abono ($${monto.toLocaleString('es-MX')}) excede el saldo pendiente ($${saldoPrevio.toLocaleString('es-MX')}).`);
-    err.status = 409;
-    throw err;
+  if (error) {
+    // "excede el saldo pendiente" (RAISE EXCEPTION del RPC) → 409 con el
+    // mensaje real, nunca un 500 genérico — mismo criterio que inventario.
+    const err2 = new Error(error.message);
+    err2.status = 409;
+    throw err2;
   }
 
-  const { data, error } = await supabase.from('pagos_cliente_abonos').insert([{
-    company_id: companyId, pagos_cliente_id: pagosCliente.id, monto,
-    forma_pago: formaPago || null, referencia: referencia || null, fecha: fecha || new Date().toISOString().slice(0, 10),
-    comprobante_documento_id: comprobanteDocumentoId || null, notas: notas || null, registrado_por: usuarioId || null,
-  }]).select().single();
-  if (error) throw new Error(`cobranza.registrarAbono: ${error.message}`);
-
-  return { abono: data, resumen: await obtenerResumenCobranza(supabase, companyId, proyectoId) };
+  return { abono: { id: (Array.isArray(data) ? data[0] : data).abono_id }, resumen: await obtenerResumenCobranza(supabase, companyId, proyectoId) };
 }
 
 /** Confirma/corrige el % de anticipo requerido — separado del alta automática porque hoy ninguna cotización real lo trae capturado. */
