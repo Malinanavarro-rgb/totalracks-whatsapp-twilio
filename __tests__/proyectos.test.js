@@ -7,7 +7,7 @@ jest.mock('../modules/cotizaciones', () => ({
 
 const {
   generarFolioProyecto, construirSnapshotVendido, marcarCotizacionAceptadaYCrearProyecto,
-  obtenerProyecto, obtenerProyectoDeCliente, obtenerProyectoDeCotizacion,
+  obtenerProyecto, obtenerProyectoDelCliente, listarProyectosDeCliente, obtenerProyectoDeCotizacion,
 } = require('../modules/proyectos');
 
 function crearBuilder(resultado = { data: null, error: null }) {
@@ -16,6 +16,7 @@ function crearBuilder(resultado = { data: null, error: null }) {
     insert: jest.fn().mockReturnThis(),
     update: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
+    in: jest.fn().mockReturnThis(),
     order: jest.fn().mockReturnThis(),
     limit: jest.fn().mockReturnThis(),
     single: jest.fn().mockResolvedValue(resultado),
@@ -342,22 +343,79 @@ describe('obtenerProyecto()', () => {
   });
 });
 
-describe('obtenerProyectoDeCliente() / obtenerProyectoDeCotizacion()', () => {
-  test('obtenerProyectoDeCliente: filtra por cliente_id, company_id y tipo=venta', async () => {
-    const db = crearMockDbPorTabla({ proyectos: { data: { id: 'proy-1', numero_proyecto: 'PRY-2026-0001' }, error: null } });
-    const r = await obtenerProyectoDeCliente(db, COMPANY_A, 214);
-    const builder = db.from.mock.results.find((_, i) => db.from.mock.calls[i][0] === 'proyectos').value;
-    expect(builder.eq).toHaveBeenCalledWith('cliente_id', 214);
-    expect(builder.eq).toHaveBeenCalledWith('tipo', 'venta');
-    expect(r.numero_proyecto).toBe('PRY-2026-0001');
+describe('listarProyectosDeCliente() — P1.4 (auditoría, 2026-09-29): reemplaza a obtenerProyectoDeCliente() singular', () => {
+  test('cliente con 0 proyectos → arreglo vacío, no null', async () => {
+    const db = crearMockDbPorTabla({ proyectos: { data: [], error: null } });
+    expect(await listarProyectosDeCliente(db, COMPANY_A, 214)).toEqual([]);
   });
 
-  test('obtenerProyectoDeCliente: sin proyecto → null, no undefined', async () => {
+  test('cliente con 1 proyecto → arreglo de longitud 1, estado "activo" sin instalación entregada', async () => {
+    const db = crearMockDbPorTabla({
+      proyectos: { data: [{ id: 'proy-1', numero_proyecto: 'NE-2026-0001', ubicacion_instalacion: 'Casa', created_at: '2026-01-01' }], error: null },
+      instalaciones: { data: [], error: null },
+    });
+    const r = await listarProyectosDeCliente(db, COMPANY_A, 214);
+    expect(r).toHaveLength(1);
+    expect(r[0]).toMatchObject({ numero_proyecto: 'NE-2026-0001', estado: 'activo' });
+  });
+
+  test('cliente con 2+ proyectos → los devuelve TODOS, nunca colapsa al más reciente (el bug real que encontró la auditoría)', async () => {
+    const db = crearMockDbPorTabla({
+      proyectos: {
+        data: [
+          { id: 'proy-2', numero_proyecto: 'NE-2026-0045', ubicacion_instalacion: 'Negocio', created_at: '2026-06-01' },
+          { id: 'proy-1', numero_proyecto: 'NE-2026-0001', ubicacion_instalacion: 'Casa', created_at: '2026-01-01' },
+        ],
+        error: null,
+      },
+      instalaciones: { data: [{ proyecto_id: 'proy-1', estado: 'entregada' }], error: null },
+    });
+    const r = await listarProyectosDeCliente(db, COMPANY_A, 214);
+    expect(r).toHaveLength(2);
+    expect(r.find((p) => p.id === 'proy-1').estado).toBe('completado'); // tiene instalación entregada
+    expect(r.find((p) => p.id === 'proy-2').estado).toBe('activo'); // sin instalación entregada/terminada
+  });
+
+  test('proyectos de distintas ubicaciones — cada uno conserva su propia ubicacion_instalacion, nunca mezcladas entre sí', async () => {
+    // El orden real (más reciente primero) lo garantiza .order('created_at')
+    // en la query — no se re-simula aquí; esta prueba verifica que cada
+    // proyecto retiene SU PROPIA ubicación, no que se mezclen entre ellos.
+    const db = crearMockDbPorTabla({
+      proyectos: {
+        data: [
+          { id: 'proy-2', numero_proyecto: 'NE-2026-0002', ubicacion_instalacion: 'Calle Hidalgo 200', created_at: '2026-02-01' },
+          { id: 'proy-1', numero_proyecto: 'NE-2026-0001', ubicacion_instalacion: 'Av. Reforma 100', created_at: '2026-01-01' },
+        ],
+        error: null,
+      },
+      instalaciones: { data: [], error: null },
+    });
+    const r = await listarProyectosDeCliente(db, COMPANY_A, 214);
+    expect(r.find((p) => p.id === 'proy-1').ubicacion_instalacion).toBe('Av. Reforma 100');
+    expect(r.find((p) => p.id === 'proy-2').ubicacion_instalacion).toBe('Calle Hidalgo 200');
+  });
+});
+
+describe('obtenerProyectoDelCliente() — P1.4: valida company_id Y cliente_id (superficie nueva del portal)', () => {
+  test('proyecto real pero de OTRO cliente → null (nunca lo devuelve)', async () => {
+    const db = crearMockDbPorTabla({ proyectos: { data: { id: 'proy-1', cliente_id: 999 }, error: null } });
+    expect(await obtenerProyectoDelCliente(db, COMPANY_A, 214, 'proy-1')).toBeNull();
+  });
+
+  test('proyecto real Y del cliente correcto → lo devuelve', async () => {
+    const db = crearMockDbPorTabla({ proyectos: { data: { id: 'proy-1', cliente_id: 214 }, error: null } });
+    const r = await obtenerProyectoDelCliente(db, COMPANY_A, 214, 'proy-1');
+    expect(r.id).toBe('proy-1');
+  });
+
+  test('proyecto inexistente → null', async () => {
     const db = crearMockDbPorTabla({ proyectos: { data: null, error: null } });
-    expect(await obtenerProyectoDeCliente(db, COMPANY_A, 214)).toBeNull();
+    expect(await obtenerProyectoDelCliente(db, COMPANY_A, 214, 'x')).toBeNull();
   });
+});
 
-  test('obtenerProyectoDeCotizacion: filtra por cotizacion_id', async () => {
+describe('obtenerProyectoDeCotizacion()', () => {
+  test('filtra por cotizacion_id', async () => {
     const db = crearMockDbPorTabla({ proyectos: { data: { id: 'proy-1' }, error: null } });
     await obtenerProyectoDeCotizacion(db, COMPANY_A, 42);
     const builder = db.from.mock.results.find((_, i) => db.from.mock.calls[i][0] === 'proyectos').value;

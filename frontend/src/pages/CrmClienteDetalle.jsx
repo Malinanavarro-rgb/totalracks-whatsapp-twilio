@@ -91,8 +91,10 @@ export default function CrmClienteDetalle() {
   // refresh, para no pisar lo que el técnico está escribiendo.
   const [formInmueble, setFormInmueble] = useState(null);
   const [guardandoInmueble, setGuardandoInmueble] = useState(false);
-  // Subfase 2A (2026-09-22) — si este cliente ya tiene una venta aceptada.
-  const [proyectoCliente, setProyectoCliente] = useState(null);
+  // Subfase 2A (2026-09-22) — proyectos de venta de este cliente. P1.4
+  // (auditoría, 2026-09-29): plural — un cliente puede tener 0, 1 o varios
+  // (casa, negocio, ampliación...), nunca colapsado a uno solo.
+  const [proyectosCliente, setProyectosCliente] = useState(null);
   // Documentos del cliente clasificados (2026-09-22) — se cargan solo al
   // abrir el tab, no en cada refresh de 4s (no son datos que cambien solos).
   const [documentosCliente, setDocumentosCliente] = useState(null);
@@ -138,7 +140,7 @@ export default function CrmClienteDetalle() {
   }, []);
 
   useEffect(() => {
-    api.proyectoDeCliente(clienteId).then(setProyectoCliente).catch(() => setProyectoCliente(null));
+    api.proyectosDeCliente(clienteId).then(setProyectosCliente).catch(() => setProyectosCliente([]));
   }, [clienteId]);
 
   // Movida antes del early-return de abajo (con encadenamiento opcional, ya
@@ -487,8 +489,8 @@ export default function CrmClienteDetalle() {
         </div>
 
         <div className="expediente-acciones-rapidas">
-          {proyectoCliente && (
-            <Link to={`/proyectos/${proyectoCliente.id}`} className="pregunta-tara-chip">Proyecto {proyectoCliente.numero_proyecto}</Link>
+          {proyectosCliente?.length === 1 && (
+            <Link to={`/proyectos/${proyectosCliente[0].id}`} className="pregunta-tara-chip">Proyecto {proyectosCliente[0].numero_proyecto}</Link>
           )}
           <Link to={`/conversaciones/${clienteId}`} className="pregunta-tara-chip">WhatsApp</Link>
           <Link to={`/cotizaciones/nueva?clienteId=${clienteId}`} className="pregunta-tara-chip">Cotizar</Link>
@@ -501,6 +503,25 @@ export default function CrmClienteDetalle() {
           )}
         </div>
       </section>
+
+      {/* P1.4 (auditoría, 2026-09-29) — "PROYECTOS / SISTEMAS": un cliente
+          puede tener varios (casa, negocio, ampliación...), cada uno abre su
+          propio Proyecto 360°. Antes se colapsaba silenciosamente al más
+          reciente. */}
+      {proyectosCliente && proyectosCliente.length > 0 && (
+        <section className="crm-seccion">
+          <h2>Proyectos / Sistemas ({proyectosCliente.length})</h2>
+          <ul className="config-kb-lista">
+            {proyectosCliente.map((p) => (
+              <li key={p.id} className="config-kb-item">
+                <Link to={`/proyectos/${p.id}`}>{p.numero_proyecto}</Link>
+                {p.ubicacion_instalacion ? ` — ${p.ubicacion_instalacion}` : ''}
+                {' — '}<span className={`pill pill--${p.estado === 'completado' ? 'success' : 'neutral'}`}>{p.estado}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <div className="config-tabs">
         {TABS.map((t) => (

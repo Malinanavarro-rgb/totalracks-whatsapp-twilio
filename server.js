@@ -56,7 +56,7 @@ const {
 } = require('./modules/planes-financiamiento');
 const { generarPropuestasCotizacion, simularRangoCotizacion } = require('./modules/propuestas-solares');
 const { calcularRentabilidadCotizacion } = require('./modules/rentabilidad');
-const { marcarCotizacionAceptadaYCrearProyecto, obtenerProyecto, obtenerProyectoDeCliente, obtenerProyectoDeCotizacion } = require('./modules/proyectos');
+const { marcarCotizacionAceptadaYCrearProyecto, obtenerProyecto, obtenerProyectoDelCliente, listarProyectosDeCliente, obtenerProyectoDeCotizacion } = require('./modules/proyectos');
 const { obtenerResumenCobranza, registrarAbono, actualizarAnticipoRequerido } = require('./modules/cobranza');
 const {
   obtenerChecklistConfig, guardarChecklistConfig, crearInstalacion, obtenerInstalacion,
@@ -2695,9 +2695,13 @@ app.get('/api/proyectos/:id', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/crm/clientes/:id/proyecto', requireAuth, async (req, res) => {
+// P1.4 (auditoría, 2026-09-29) — plural: un cliente puede tener 0, 1 o
+// varios proyectos de venta (casa, negocio, ampliación...). Reemplaza a
+// GET /api/crm/clientes/:id/proyecto (singular) — único consumidor
+// (frontend/src/pages/CrmClienteDetalle.jsx) actualizado en el mismo commit.
+app.get('/api/crm/clientes/:id/proyectos', requireAuth, async (req, res) => {
   try {
-    res.json(await obtenerProyectoDeCliente(req.supabase, req.usuario.company_id, req.params.id));
+    res.json(await listarProyectosDeCliente(req.supabase, req.usuario.company_id, req.params.id));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -2954,33 +2958,54 @@ app.post('/api/portal/logout', async (req, res) => {
 // que ya usa el panel de empleados (listarEquiposDeProyecto,
 // obtenerResumenCobranza), solo con una fuente de identidad distinta
 // (req.portalCliente en vez de req.usuario).
-app.get('/api/portal/mi-proyecto', requirePortalAuth, async (req, res) => {
+//
+// P1.4 (auditoría, 2026-09-29) — rediseñado para soportar CLIENTES CON
+// MÚLTIPLES PROYECTOS "sin mezclar información" (requisito explícito): ya
+// no hay un solo "mi-proyecto", hay una lista (mis-proyectos) y un detalle
+// por proyecto (proyectos/:proyectoId, .../equipos, .../cobranza).
+//
+// Superficie de ataque NUEVA que esto introduce — y por qué está cerrada:
+// antes el portal nunca recibía un ID de proyecto (siempre resolvía "el"
+// proyecto desde la sesión). Ahora :proyectoId SÍ llega desde la URL, así
+// que un cliente podría intentar poner el ID real de OTRO cliente de la
+// MISMA empresa. Por eso las 3 rutas usan obtenerProyectoDelCliente()
+// (modules/proyectos.js) en vez de obtenerProyecto() a secas — valida
+// company_id Y cliente_id antes de devolver cualquier dato — 404
+// genérico si no coincide, igual que "no existe" (nunca revela que el
+// proyecto sí existe pero es de otro cliente).
+
+app.get('/api/portal/mis-proyectos', requirePortalAuth, async (req, res) => {
   try {
-    // obtenerProyectoDeCliente solo trae {id, numero_proyecto} (pensada para
-    // el link "Ver proyecto" del expediente) — el portal necesita el
-    // registro completo, así que se resuelve con obtenerProyecto().
-    const referencia = await obtenerProyectoDeCliente(supabaseServicio, req.portalCliente.companyId, req.portalCliente.clienteId);
-    if (!referencia) return res.json(null);
-    res.json(await obtenerProyecto(supabaseServicio, req.portalCliente.companyId, referencia.id));
+    res.json(await listarProyectosDeCliente(supabaseServicio, req.portalCliente.companyId, req.portalCliente.clienteId));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-app.get('/api/portal/mis-equipos', requirePortalAuth, async (req, res) => {
+app.get('/api/portal/proyectos/:proyectoId', requirePortalAuth, async (req, res) => {
   try {
-    const proyecto = await obtenerProyectoDeCliente(supabaseServicio, req.portalCliente.companyId, req.portalCliente.clienteId);
-    if (!proyecto) return res.json([]);
+    const proyecto = await obtenerProyectoDelCliente(supabaseServicio, req.portalCliente.companyId, req.portalCliente.clienteId, req.params.proyectoId);
+    if (!proyecto) return res.status(404).json({ error: 'Proyecto no encontrado' });
+    res.json(proyecto);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/portal/proyectos/:proyectoId/equipos', requirePortalAuth, async (req, res) => {
+  try {
+    const proyecto = await obtenerProyectoDelCliente(supabaseServicio, req.portalCliente.companyId, req.portalCliente.clienteId, req.params.proyectoId);
+    if (!proyecto) return res.status(404).json({ error: 'Proyecto no encontrado' });
     res.json(await listarEquiposDeProyecto(supabaseServicio, req.portalCliente.companyId, proyecto.id));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-app.get('/api/portal/mi-cobranza', requirePortalAuth, async (req, res) => {
+app.get('/api/portal/proyectos/:proyectoId/cobranza', requirePortalAuth, async (req, res) => {
   try {
-    const proyecto = await obtenerProyectoDeCliente(supabaseServicio, req.portalCliente.companyId, req.portalCliente.clienteId);
-    if (!proyecto) return res.json(null);
+    const proyecto = await obtenerProyectoDelCliente(supabaseServicio, req.portalCliente.companyId, req.portalCliente.clienteId, req.params.proyectoId);
+    if (!proyecto) return res.status(404).json({ error: 'Proyecto no encontrado' });
     res.json(await obtenerResumenCobranza(supabaseServicio, req.portalCliente.companyId, proyecto.id));
   } catch (e) {
     res.status(500).json({ error: e.message });

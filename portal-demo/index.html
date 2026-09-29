@@ -48,6 +48,11 @@
   .estado-pill { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: #eef1f5; color: #374151; }
   .equipo { border: 1px solid var(--borde); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; font-size: 14px; }
   .equipo .tipo { font-weight: 600; text-transform: capitalize; }
+  .sistema-item {
+    display: block; width: 100%; text-align: left; border: 1px solid var(--borde); border-radius: 8px;
+    padding: 10px 12px; margin-bottom: 8px; font-size: 14px; background: #fff; cursor: pointer;
+  }
+  .sistema-item--activo { border-color: var(--acento); background: #fff7ef; }
   .vacio { color: #9ca3af; font-size: 14px; text-align: center; padding: 12px 0; }
   .nota-demo { font-size: 12px; color: #9ca3af; text-align: center; margin-top: 24px; line-height: 1.5; }
   [hidden] { display: none !important; }
@@ -89,6 +94,13 @@
 
   <!-- Paso 3: portal -->
   <section id="pasoPortal" hidden>
+    <!-- P1.4 (auditoría, 2026-09-29) — selector de sistema: un cliente puede
+         tener varios proyectos (casa, negocio, ampliación...). Solo se
+         muestra si hay más de uno; con exactamente uno se entra directo. -->
+    <div class="tarjeta" id="tarjetaSelectorProyectos" hidden>
+      <h2>Mis sistemas</h2>
+      <div id="selectorProyectos"></div>
+    </div>
     <div class="tarjeta">
       <h2>Mi proyecto</h2>
       <div id="miProyecto"><div class="vacio">Cargando…</div></div>
@@ -191,13 +203,62 @@
   });
 
   // ── Paso 3: portal ───────────────────────────────────────────────────────
+  // P1.4 (auditoría, 2026-09-29) — un cliente puede tener varios proyectos
+  // ("mis sistemas"); se listan todos (mis-proyectos) y el detalle de CADA
+  // uno se pide por su propio :proyectoId — nunca mezclados entre sí. El
+  // backend revalida la propiedad de cada proyecto contra la sesión, así
+  // que aunque este HTML es solo una demo, no hay forma real de ver el
+  // proyecto de otro cliente aunque se manipulara el id en el navegador.
+  let misProyectos = [];
+
   async function cargarPortal(cliente) {
     document.querySelector('header h1').textContent = cliente && cliente.nombre
       ? `Hola, ${cliente.nombre.split(' ')[0]}`
       : 'Mi portal — Nort Energy';
 
     try {
-      const proyecto = await api('/mi-proyecto');
+      misProyectos = await api('/mis-proyectos');
+    } catch (err) {
+      $('miProyecto').innerHTML = `<div class="vacio">No se pudo cargar (${err.message}).</div>`;
+      return;
+    }
+
+    if (misProyectos.length === 0) {
+      $('tarjetaSelectorProyectos').hidden = true;
+      $('miProyecto').innerHTML = '<div class="vacio">Todavía no tienes un proyecto activo.</div>';
+      $('misEquipos').innerHTML = '<div class="vacio">—</div>';
+      $('miCobranza').innerHTML = '<div class="vacio">—</div>';
+      return;
+    }
+
+    if (misProyectos.length > 1) {
+      $('tarjetaSelectorProyectos').hidden = false;
+      renderSelectorProyectos(misProyectos[0].id);
+    } else {
+      $('tarjetaSelectorProyectos').hidden = true;
+    }
+
+    await cargarDetalleProyecto(misProyectos[0].id);
+  }
+
+  function renderSelectorProyectos(idActivo) {
+    $('selectorProyectos').innerHTML = misProyectos.map((p) => `
+      <button type="button" class="sistema-item ${p.id === idActivo ? 'sistema-item--activo' : ''}" data-id="${p.id}">
+        <strong>${p.numero_proyecto || 'Proyecto'}</strong>${p.ubicacion_instalacion ? ' — ' + p.ubicacion_instalacion : ''}
+        <span class="estado-pill">${p.estado || '—'}</span>
+      </button>
+    `).join('');
+    $('selectorProyectos').querySelectorAll('.sistema-item').forEach((boton) => {
+      boton.addEventListener('click', () => {
+        renderSelectorProyectos(boton.dataset.id);
+        cargarDetalleProyecto(boton.dataset.id);
+      });
+    });
+  }
+
+  async function cargarDetalleProyecto(proyectoId) {
+    try {
+      const proyecto = await api(`/proyectos/${proyectoId}`);
       $('miProyecto').innerHTML = proyecto ? `
         <div class="fila"><span class="etq">Proyecto</span><span class="val">${proyecto.numero_proyecto || '—'}</span></div>
         <div class="fila"><span class="etq">Ubicación</span><span class="val">${proyecto.ubicacion_instalacion || '—'}</span></div>
@@ -208,7 +269,7 @@
     }
 
     try {
-      const equipos = await api('/mis-equipos');
+      const equipos = await api(`/proyectos/${proyectoId}/equipos`);
       $('misEquipos').innerHTML = (equipos && equipos.length)
         ? equipos.map((eq) => `
             <div class="equipo">
@@ -221,7 +282,7 @@
     }
 
     try {
-      const cobranza = await api('/mi-cobranza');
+      const cobranza = await api(`/proyectos/${proyectoId}/cobranza`);
       $('miCobranza').innerHTML = cobranza ? `
         <div class="fila"><span class="etq">Total del sistema</span><span class="val">$${Number(cobranza.total_vendido || 0).toLocaleString('es-MX')}</span></div>
         <div class="fila"><span class="etq">Pagado</span><span class="val">$${Number(cobranza.total_pagado || 0).toLocaleString('es-MX')}</span></div>
@@ -235,6 +296,7 @@
   $('btnSalir').addEventListener('click', async () => {
     try { await api('/logout', { method: 'POST' }); } catch (_) { /* ya se cierra visualmente aunque falle */ }
     $('codigo').value = '';
+    misProyectos = [];
     document.querySelector('header h1').textContent = 'Mi portal — Nort Energy';
     mostrarPaso('pasoSolicitar');
   });

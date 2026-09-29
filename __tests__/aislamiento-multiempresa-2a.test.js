@@ -26,7 +26,7 @@ jest.mock('../modules/cotizaciones', () => ({
   obtenerCotizacion: (...args) => mockObtenerCotizacion(...args),
 }));
 
-const { marcarCotizacionAceptadaYCrearProyecto, obtenerProyecto, obtenerProyectoDeCliente, obtenerProyectoDeCotizacion } = require('../modules/proyectos');
+const { marcarCotizacionAceptadaYCrearProyecto, obtenerProyecto, listarProyectosDeCliente, obtenerProyectoDeCotizacion } = require('../modules/proyectos');
 
 const EMPRESA_A = 'empresa-a-0001';
 const EMPRESA_B = 'empresa-b-0002';
@@ -112,15 +112,62 @@ describe('Aislamiento multiempresa — 2A', () => {
       .rejects.toMatchObject({ status: 404 });
   });
 
-  test('Empresa A pide "el proyecto de mi cliente" usando un cliente_id real de la Empresa B → null, no cruza', async () => {
-    const resolver = crearTablaConAislamientoReal([{ id: 'proy-x', company_id: EMPRESA_B, cliente_id: 500, tipo: 'venta' }]);
+  test('Empresa A lista "los proyectos de mi cliente" usando un cliente_id real de la Empresa B → arreglo vacío, no cruza (P1.4, listarProyectosDeCliente)', async () => {
+    // listarProyectosDeCliente hace 2 consultas (proyectos, luego
+    // instalaciones) — se simulan ambas con el mismo criterio de
+    // aislamiento real: una fila que no coincide en company_id nunca pasa.
+    const filaDeEmpresaB = { id: 'proy-x', company_id: EMPRESA_B, cliente_id: 500, tipo: 'venta' };
     const db = {
-      from: jest.fn(() => crearBuilderAislado('proyectos', (f) => resolver({ company_id: f.company_id, cliente_id: f.cliente_id, tipo: f.tipo }))),
+      from: jest.fn((tabla) => {
+        const filtros = {};
+        const builder = {
+          select: jest.fn(() => builder),
+          eq: jest.fn((campo, valor) => { filtros[campo] = valor; return builder; }),
+          in: jest.fn(() => builder),
+          order: jest.fn(() => builder),
+          then: (resolve) => {
+            if (tabla === 'proyectos') {
+              const coincide = filtros.company_id === filaDeEmpresaB.company_id && filtros.cliente_id === filaDeEmpresaB.cliente_id && filtros.tipo === filaDeEmpresaB.tipo;
+              return resolve({ data: coincide ? [filaDeEmpresaB] : [], error: null });
+            }
+            return resolve({ data: [], error: null }); // instalaciones — sin datos, irrelevante aquí
+          },
+        };
+        return builder;
+      }),
     };
 
-    const resultado = await obtenerProyectoDeCliente(db, EMPRESA_A, 500); // mismo cliente_id, empresa equivocada
+    const resultado = await listarProyectosDeCliente(db, EMPRESA_A, 500); // mismo cliente_id, empresa equivocada
 
-    expect(resultado).toBeNull();
+    expect(resultado).toEqual([]);
+  });
+
+  test('Empresa B, con su propio company_id, SÍ ve el proyecto de su cliente (control positivo, listarProyectosDeCliente)', async () => {
+    const filaDeEmpresaB = { id: 'proy-x', company_id: EMPRESA_B, cliente_id: 500, tipo: 'venta', numero_proyecto: 'PRY-2026-0001' };
+    const db = {
+      from: jest.fn((tabla) => {
+        const filtros = {};
+        const builder = {
+          select: jest.fn(() => builder),
+          eq: jest.fn((campo, valor) => { filtros[campo] = valor; return builder; }),
+          in: jest.fn(() => builder),
+          order: jest.fn(() => builder),
+          then: (resolve) => {
+            if (tabla === 'proyectos') {
+              const coincide = filtros.company_id === filaDeEmpresaB.company_id && filtros.cliente_id === filaDeEmpresaB.cliente_id && filtros.tipo === filaDeEmpresaB.tipo;
+              return resolve({ data: coincide ? [filaDeEmpresaB] : [], error: null });
+            }
+            return resolve({ data: [], error: null });
+          },
+        };
+        return builder;
+      }),
+    };
+
+    const resultado = await listarProyectosDeCliente(db, EMPRESA_B, 500);
+
+    expect(resultado).toHaveLength(1);
+    expect(resultado[0].id).toBe('proy-x');
   });
 
   test('Empresa A pide "el proyecto de esta cotización" usando un cotizacion_id real de la Empresa B → null', async () => {
@@ -143,7 +190,7 @@ describe('Aislamiento multiempresa — 2A', () => {
     mockObtenerCotizacion.mockResolvedValue(null);
 
     await obtenerProyecto(db, EMPRESA_A, 'cualquier-id');
-    await obtenerProyectoDeCliente(db, EMPRESA_A, 1);
+    await listarProyectosDeCliente(db, EMPRESA_A, 1);
     await obtenerProyectoDeCotizacion(db, EMPRESA_A, 1);
     await marcarCotizacionAceptadaYCrearProyecto(db, { companyId: EMPRESA_A, cotizacionId: 1, usuarioId: 'u1' }).catch(() => {});
 

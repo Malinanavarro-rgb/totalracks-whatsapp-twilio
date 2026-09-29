@@ -227,7 +227,8 @@ export const api = {
   rentabilidadCotizacion: (id) => pedir(`/api/cotizaciones/${id}/rentabilidad`),
   marcarCotizacionAceptada: (id) => pedir(`/api/cotizaciones/${id}/marcar-aceptada`, { method: 'POST' }),
   proyecto: (id) => pedir(`/api/proyectos/${id}`),
-  proyectoDeCliente: (clienteId) => pedir(`/api/crm/clientes/${clienteId}/proyecto`),
+  // P1.4 (auditoría, 2026-09-29) — plural: un cliente puede tener varios proyectos.
+  proyectosDeCliente: (clienteId) => pedir(`/api/crm/clientes/${clienteId}/proyectos`),
   proyectoDeCotizacion: (cotizacionId) => pedir(`/api/cotizaciones/${cotizacionId}/proyecto`),
   cobranzaProyecto: (proyectoId) => pedir(`/api/proyectos/${proyectoId}/cobranza`),
   registrarAbono: (proyectoId, datos) => pedir(`/api/proyectos/${proyectoId}/cobranza/abonos`, { method: 'POST', body: JSON.stringify(datos) }),

@@ -11,17 +11,24 @@
  *      poder pedir/usar un código, ni resolver una sesión, que pertenezca
  *      a un cliente de la Empresa B (aun con el correo correcto pero un
  *      companyId equivocado, o viceversa).
- *   2. Las rutas /api/portal/mi-proyecto, /mis-equipos, /mi-cobranza —
- *      confían en req.portalCliente (resuelto del token de sesión, nunca
- *      de un campo del body/URL) y llaman a obtenerProyectoDeCliente con
- *      ese companyId+clienteId — ya cubierto indirectamente por los tests
- *      de aislamiento de modules/proyectos.js, pero aquí se prueba
- *      explícitamente que resolverSesionPortal nunca devuelve una sesión
- *      de otra empresa.
+ *   2. Las rutas /api/portal/mis-proyectos, /api/portal/proyectos/:id,
+ *      /:id/equipos, /:id/cobranza — confían en req.portalCliente
+ *      (resuelto del token de sesión, nunca de un campo del body/URL).
+ *      P1.4 (auditoría, 2026-09-29): desde que el cliente puede tener
+ *      VARIOS proyectos, :proyectoId SÍ llega ahora desde la URL — una
+ *      superficie que antes no existía (antes el portal siempre resolvía
+ *      "el" proyecto único desde la sesión, nunca un ID externo). Por eso
+ *      cada ruta usa obtenerProyectoDelCliente() (modules/proyectos.js),
+ *      que valida company_id Y cliente_id — probado explícitamente abajo:
+ *      un cliente nunca debe poder ver el proyecto de OTRO cliente de la
+ *      MISMA empresa con solo cambiar el :proyectoId en la URL. También se
+ *      prueba explícitamente que resolverSesionPortal nunca devuelve una
+ *      sesión de otra empresa.
  */
 
 const crypto = require('crypto');
 const { solicitarCodigoAcceso, verificarCodigoAcceso, resolverSesionPortal } = require('../modules/portal-cliente');
+const { obtenerProyectoDelCliente } = require('../modules/proyectos');
 
 function hashCodigo(companyId, clienteId, codigo) {
   return crypto.createHash('sha256').update(`${companyId}:${clienteId}:${codigo}`).digest('hex');
@@ -145,5 +152,46 @@ describe('Aislamiento multiempresa — Portal del cliente', () => {
     const r = await solicitarCodigoAcceso(dbSinClienteEnA, { companyId: EMPRESA_A, correo: 'juan@example.com' }, { enviarCorreo });
     expect(r).toEqual({ enviado: true });
     expect(enviarCorreo).not.toHaveBeenCalled();
+  });
+});
+
+describe('P1.4 (auditoría, 2026-09-29) — un cliente del portal nunca ve el proyecto de OTRO cliente de la MISMA empresa', () => {
+  // Escenario real: dos clientes reales de Nort Energy (EMPRESA_A), cada
+  // uno con su propio proyecto. El cliente 111 manipula el :proyectoId de
+  // la URL para poner el proyecto real del cliente 222 — debe fallar.
+  const PROYECTO_DEL_CLIENTE_111 = { id: 'proy-111', company_id: EMPRESA_A, cliente_id: 111, numero_proyecto: 'NE-2026-0001' };
+  const PROYECTO_DEL_CLIENTE_222 = { id: 'proy-222', company_id: EMPRESA_A, cliente_id: 222, numero_proyecto: 'NE-2026-0002' };
+
+  function dbConProyectos(filas) {
+    return {
+      from: jest.fn(() => {
+        const filtros = {};
+        const builder = {
+          select: jest.fn(() => builder),
+          eq: jest.fn((campo, valor) => { filtros[campo] = valor; return builder; }),
+          maybeSingle: jest.fn(() => Promise.resolve({ data: filas.find((f) => f.id === filtros.id && f.company_id === filtros.company_id) || null, error: null })),
+        };
+        return builder;
+      }),
+    };
+  }
+
+  test('cliente 111 pide el proyecto REAL del cliente 222 (mismo company_id) → null, nunca lo ve', async () => {
+    const db = dbConProyectos([PROYECTO_DEL_CLIENTE_111, PROYECTO_DEL_CLIENTE_222]);
+    const resultado = await obtenerProyectoDelCliente(db, EMPRESA_A, 111, 'proy-222'); // clienteId=111 pidiendo el proyecto de 222
+    expect(resultado).toBeNull();
+  });
+
+  test('cliente 111 pide SU PROPIO proyecto → sí lo ve (control positivo — el aislamiento no rompe el acceso legítimo)', async () => {
+    const db = dbConProyectos([PROYECTO_DEL_CLIENTE_111, PROYECTO_DEL_CLIENTE_222]);
+    const resultado = await obtenerProyectoDelCliente(db, EMPRESA_A, 111, 'proy-111');
+    expect(resultado.id).toBe('proy-111');
+  });
+
+  test('mismo escenario, ahora también cruzando de empresa: cliente 111 de EMPRESA_A pide un proyecto real de EMPRESA_B → null', async () => {
+    const proyectoDeOtraEmpresa = { id: 'proy-b', company_id: EMPRESA_B, cliente_id: 111, numero_proyecto: 'OTRA-0001' };
+    const db = dbConProyectos([proyectoDeOtraEmpresa]);
+    const resultado = await obtenerProyectoDelCliente(db, EMPRESA_A, 111, 'proy-b');
+    expect(resultado).toBeNull();
   });
 });

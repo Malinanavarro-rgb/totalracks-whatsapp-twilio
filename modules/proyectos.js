@@ -201,12 +201,43 @@ async function obtenerProyecto(supabase, companyId, proyectoId) {
   return _enriquecerProyecto(supabase, companyId, data);
 }
 
-/** El proyecto de venta de un cliente (si tiene uno) — para el link "Ver proyecto" desde el expediente del cliente. */
-async function obtenerProyectoDeCliente(supabase, companyId, clienteId) {
-  const { data } = await supabase
-    .from('proyectos').select('id, numero_proyecto').eq('company_id', companyId).eq('cliente_id', clienteId).eq('tipo', 'venta')
-    .order('created_at', { ascending: false }).limit(1).maybeSingle();
-  return data || null;
+/**
+ * Como obtenerProyecto(), pero ADEMÁS valida que el proyecto pertenezca a
+ * ESE cliente — P1.4 (auditoría, 2026-09-29): el portal del cliente ahora
+ * recibe :proyectoId desde la URL (antes siempre resolvía "el" proyecto
+ * desde la sesión, nunca un ID externo) — esta es la superficie nueva que
+ * hay que cerrar: un cliente podría intentar poner el ID real de OTRO
+ * cliente de la MISMA empresa. `obtenerProyecto` ya filtra por
+ * company_id; esta función agrega la segunda verificación (cliente_id)
+ * que las 3 rutas del portal (mi-proyecto/mis-equipos/mi-cobranza) necesitan.
+ */
+async function obtenerProyectoDelCliente(supabase, companyId, clienteId, proyectoId) {
+  const proyecto = await obtenerProyecto(supabase, companyId, proyectoId);
+  return proyecto && proyecto.cliente_id === clienteId ? proyecto : null;
+}
+
+/**
+ * TODOS los proyectos de venta de un cliente — P1.4 (auditoría
+ * NORT_ENERGY_AUDIT_V1.md, 2026-09-29): reemplaza a obtenerProyectoDeCliente()
+ * (singular), que colapsaba a un solo proyecto — un cliente real con Casa +
+ * Negocio + una ampliación futura perdía visibilidad de los anteriores.
+ * `estado` se DERIVA de instalaciones.estado (nunca de proyectos.estado,
+ * que no se actualiza tras la creación — confirmado en la auditoría, ver
+ * dashboard-engine.js::conteo_proyectos_activos, misma fórmula aquí).
+ */
+async function listarProyectosDeCliente(supabase, companyId, clienteId) {
+  const { data: proyectos } = await supabase
+    .from('proyectos').select('id, numero_proyecto, ubicacion_instalacion, created_at')
+    .eq('company_id', companyId).eq('cliente_id', clienteId).eq('tipo', 'venta')
+    .order('created_at', { ascending: false });
+  if (!proyectos || proyectos.length === 0) return [];
+
+  const { data: instalaciones } = await supabase
+    .from('instalaciones').select('proyecto_id, estado').eq('company_id', companyId)
+    .in('proyecto_id', proyectos.map((p) => p.id)).in('estado', ['entregada', 'terminada']);
+  const completados = new Set((instalaciones || []).map((i) => i.proyecto_id));
+
+  return proyectos.map((p) => ({ ...p, estado: completados.has(p.id) ? 'completado' : 'activo' }));
 }
 
 /** El proyecto de venta de una cotización (si ya se convirtió) — para el link "Ver proyecto" desde el detalle de la cotización. */
@@ -218,5 +249,5 @@ async function obtenerProyectoDeCotizacion(supabase, companyId, cotizacionId) {
 
 module.exports = {
   generarFolioProyecto, construirSnapshotVendido, marcarCotizacionAceptadaYCrearProyecto,
-  obtenerProyecto, obtenerProyectoDeCliente, obtenerProyectoDeCotizacion,
+  obtenerProyecto, obtenerProyectoDelCliente, listarProyectosDeCliente, obtenerProyectoDeCotizacion,
 };
