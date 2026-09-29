@@ -317,6 +317,10 @@ export const api = {
     return pedir(`/api/inventario/movimientos${qs ? `?${qs}` : ''}`);
   },
   registrarMovimientoInventario: (datos) => pedir('/api/inventario/movimientos', { method: 'POST', body: JSON.stringify(datos) }),
+  // P1.2 (auditoría, 2026-09-29) — conectan el frontend a los endpoints de
+  // reserva/consumo que ya existían desde 2F sin ningún consumidor real.
+  reservarMaterialInstalacion: (instalacionId, items) => pedir(`/api/instalaciones/${instalacionId}/inventario/reservar`, { method: 'POST', body: JSON.stringify({ items }) }),
+  consumirMaterialInstalacion: (instalacionId, items) => pedir(`/api/instalaciones/${instalacionId}/inventario/consumir`, { method: 'POST', body: JSON.stringify({ items }) }),
   planesFinanciamiento:        (soloActivos) => pedir(`/api/planes-financiamiento${soloActivos ? '?activos=true' : ''}`),
   crearPlanFinanciamiento:     (datos) => pedir('/api/planes-financiamiento', { method: 'POST', body: JSON.stringify(datos) }),
   actualizarPlanFinanciamiento: (id, cambios) => pedir(`/api/planes-financiamiento/${id}`, { method: 'PATCH', body: JSON.stringify(cambios) }),

@@ -69,6 +69,169 @@ function formatearMonto(monto) {
   return `$${Number(monto).toLocaleString('es-MX')}`;
 }
 
+/**
+ * P1.2 (auditoría, 2026-09-29) — conecta el frontend a
+ * reservarMaterialInstalacion/consumirMaterialInstalacion, que existían en
+ * el backend desde 2F sin ningún botón real que los llamara. Reutiliza
+ * 100% los endpoints/funciones ya construidos — cero backend nuevo.
+ *
+ * "Reservado"/"Consumido" se calculan sumando el ledger real
+ * (inventario_movimientos filtrado por proyecto_id, ya soportado por
+ * listarMovimientos) — nunca un campo nuevo "cantidad requerida": ese dato
+ * no existe en ningún lado del modelo hoy (config_vendida no guarda
+ * producto_id), así que la única fuente de verdad honesta es lo que de
+ * verdad se reservó. "Disponible" es el saldo real de la sucursal
+ * (existencia_fisica - reservado global, ya calculado por el backend).
+ */
+function MaterialInstalacion({ instalacion, productos }) {
+  const [movimientos, setMovimientos] = useState(null);
+  const [saldos, setSaldos] = useState(null);
+  const [error, setError] = useState(null);
+  const [itemsReservar, setItemsReservar] = useState([{ productoId: '', cantidad: '' }]);
+  const [reservando, setReservando] = useState(false);
+  const [consumiendo, setConsumiendo] = useState(false);
+  const [liberandoId, setLiberandoId] = useState(null);
+
+  function cargar() {
+    if (!instalacion.sucursal_id) return;
+    api.movimientosInventario({ proyectoId: instalacion.proyecto_id }).then(setMovimientos).catch((e) => setError(e.message));
+    api.saldosInventario({ sucursalId: instalacion.sucursal_id }).then(setSaldos).catch((e) => setError(e.message));
+  }
+
+  useEffect(cargar, [instalacion.id, instalacion.sucursal_id, instalacion.proyecto_id]);
+
+  if (!instalacion.sucursal_id) {
+    return <p className="operaciones-nota">Esta instalación no tiene sucursal asignada — no se puede reservar/consumir material sin saber de dónde sale.</p>;
+  }
+  if (movimientos === null || saldos === null) return <p className="operaciones-nota">Cargando material…</p>;
+
+  // Reservado/consumido NETOS de este proyecto, por producto — derivado del
+  // ledger real, nunca guardado aparte.
+  const porProducto = {};
+  for (const m of movimientos) {
+    if (!porProducto[m.producto_id]) porProducto[m.producto_id] = { reservado: 0, consumido: 0 };
+    if (m.tipo === 'reserva') porProducto[m.producto_id].reservado += Number(m.cantidad);
+    else if (m.tipo === 'liberacion') porProducto[m.producto_id].reservado -= Number(m.cantidad);
+    else if (m.tipo === 'salida') porProducto[m.producto_id].consumido += Number(m.cantidad);
+  }
+  const productoPorId = Object.fromEntries(productos.map((p) => [p.id, p]));
+  const saldoPorProducto = Object.fromEntries(saldos.map((s) => [s.producto_id, s]));
+  const filas = Object.entries(porProducto).filter(([, v]) => v.reservado > 0.0001 || v.consumido > 0.0001);
+
+  async function reservar(e) {
+    e.preventDefault();
+    setError(null);
+    const items = itemsReservar.filter((it) => it.productoId && Number(it.cantidad) > 0).map((it) => ({ productoId: it.productoId, cantidad: Number(it.cantidad) }));
+    if (items.length === 0) { setError('Agrega al menos un producto con cantidad mayor a 0.'); return; }
+    setReservando(true);
+    try {
+      await api.reservarMaterialInstalacion(instalacion.id, items);
+      setItemsReservar([{ productoId: '', cantidad: '' }]);
+      cargar();
+    } catch (e2) {
+      setError(e2.message); // ej. "disponible insuficiente para reservar" — mensaje real del backend, nunca oculto
+    } finally {
+      setReservando(false);
+    }
+  }
+
+  async function consumirTodoLoReservado() {
+    const items = Object.entries(porProducto).filter(([, v]) => v.reservado > 0.0001).map(([productoId, v]) => ({ productoId, cantidad: v.reservado }));
+    if (items.length === 0) { setError('No hay material reservado para consumir.'); return; }
+    setConsumiendo(true);
+    setError(null);
+    try {
+      await api.consumirMaterialInstalacion(instalacion.id, items);
+      cargar();
+    } catch (e2) {
+      setError(e2.message);
+    } finally {
+      setConsumiendo(false);
+    }
+  }
+
+  async function liberar(productoId, cantidadReservada) {
+    setLiberandoId(productoId);
+    setError(null);
+    try {
+      await api.registrarMovimientoInventario({
+        tipo: 'liberacion', productoId, sucursalId: instalacion.sucursal_id, cantidad: cantidadReservada,
+        proyectoId: instalacion.proyecto_id, referencia: `Instalación ${instalacion.id} — liberación manual`,
+      });
+      cargar();
+    } catch (e2) {
+      setError(e2.message);
+    } finally {
+      setLiberandoId(null);
+    }
+  }
+
+  return (
+    <div>
+      {error && <p className="login-error">{error}</p>}
+
+      {filas.length === 0 ? (
+        <p className="operaciones-nota">Todavía no se ha reservado ni consumido material para esta instalación.</p>
+      ) : (
+        <table>
+          <thead><tr><th>Producto</th><th>Reservado</th><th>Consumido</th><th>Disponible (sucursal)</th><th></th></tr></thead>
+          <tbody>
+            {filas.map(([productoId, v]) => {
+              const producto = productoPorId[productoId];
+              const saldo = saldoPorProducto[productoId];
+              return (
+                <tr key={productoId}>
+                  <td>{producto ? `${producto.marca || ''} ${producto.modelo || ''}`.trim() : productoId} <span className="operaciones-nota">({producto?.tipo})</span></td>
+                  <td>{v.reservado} {producto?.unidad}</td>
+                  <td>{v.consumido} {producto?.unidad}</td>
+                  <td>{saldo ? saldo.disponible : '—'} {producto?.unidad}</td>
+                  <td>
+                    {v.reservado > 0.0001 && (
+                      <button type="button" className="boton-enlace" onClick={() => liberar(productoId, v.reservado)} disabled={liberandoId === productoId}>
+                        {liberandoId === productoId ? 'Liberando…' : 'Liberar reserva'}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+
+      <form onSubmit={reservar}>
+        <table>
+          <thead><tr><th>Producto a reservar</th><th>Cantidad</th><th></th></tr></thead>
+          <tbody>
+            {itemsReservar.map((it, i) => (
+              <tr key={i}>
+                <td>
+                  <select value={it.productoId} onChange={(e) => setItemsReservar(itemsReservar.map((x, idx) => (idx === i ? { ...x, productoId: e.target.value } : x)))}>
+                    <option value="">— selecciona —</option>
+                    {productos.map((p) => <option key={p.id} value={p.id}>{p.marca} {p.modelo} ({p.tipo})</option>)}
+                  </select>
+                </td>
+                <td>
+                  <input
+                    type="number" min="0.001" step="0.001" style={{ width: '5rem' }}
+                    value={it.cantidad} onChange={(e) => setItemsReservar(itemsReservar.map((x, idx) => (idx === i ? { ...x, cantidad: e.target.value } : x)))}
+                  />
+                </td>
+                <td><button type="button" className="boton-enlace" onClick={() => setItemsReservar(itemsReservar.filter((_, idx) => idx !== i))}>Quitar</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <button type="button" className="boton-enlace" onClick={() => setItemsReservar([...itemsReservar, { productoId: '', cantidad: '' }])}>+ Agregar producto</button>
+        {' · '}
+        <button type="submit" disabled={reservando}>{reservando ? 'Reservando…' : 'Reservar material'}</button>
+        {' · '}
+        <button type="button" onClick={consumirTodoLoReservado} disabled={consumiendo}>{consumiendo ? 'Consumiendo…' : 'Consumir todo lo reservado'}</button>
+      </form>
+    </div>
+  );
+}
+
 export default function ProyectoDetalle() {
   const { proyectoId } = useParams();
   const navegar = useNavigate();
@@ -106,6 +269,8 @@ export default function ProyectoDetalle() {
   const [creandoMantenimiento, setCreandoMantenimiento] = useState(false);
   const [formSiguiente, setFormSiguiente] = useState({}); // { [mantenimientoId]: { inicio, fin } }
   const [programandoId, setProgramandoId] = useState(null);
+  // P1.2 (auditoría, 2026-09-29) — catálogo para el selector de material.
+  const [productosCatalogo, setProductosCatalogo] = useState([]);
 
   useEffect(() => {
     api.proyecto(proyectoId).then(setProyecto).catch((e) => setError(e.message));
@@ -253,6 +418,7 @@ export default function ProyectoDetalle() {
 
   useEffect(cargarMantenimientos, [proyectoId]);
   useEffect(() => { api.asesores().then(setTecnicos).catch(() => {}); }, []);
+  useEffect(() => { api.productosActivos().then(setProductosCatalogo).catch(() => {}); }, []);
 
   async function crearMantenimientoActual(e) {
     e.preventDefault();
@@ -505,6 +671,9 @@ export default function ProyectoDetalle() {
                     ))}
                   </ul>
                 )}
+
+                <h3>Material</h3>
+                <MaterialInstalacion instalacion={inst} productos={productosCatalogo} />
 
                 <h3>Registrar equipo</h3>
                 <form className="config-form-inline" onSubmit={(e) => registrarEquipo(inst.id, e)}>
