@@ -196,7 +196,7 @@ export default function Operaciones() {
             )}
           </div>
 
-          <h2 className="alertas-titulo alertas-titulo--secundario">{layoutDosNiveles ? 'Resumen ejecutivo' : 'Métricas'}</h2>
+          <h2 className="alertas-titulo alertas-titulo--secundario">{layoutDosNiveles ? 'Resumen ejecutivo — Comercial' : 'Métricas'}</h2>
           <div className={layoutDosNiveles ? 'kpi-strip kpi-strip--ejecutivo' : 'kpi-strip'}>
             {(metricas.kpis || []).map((k, i) => (
               <div className="kpi" key={i}>
@@ -205,6 +205,23 @@ export default function Operaciones() {
               </div>
             ))}
           </div>
+
+          {/* P1.3 (auditoría, 2026-09-29) — "segundo mundo": KPIs de OPERACIÓN,
+              separados visualmente de los comerciales de arriba. Opt-in — una
+              empresa sin kpisOperativos configurados no ve esta sección. */}
+          {metricas.kpisOperativos && metricas.kpisOperativos.length > 0 && (
+            <>
+              <h2 className="alertas-titulo alertas-titulo--secundario">Resumen ejecutivo — Operación</h2>
+              <div className="kpi-strip kpi-strip--ejecutivo">
+                {metricas.kpisOperativos.map((k, i) => (
+                  <div className="kpi" key={i}>
+                    <div className="kpi-valor">{k.valor ?? '—'}</div>
+                    <div className="kpi-etiqueta">{k.etiqueta}</div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
 
           {tieneRecomendacionesRicas && layoutDosNiveles && (
             <>
@@ -216,8 +233,41 @@ export default function Operaciones() {
                 <Link to="/agenda" className="accion-rapida-boton">+ Agendar cita</Link>
               </div>
 
+              {/* P1.3 — "Requiere tu atención": una tarjeta por REGISTRO real
+                  (nunca un número suelto sin destino), agrupadas por categoría.
+                  Cada clic abre el proyecto/garantía/ticket real que generó esa
+                  tarjeta — nunca un número muerto. */}
+              {metricas.atencion && metricas.atencion.length > 0 && (
+                <section className="dashboard-nivel-operativo">
+                  <h2 className="alertas-titulo alertas-titulo--secundario">Requiere tu atención</h2>
+                  {Object.entries(
+                    metricas.atencion.reduce((grupos, item) => {
+                      const clave = item.categoria || 'General';
+                      (grupos[clave] = grupos[clave] || []).push(item);
+                      return grupos;
+                    }, {}),
+                  ).map(([categoria, items]) => (
+                    <div key={categoria}>
+                      <h3 className="alertas-titulo alertas-titulo--secundario">{categoria} ({items.length})</h3>
+                      <ul className="recomendaciones-lista">
+                        {items.map((item, i) => (
+                          <li key={i} className={`recomendacion-tarjeta recomendacion-tarjeta--${item.severidad || 'info'}`}>
+                            <span className="recomendacion-punto"></span>
+                            <div className="recomendacion-cuerpo">
+                              <p className="recomendacion-texto">{item.texto}</p>
+                              <p className="recomendacion-detalle">{item.detalle}</p>
+                            </div>
+                            <Link to={item.recurso} className="recomendacion-accion">{item.accion}</Link>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </section>
+              )}
+
               <section className="dashboard-nivel-operativo">
-                <h2 className="alertas-titulo alertas-titulo--secundario">Centro operativo</h2>
+                <h2 className="alertas-titulo alertas-titulo--secundario">Centro operativo — Comercial</h2>
                 <ListaRecomendaciones recomendaciones={metricas.recomendaciones} />
                 {metricas.panelVentas && metricas.panelVentas.length > 0 && (
                   <>

@@ -197,6 +197,136 @@ const KPI_TIPOS = {
     const ganadas = data.filter(o => o.estado === estado_ganado).length;
     return `${Math.round((ganadas / totalCerradas) * 100)}%`;
   },
+
+  // ── P1.3 (auditoría NORT_ENERGY_AUDIT_V1.md, 2026-09-29) — KPIs de
+  // OPERACIÓN, opt-in vía dashboard_kpis_seed.kpis_operativos. Reutilizan
+  // las mismas funciones puras ya construidas para derivar estado
+  // (calcularEstadoCobranza/calcularEstadoMantenimiento/requiereAlerta/
+  // calcularVigenciaGarantia) — cero lógica de negocio duplicada. Ninguno
+  // filtra por sucursal: NINGÚN KPI existente (comercial) lo hace hoy
+  // tampoco — sería inconsistente agregarlo solo aquí; se documenta como
+  // deuda conocida, no como omisión silenciosa.
+
+  /**
+   * Proyectos de venta SIN ninguna instalación entregada/terminada —
+   * `proyectos.estado` nunca se actualiza tras la creación (confirmado en
+   * la auditoría), así que NO es una fuente válida; se deriva de
+   * `instalaciones.estado`, que sí refleja la realidad.
+   */
+  async conteo_proyectos_activos(supabase, company_id) {
+    const [{ data: proyectos }, { data: instalaciones }] = await Promise.all([
+      supabase.from('proyectos').select('id').eq('company_id', company_id).eq('tipo', 'venta'),
+      supabase.from('instalaciones').select('proyecto_id').eq('company_id', company_id).in('estado', ['entregada', 'terminada']),
+    ]);
+    if (!proyectos) return 0;
+    const entregados = new Set((instalaciones || []).map(i => i.proyecto_id));
+    return proyectos.filter(p => !entregados.has(p.id)).length;
+  },
+
+  /** Suma del saldo pendiente (total_vendido - abonado) de TODOS los proyectos con cobranza iniciada — nunca negativo por proyecto. */
+  async suma_saldo_pendiente_cobranza(supabase, company_id, { formato }) {
+    const { data: pagos } = await supabase.from('pagos_cliente').select('id, total_vendido').eq('company_id', company_id);
+    if (!pagos || pagos.length === 0) return formato === 'moneda' ? '$0' : 0;
+    const { data: abonos } = await supabase.from('pagos_cliente_abonos').select('pagos_cliente_id, monto').eq('company_id', company_id);
+    const pagadoPorId = {};
+    for (const a of abonos || []) pagadoPorId[a.pagos_cliente_id] = (pagadoPorId[a.pagos_cliente_id] || 0) + Number(a.monto);
+    const total = pagos.reduce((acc, p) => acc + Math.max(0, Number(p.total_vendido) - (pagadoPorId[p.id] || 0)), 0);
+    const redondeado = Math.round(total * 100) / 100;
+    return formato === 'moneda' ? `$${redondeado.toLocaleString('es-MX')}` : redondeado;
+  },
+
+  /** Cuántos proyectos (pagos_cliente) tienen saldo > 0 — mismo cálculo que arriba, expresado como conteo. */
+  async conteo_proyectos_con_saldo(supabase, company_id) {
+    const { data: pagos } = await supabase.from('pagos_cliente').select('id, total_vendido').eq('company_id', company_id);
+    if (!pagos || pagos.length === 0) return 0;
+    const { data: abonos } = await supabase.from('pagos_cliente_abonos').select('pagos_cliente_id, monto').eq('company_id', company_id);
+    const pagadoPorId = {};
+    for (const a of abonos || []) pagadoPorId[a.pagos_cliente_id] = (pagadoPorId[a.pagos_cliente_id] || 0) + Number(a.monto);
+    return pagos.filter(p => Number(p.total_vendido) - (pagadoPorId[p.id] || 0) > 0.01).length;
+  },
+
+  /** Instalaciones con fecha_programada en una ventana de N días hacia adelante (incluye "hoy"). */
+  async conteo_instalaciones_proximas(supabase, company_id, { dias }, ahora) {
+    const hoyFecha = ahora.toISOString().slice(0, 10);
+    const hastaFecha = _enHoras(ahora, dias * 24).slice(0, 10); // _enHoras ya regresa un ISO string, nunca un Date
+    const { count, error } = await supabase
+      .from('instalaciones').select('*', { count: 'exact', head: true })
+      .eq('company_id', company_id).gte('fecha_programada', hoyFecha).lte('fecha_programada', hastaFecha);
+    return error ? 0 : (count || 0);
+  },
+
+  /** Instalaciones con fecha_programada YA pasada y que no llegaron a un estado terminal. */
+  async conteo_instalaciones_atrasadas(supabase, company_id, params, ahora) {
+    const hoyFecha = ahora.toISOString().slice(0, 10);
+    const { data, error } = await supabase
+      .from('instalaciones').select('id, estado').eq('company_id', company_id).lt('fecha_programada', hoyFecha);
+    if (error || !data) return 0;
+    return data.filter(i => !['entregada', 'terminada', 'cancelada'].includes(i.estado)).length;
+  },
+
+  /** Trámites CFE que no han llegado a interconexión completada. */
+  async conteo_tramites_cfe_abiertos(supabase, company_id) {
+    const { count, error } = await supabase
+      .from('tramites_cfe').select('*', { count: 'exact', head: true })
+      .eq('company_id', company_id).neq('estado', 'interconexion_completada');
+    return error ? 0 : (count || 0);
+  },
+
+  /** Trámites CFE cuya alerta ya está activa — misma fórmula exacta que modules/tramites-cfe.js::requiereAlerta (umbral configurable por empresa). */
+  async conteo_tramites_cfe_sin_actualizacion(supabase, company_id, params, ahora) {
+    const { calcularDiasSinActualizacion, requiereAlerta, UMBRAL_ALERTA_DEFAULT_DIAS } = require('./tramites-cfe');
+    const [{ data: tramites }, { data: empresa }] = await Promise.all([
+      supabase.from('tramites_cfe').select('estado, ultima_actualizacion').eq('company_id', company_id),
+      supabase.from('companies').select('umbral_dias_alerta_cfe').eq('id', company_id).maybeSingle(),
+    ]);
+    if (!tramites) return 0;
+    const umbral = empresa?.umbral_dias_alerta_cfe ?? UMBRAL_ALERTA_DEFAULT_DIAS;
+    // `ahora` explícito (nunca el default new Date() de calcularDiasSinActualizacion) —
+    // mismo criterio de determinismo que el resto de este archivo, y el bug
+    // real que encontró el test de este KPI: sin esto, el conteo cambia según
+    // el momento real en que corre, no según el `ahora` que se le pasó.
+    return tramites.filter(t => requiereAlerta(t.estado, calcularDiasSinActualizacion(t.ultima_actualizacion, ahora), umbral)).length;
+  },
+
+  /** Garantías vigentes (dentro de su periodo) — misma fórmula que modules/garantias.js::calcularVigenciaGarantia. */
+  async conteo_garantias_vigentes(supabase, company_id, params, ahora) {
+    const { calcularVigenciaGarantia } = require('./garantias');
+    const { data } = await supabase.from('garantias').select('fecha_inicio, meses_garantia').eq('company_id', company_id);
+    if (!data) return 0;
+    return data.filter(g => calcularVigenciaGarantia(g.fecha_inicio, g.meses_garantia, ahora).vigente === true).length;
+  },
+
+  /** Mantenimientos con fecha_programada futura y sin realizar — misma fórmula que modules/mantenimientos.js::calcularEstadoMantenimiento. */
+  async conteo_mantenimientos_proximos(supabase, company_id, params, ahora) {
+    const { calcularEstadoMantenimiento } = require('./mantenimientos');
+    const { data } = await supabase.from('mantenimientos').select('fecha_programada, fecha_realizada').eq('company_id', company_id);
+    if (!data) return 0;
+    return data.filter(m => calcularEstadoMantenimiento({ fechaProgramada: m.fecha_programada, fechaRealizada: m.fecha_realizada, hoy: ahora }) === 'programado').length;
+  },
+
+  /** Mantenimientos vencidos — misma fórmula. */
+  async conteo_mantenimientos_vencidos(supabase, company_id, params, ahora) {
+    const { calcularEstadoMantenimiento } = require('./mantenimientos');
+    const { data } = await supabase.from('mantenimientos').select('fecha_programada, fecha_realizada').eq('company_id', company_id);
+    if (!data) return 0;
+    return data.filter(m => calcularEstadoMantenimiento({ fechaProgramada: m.fecha_programada, fechaRealizada: m.fecha_realizada, hoy: ahora }) === 'vencido').length;
+  },
+
+  /** Tickets que no están resueltos ni cerrados. */
+  async conteo_tickets_abiertos(supabase, company_id) {
+    const { count, error } = await supabase
+      .from('tickets').select('*', { count: 'exact', head: true })
+      .eq('company_id', company_id).not('estado', 'in', '(resuelto,cerrado)');
+    return error ? 0 : (count || 0);
+  },
+
+  /** Tickets abiertos con prioridad urgente. */
+  async conteo_tickets_urgentes(supabase, company_id) {
+    const { count, error } = await supabase
+      .from('tickets').select('*', { count: 'exact', head: true })
+      .eq('company_id', company_id).eq('prioridad', 'urgente').not('estado', 'in', '(resuelto,cerrado)');
+    return error ? 0 : (count || 0);
+  },
 };
 
 // ── REGLA_TIPOS — cada uno devuelve un arreglo de recomendaciones ──────────
@@ -367,6 +497,106 @@ const REGLA_TIPOS = {
       accion: 'Responder', recurso: `/conversaciones/${m.cliente_id}`, severidad,
     }));
   },
+
+  // ── P1.3 (auditoría, 2026-09-29) — "Requiere tu atención": mismo formato
+  // que las recomendaciones comerciales de arriba (uno por registro real,
+  // nunca un agregado con un link muerto), pero opt-in vía
+  // dashboard_kpis_seed.atencion en vez de .recomendaciones, para que el
+  // frontend las agrupe bajo su propia sección. Cada `recurso` apunta a
+  // Proyecto 360°/Garantía/Ticket — la pantalla real donde ese registro
+  // vive, nunca una lista que no existe.
+
+  /** Una tarjeta por instalación con fecha_programada vencida y sin llegar a un estado terminal. */
+  async instalacion_atrasada(supabase, company_id, { severidad, limite = 10 }, ahora) {
+    const hoyFecha = ahora.toISOString().slice(0, 10);
+    const { data } = await supabase
+      .from('instalaciones').select('id, fecha_programada, estado, proyecto_id, proyectos(numero_proyecto)')
+      .eq('company_id', company_id).lt('fecha_programada', hoyFecha).order('fecha_programada', { ascending: true }).limit(limite * 3);
+    return (data || [])
+      .filter(i => !['entregada', 'terminada', 'cancelada'].includes(i.estado))
+      .slice(0, limite)
+      .map(i => ({
+        categoria: 'Instalaciones atrasadas',
+        texto: `Instalación atrasada — proyecto ${i.proyectos?.numero_proyecto || i.proyecto_id}.`,
+        detalle: `Programada para ${new Date(`${i.fecha_programada}T00:00:00`).toLocaleDateString('es-MX')}, sigue en "${i.estado}".`,
+        accion: 'Ver proyecto', recurso: `/proyectos/${i.proyecto_id}`, severidad,
+      }));
+  },
+
+  /** Una tarjeta por proyecto con saldo de cobranza pendiente > 0. */
+  async cobranza_con_saldo(supabase, company_id, { severidad, limite = 10 }) {
+    const { calcularEstadoCobranza } = require('./cobranza');
+    const { data: pagos } = await supabase
+      .from('pagos_cliente').select('id, proyecto_id, total_vendido, anticipo_requerido_monto, fecha_limite_pago, proyectos(numero_proyecto)').eq('company_id', company_id);
+    if (!pagos || pagos.length === 0) return [];
+    const { data: abonos } = await supabase.from('pagos_cliente_abonos').select('pagos_cliente_id, monto').eq('company_id', company_id);
+    const pagadoPorId = {};
+    for (const a of abonos || []) pagadoPorId[a.pagos_cliente_id] = (pagadoPorId[a.pagos_cliente_id] || 0) + Number(a.monto);
+
+    return pagos.map((p) => ({
+      p, derivado: calcularEstadoCobranza({
+        totalVendido: Number(p.total_vendido), anticipoRequerido: p.anticipo_requerido_monto != null ? Number(p.anticipo_requerido_monto) : null,
+        totalPagado: pagadoPorId[p.id] || 0, fechaLimitePago: p.fecha_limite_pago,
+      }),
+    }))
+      .filter(({ derivado }) => derivado.saldo > 0.01)
+      .slice(0, limite)
+      .map(({ p, derivado }) => ({
+        categoria: 'Cobranza pendiente',
+        texto: `Saldo pendiente — proyecto ${p.proyectos?.numero_proyecto || p.proyecto_id}: $${derivado.saldo.toLocaleString('es-MX')}.`,
+        detalle: derivado.estado === 'vencido' ? 'Fecha límite de pago ya vencida.' : `Estado: ${derivado.estado}.`,
+        accion: 'Ver proyecto', recurso: `/proyectos/${p.proyecto_id}`, severidad: derivado.estado === 'vencido' ? 'critica' : severidad,
+      }));
+  },
+
+  /** Una tarjeta por trámite CFE cuya alerta de "sin actualización" ya está activa. */
+  async tramite_cfe_sin_actualizacion(supabase, company_id, { severidad, limite = 10 }, ahora) {
+    const { calcularDiasSinActualizacion, requiereAlerta, UMBRAL_ALERTA_DEFAULT_DIAS } = require('./tramites-cfe');
+    const [{ data: tramites }, { data: empresa }] = await Promise.all([
+      supabase.from('tramites_cfe').select('id, estado, ultima_actualizacion, proyecto_id, proyectos(numero_proyecto)').eq('company_id', company_id),
+      supabase.from('companies').select('umbral_dias_alerta_cfe').eq('id', company_id).maybeSingle(),
+    ]);
+    if (!tramites) return [];
+    const umbral = empresa?.umbral_dias_alerta_cfe ?? UMBRAL_ALERTA_DEFAULT_DIAS;
+    return tramites
+      .map((t) => ({ t, dias: calcularDiasSinActualizacion(t.ultima_actualizacion, ahora) }))
+      .filter(({ t, dias }) => requiereAlerta(t.estado, dias, umbral))
+      .slice(0, limite)
+      .map(({ t, dias }) => ({
+        categoria: 'Trámites CFE sin actualización',
+        texto: `Trámite CFE sin movimiento — proyecto ${t.proyectos?.numero_proyecto || t.proyecto_id} (${dias} días).`,
+        detalle: `Estado actual: "${t.estado}".`, accion: 'Ver proyecto', recurso: `/proyectos/${t.proyecto_id}`, severidad,
+      }));
+  },
+
+  /** Una tarjeta por reclamación de garantía todavía abierta (no resuelta ni rechazada). */
+  async garantia_reclamacion_abierta(supabase, company_id, { severidad, limite = 10 }) {
+    const { data } = await supabase
+      .from('garantia_reclamaciones').select('id, descripcion, estado, garantia_id, created_at').eq('company_id', company_id)
+      .not('estado', 'in', '(resuelta,rechazada)').order('created_at', { ascending: true }).limit(limite);
+    return (data || []).map((r) => ({
+      categoria: 'Garantías con reclamación abierta',
+      texto: `Reclamación abierta: ${r.descripcion}`,
+      detalle: `Estado: "${r.estado}" — abierta el ${new Date(r.created_at).toLocaleDateString('es-MX')}.`,
+      accion: 'Ver garantía', recurso: `/garantias/${r.garantia_id}`, severidad,
+    }));
+  },
+
+  /** Una tarjeta por ticket abierto/en proceso/esperando cliente — prioriza urgentes primero. */
+  async ticket_pendiente(supabase, company_id, { severidad, limite = 10 }) {
+    const { data } = await supabase
+      .from('tickets').select('id, asunto, prioridad, estado, created_at').eq('company_id', company_id)
+      .not('estado', 'in', '(resuelto,cerrado)').order('created_at', { ascending: true }).limit(limite);
+    const orden = { urgente: 0, alta: 1, media: 2, baja: 3 };
+    return (data || [])
+      .sort((a, b) => (orden[a.prioridad] ?? 9) - (orden[b.prioridad] ?? 9))
+      .map((t) => ({
+        categoria: 'Tickets pendientes',
+        texto: `Ticket pendiente: ${t.asunto}`,
+        detalle: `Prioridad: ${t.prioridad} — estado: ${t.estado}.`,
+        accion: 'Ver ticket', recurso: `/tickets/${t.id}`, severidad: t.prioridad === 'urgente' ? 'critica' : severidad,
+      }));
+  },
 };
 
 /** Últimas 3 oportunidades con actividad, con su monto — feature opcional por industria. */
@@ -414,9 +644,29 @@ async function obtenerMetricasGenerico(supabase, company_id, config) {
     return fn(supabase, company_id, r.params || {}, ahora);
   }));
 
+  // P1.3 (auditoría, 2026-09-29) — "mundo OPERACIÓN": mismo mecanismo
+  // opt-in que kpis/recomendaciones de arriba, en arreglos propios
+  // (kpisOperativos/atencion) para que el frontend los agrupe bajo su
+  // propia sección sin mezclarlos con lo comercial. Una empresa sin
+  // kpis_operativos/atencion configurados no ve ningún cambio de
+  // comportamiento — comportamiento idéntico al de antes de este cambio.
+  const kpisOperativos = await Promise.all((config.kpis_operativos || []).map(async (k) => {
+    const fn = KPI_TIPOS[k.tipo];
+    if (!fn) { console.warn(`dashboard-engine: tipo de KPI operativo desconocido "${k.tipo}"`); return { valor: '—', etiqueta: k.etiqueta }; }
+    const valor = await fn(supabase, company_id, k.params || {}, ahora);
+    return { valor: k.formatear === 'ms' ? _formatearMs(valor) : valor, etiqueta: k.etiqueta };
+  }));
+
+  const atencionPorRegla = await Promise.all((config.atencion || []).map(async (r) => {
+    const fn = REGLA_TIPOS[r.tipo];
+    if (!fn) { console.warn(`dashboard-engine: tipo de atención desconocido "${r.tipo}"`); return []; }
+    return fn(supabase, company_id, r.params || {}, ahora);
+  }));
+
   const resultado = {
     kpis, alertas: [], actividadReciente: [],
     recomendaciones: recomendacionesPorRegla.flat(),
+    kpisOperativos, atencion: atencionPorRegla.flat(),
   };
 
   if (config.panel_ventas) {

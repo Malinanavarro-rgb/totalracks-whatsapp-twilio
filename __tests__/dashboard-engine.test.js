@@ -6,12 +6,15 @@ function crearBuilder(resultado) {
   const builder = {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
+    neq: jest.fn().mockReturnThis(),
     in: jest.fn().mockReturnThis(),
     not: jest.fn().mockReturnThis(),
     gte: jest.fn().mockReturnThis(),
     lte: jest.fn().mockReturnThis(),
+    lt: jest.fn().mockReturnThis(),
     order: jest.fn().mockReturnThis(),
     limit: jest.fn().mockResolvedValue(resultado),
+    maybeSingle: jest.fn().mockResolvedValue(resultado),
     then: (resolve) => resolve(resultado),
   };
   return builder;
@@ -350,6 +353,188 @@ describe('dashboard-engine', () => {
       const db = crearMockDb({});
       const resultado = await obtenerMetricasGenerico(db, COMPANY_A, { kpis: [], recomendaciones: [] });
       expect(resultado.actividadReciente).toEqual([]);
+    });
+  });
+
+  describe('KPI_TIPOS — P1.3, operación (auditoría 2026-09-29)', () => {
+    test('conteo_proyectos_activos: proyectos de venta SIN ninguna instalación entregada/terminada', async () => {
+      const db = crearMockDb({
+        proyectos: () => ({ data: [{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }], error: null }),
+        instalaciones: () => ({ data: [{ proyecto_id: 'p2', estado: 'entregada' }], error: null }),
+      });
+      const valor = await KPI_TIPOS.conteo_proyectos_activos(db, COMPANY_A);
+      expect(valor).toBe(2); // p1 y p3, p2 queda excluido
+    });
+
+    test('suma_saldo_pendiente_cobranza: suma el saldo de cada proyecto, nunca negativo por proyecto', async () => {
+      const db = crearMockDb({
+        pagos_cliente: () => ({ data: [{ id: 'pc1', total_vendido: 10000 }, { id: 'pc2', total_vendido: 5000 }], error: null }),
+        pagos_cliente_abonos: () => ({ data: [{ pagos_cliente_id: 'pc1', monto: 3000 }, { pagos_cliente_id: 'pc2', monto: 6000 }], error: null }), // pc2 sobrepagado (no debería, pero nunca resta)
+      });
+      const valor = await KPI_TIPOS.suma_saldo_pendiente_cobranza(db, COMPANY_A, { formato: 'moneda' });
+      expect(valor).toBe('$7,000'); // (10000-3000) + max(0, 5000-6000)=0
+    });
+
+    test('suma_saldo_pendiente_cobranza: sin pagos_cliente → "$0", nunca lanza', async () => {
+      const db = crearMockDb({ pagos_cliente: () => ({ data: [], error: null }) });
+      expect(await KPI_TIPOS.suma_saldo_pendiente_cobranza(db, COMPANY_A, { formato: 'moneda' })).toBe('$0');
+    });
+
+    test('conteo_proyectos_con_saldo: cuenta solo los que tienen saldo > 0', async () => {
+      const db = crearMockDb({
+        pagos_cliente: () => ({ data: [{ id: 'pc1', total_vendido: 10000 }, { id: 'pc2', total_vendido: 5000 }], error: null }),
+        pagos_cliente_abonos: () => ({ data: [{ pagos_cliente_id: 'pc2', monto: 5000 }], error: null }), // pc2 liquidado
+      });
+      expect(await KPI_TIPOS.conteo_proyectos_con_saldo(db, COMPANY_A)).toBe(1);
+    });
+
+    test('conteo_instalaciones_proximas: filtra por ventana de días', async () => {
+      const db = crearMockDb({ instalaciones: () => ({ count: 4, error: null }) });
+      expect(await KPI_TIPOS.conteo_instalaciones_proximas(db, COMPANY_A, { dias: 7 }, AHORA)).toBe(4);
+    });
+
+    test('conteo_instalaciones_atrasadas: fecha_programada pasada y estado no terminal', async () => {
+      const db = crearMockDb({
+        instalaciones: () => ({ data: [{ id: 'i1', estado: 'por_programar' }, { id: 'i2', estado: 'entregada' }, { id: 'i3', estado: 'instalando' }], error: null }),
+      });
+      expect(await KPI_TIPOS.conteo_instalaciones_atrasadas(db, COMPANY_A, {}, AHORA)).toBe(2); // i1, i3 — i2 ya entregada
+    });
+
+    test('conteo_tramites_cfe_abiertos: excluye interconexion_completada', async () => {
+      const db = crearMockDb({ tramites_cfe: () => ({ count: 3, error: null }) });
+      expect(await KPI_TIPOS.conteo_tramites_cfe_abiertos(db, COMPANY_A)).toBe(3);
+    });
+
+    test('conteo_tramites_cfe_sin_actualizacion: usa el umbral de la empresa y requiereAlerta real', async () => {
+      const haceMucho = new Date(AHORA.getTime() - 20 * 24 * 60 * 60 * 1000).toISOString();
+      const reciente = AHORA.toISOString();
+      const db = crearMockDb({
+        tramites_cfe: () => ({ data: [{ estado: 'pendiente', ultima_actualizacion: haceMucho }, { estado: 'pendiente', ultima_actualizacion: reciente }], error: null }),
+        companies: () => ({ data: { umbral_dias_alerta_cfe: 7 }, error: null }),
+      });
+      expect(await KPI_TIPOS.conteo_tramites_cfe_sin_actualizacion(db, COMPANY_A, {}, AHORA)).toBe(1);
+    });
+
+    test('conteo_garantias_vigentes: usa calcularVigenciaGarantia real', async () => {
+      const db = crearMockDb({
+        garantias: () => ({ data: [{ fecha_inicio: '2026-01-01', meses_garantia: 120 }, { fecha_inicio: '2000-01-01', meses_garantia: 12 }], error: null }),
+      });
+      expect(await KPI_TIPOS.conteo_garantias_vigentes(db, COMPANY_A)).toBe(1);
+    });
+
+    test('conteo_mantenimientos_proximos / conteo_mantenimientos_vencidos: usan calcularEstadoMantenimiento real', async () => {
+      const hoy = AHORA.toISOString().slice(0, 10);
+      const futura = new Date(AHORA.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const pasada = new Date(AHORA.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const db = crearMockDb({
+        mantenimientos: () => ({
+          data: [{ fecha_programada: futura, fecha_realizada: null }, { fecha_programada: pasada, fecha_realizada: null }, { fecha_programada: pasada, fecha_realizada: hoy }],
+          error: null,
+        }),
+      });
+      expect(await KPI_TIPOS.conteo_mantenimientos_proximos(db, COMPANY_A, {}, AHORA)).toBe(1);
+      expect(await KPI_TIPOS.conteo_mantenimientos_vencidos(db, COMPANY_A, {}, AHORA)).toBe(1);
+    });
+
+    test('conteo_tickets_abiertos / conteo_tickets_urgentes', async () => {
+      const db = crearMockDb({ tickets: () => ({ count: 6, error: null }) });
+      expect(await KPI_TIPOS.conteo_tickets_abiertos(db, COMPANY_A)).toBe(6);
+      expect(await KPI_TIPOS.conteo_tickets_urgentes(db, COMPANY_A)).toBe(6);
+    });
+  });
+
+  describe('REGLA_TIPOS — "Requiere tu atención" (P1.3)', () => {
+    test('instalacion_atrasada: una tarjeta por instalación atrasada, recurso al proyecto', async () => {
+      const db = crearMockDb({
+        instalaciones: () => ({
+          data: [{ id: 'i1', fecha_programada: '2026-01-01', estado: 'por_programar', proyecto_id: 'p1', proyectos: { numero_proyecto: 'NE-2026-0001' } }],
+          error: null,
+        }),
+      });
+      const r = await REGLA_TIPOS.instalacion_atrasada(db, COMPANY_A, { severidad: 'critica' }, AHORA);
+      expect(r).toHaveLength(1);
+      expect(r[0].recurso).toBe('/proyectos/p1');
+      expect(r[0].categoria).toBe('Instalaciones atrasadas');
+    });
+
+    test('cobranza_con_saldo: una tarjeta por proyecto con saldo > 0, severidad "critica" si está vencido', async () => {
+      const db = crearMockDb({
+        pagos_cliente: () => ({
+          data: [{ id: 'pc1', proyecto_id: 'p1', total_vendido: 10000, anticipo_requerido_monto: null, fecha_limite_pago: '2020-01-01', proyectos: { numero_proyecto: 'NE-2026-0001' } }],
+          error: null,
+        }),
+        pagos_cliente_abonos: () => ({ data: [], error: null }),
+      });
+      const r = await REGLA_TIPOS.cobranza_con_saldo(db, COMPANY_A, { severidad: 'info' });
+      expect(r).toHaveLength(1);
+      expect(r[0].severidad).toBe('critica'); // vencido siempre se eleva
+      expect(r[0].recurso).toBe('/proyectos/p1');
+    });
+
+    test('tramite_cfe_sin_actualizacion: una tarjeta por trámite con alerta activa', async () => {
+      const haceMucho = new Date(AHORA.getTime() - 20 * 24 * 60 * 60 * 1000).toISOString();
+      const db = crearMockDb({
+        tramites_cfe: () => ({ data: [{ id: 't1', estado: 'pendiente', ultima_actualizacion: haceMucho, proyecto_id: 'p1', proyectos: { numero_proyecto: 'NE-2026-0001' } }], error: null }),
+        companies: () => ({ data: { umbral_dias_alerta_cfe: 7 }, error: null }),
+      });
+      const r = await REGLA_TIPOS.tramite_cfe_sin_actualizacion(db, COMPANY_A, { severidad: 'warning' }, AHORA);
+      expect(r).toHaveLength(1);
+      expect(r[0].recurso).toBe('/proyectos/p1');
+    });
+
+    test('garantia_reclamacion_abierta: excluye resuelta/rechazada', async () => {
+      const db = crearMockDb({
+        garantia_reclamaciones: () => ({ data: [{ id: 'r1', descripcion: 'Panel no genera', estado: 'abierta', garantia_id: 'g1', created_at: AHORA.toISOString() }], error: null }),
+      });
+      const r = await REGLA_TIPOS.garantia_reclamacion_abierta(db, COMPANY_A, { severidad: 'warning' });
+      expect(r).toHaveLength(1);
+      expect(r[0].recurso).toBe('/garantias/g1');
+    });
+
+    test('ticket_pendiente: ordena urgentes primero y eleva su severidad', async () => {
+      const db = crearMockDb({
+        tickets: () => ({
+          data: [
+            { id: 't1', asunto: 'Duda de factura', prioridad: 'baja', estado: 'abierto', created_at: AHORA.toISOString() },
+            { id: 't2', asunto: 'Sin luz', prioridad: 'urgente', estado: 'abierto', created_at: AHORA.toISOString() },
+          ],
+          error: null,
+        }),
+      });
+      const r = await REGLA_TIPOS.ticket_pendiente(db, COMPANY_A, { severidad: 'info' });
+      expect(r).toHaveLength(2);
+      expect(r[0].recurso).toBe('/tickets/t2'); // urgente primero
+      expect(r[0].severidad).toBe('critica');
+      expect(r[1].severidad).toBe('info');
+    });
+  });
+
+  describe('obtenerMetricasGenerico() — arreglos kpisOperativos/atencion (P1.3)', () => {
+    test('sin kpis_operativos ni atencion configurados → arreglos vacíos, comportamiento previo intacto', async () => {
+      const db = crearMockDb({});
+      const r = await obtenerMetricasGenerico(db, COMPANY_A, { kpis: [], recomendaciones: [] });
+      expect(r.kpisOperativos).toEqual([]);
+      expect(r.atencion).toEqual([]);
+    });
+
+    test('con kpis_operativos configurado → los calcula y los devuelve aparte de kpis comercial', async () => {
+      const db = crearMockDb({ tickets: () => ({ count: 3, error: null }) });
+      const r = await obtenerMetricasGenerico(db, COMPANY_A, {
+        kpis: [], recomendaciones: [],
+        kpis_operativos: [{ tipo: 'conteo_tickets_abiertos', etiqueta: 'Tickets abiertos' }],
+      });
+      expect(r.kpisOperativos).toEqual([{ valor: 3, etiqueta: 'Tickets abiertos' }]);
+      expect(r.kpis).toEqual([]); // nunca se mezclan
+    });
+
+    test('con atencion configurada → agrega las tarjetas al arreglo atencion, nunca a recomendaciones', async () => {
+      const db = crearMockDb({ tickets: () => ({ data: [{ id: 't1', asunto: 'x', prioridad: 'alta', estado: 'abierto', created_at: AHORA.toISOString() }], error: null }) });
+      const r = await obtenerMetricasGenerico(db, COMPANY_A, {
+        kpis: [], recomendaciones: [],
+        atencion: [{ tipo: 'ticket_pendiente', params: { severidad: 'warning' } }],
+      });
+      expect(r.atencion).toHaveLength(1);
+      expect(r.recomendaciones).toEqual([]);
     });
   });
 
