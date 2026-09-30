@@ -2685,7 +2685,7 @@ app.post('/api/cotizaciones/:id/marcar-aceptada', requireAuth, async (req, res) 
   }
 });
 
-app.get('/api/proyectos/:id', requireAuth, async (req, res) => {
+app.get('/api/proyectos/:id', requireAuth, requirePermiso('proyectos', 'ver'), async (req, res) => {
   try {
     const proyecto = await obtenerProyecto(req.supabase, req.usuario.company_id, req.params.id);
     if (!proyecto) return res.status(404).json({ error: 'Proyecto no encontrado' });
@@ -2717,7 +2717,7 @@ app.get('/api/cotizaciones/:id/proyecto', requireAuth, async (req, res) => {
 
 // Subfase 2B — cobranza del cliente (2026-09-23, ver modules/cobranza.js).
 // `pagos_cliente` — NUNCA la tabla `pagos` (facturación SaaS de TARA).
-app.get('/api/proyectos/:id/cobranza', requireAuth, async (req, res) => {
+app.get('/api/proyectos/:id/cobranza', requireAuth, requirePermiso('cobranza', 'ver'), async (req, res) => {
   try {
     res.json(await obtenerResumenCobranza(req.supabase, req.usuario.company_id, req.params.id));
   } catch (e) {
@@ -2725,7 +2725,7 @@ app.get('/api/proyectos/:id/cobranza', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/proyectos/:id/cobranza/abonos', requireAuth, async (req, res) => {
+app.post('/api/proyectos/:id/cobranza/abonos', requireAuth, requirePermiso('cobranza', 'crear'), async (req, res) => {
   try {
     const resultado = await registrarAbono(req.supabase, {
       companyId: req.usuario.company_id, proyectoId: req.params.id, usuarioId: req.usuario.id,
@@ -2739,7 +2739,7 @@ app.post('/api/proyectos/:id/cobranza/abonos', requireAuth, async (req, res) => 
   }
 });
 
-app.patch('/api/proyectos/:id/cobranza/anticipo', requireAuth, soloGerencial, async (req, res) => {
+app.patch('/api/proyectos/:id/cobranza/anticipo', requireAuth, requirePermiso('cobranza', 'aprobar'), async (req, res) => {
   try {
     const anticipoPct = req.body?.anticipoPct != null ? Number(req.body.anticipoPct) : null;
     res.json(await actualizarAnticipoRequerido(req.supabase, { companyId: req.usuario.company_id, proyectoId: req.params.id, anticipoPct, usuarioId: req.usuario.id }));
@@ -2765,7 +2765,7 @@ app.put('/api/checklists-config/:tipo', requireAuth, soloGerencial, async (req, 
   }
 });
 
-app.get('/api/instalaciones', requireAuth, async (req, res) => {
+app.get('/api/instalaciones', requireAuth, requirePermiso('instalaciones', 'ver'), async (req, res) => {
   try {
     res.json(await listarInstalaciones(req.supabase, req.usuario.company_id, { estado: req.query.estado }));
   } catch (e) {
@@ -2773,7 +2773,7 @@ app.get('/api/instalaciones', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/instalaciones/:id', requireAuth, async (req, res) => {
+app.get('/api/instalaciones/:id', requireAuth, requirePermiso('instalaciones', 'ver'), async (req, res) => {
   try {
     const instalacion = await obtenerInstalacion(req.supabase, req.usuario.company_id, req.params.id);
     if (!instalacion) return res.status(404).json({ error: 'Instalación no encontrada' });
@@ -2783,7 +2783,7 @@ app.get('/api/instalaciones/:id', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/proyectos/:id/instalaciones', requireAuth, async (req, res) => {
+app.get('/api/proyectos/:id/instalaciones', requireAuth, requirePermiso('instalaciones', 'ver'), async (req, res) => {
   try {
     res.json(await listarInstalacionesDeProyecto(req.supabase, req.usuario.company_id, req.params.id));
   } catch (e) {
@@ -2791,7 +2791,7 @@ app.get('/api/proyectos/:id/instalaciones', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/proyectos/:id/instalaciones', requireAuth, async (req, res) => {
+app.post('/api/proyectos/:id/instalaciones', requireAuth, requirePermiso('instalaciones', 'crear'), async (req, res) => {
   try {
     const instalacion = await crearInstalacion(req.supabase, {
       companyId: req.usuario.company_id, proyectoId: req.params.id, usuarioId: req.usuario.id,
@@ -2805,7 +2805,7 @@ app.post('/api/proyectos/:id/instalaciones', requireAuth, async (req, res) => {
   }
 });
 
-app.patch('/api/instalaciones/:id', requireAuth, async (req, res) => {
+app.patch('/api/instalaciones/:id', requireAuth, requirePermiso('instalaciones', 'editar'), async (req, res) => {
   try {
     res.json(await actualizarInstalacion(req.supabase, { companyId: req.usuario.company_id, instalacionId: req.params.id, cambios: req.body || {} }));
   } catch (e) {
@@ -2813,7 +2813,7 @@ app.patch('/api/instalaciones/:id', requireAuth, async (req, res) => {
   }
 });
 
-app.patch('/api/instalaciones/:id/estado', requireAuth, async (req, res) => {
+app.patch('/api/instalaciones/:id/estado', requireAuth, requirePermiso('instalaciones', 'editar'), async (req, res) => {
   try {
     res.json(await actualizarEstadoInstalacion(req.supabase, { companyId: req.usuario.company_id, instalacionId: req.params.id, estado: req.body?.estado, usuarioId: req.usuario.id }));
   } catch (e) {
@@ -2821,7 +2821,7 @@ app.patch('/api/instalaciones/:id/estado', requireAuth, async (req, res) => {
   }
 });
 
-app.patch('/api/instalaciones/:id/checklist', requireAuth, async (req, res) => {
+app.patch('/api/instalaciones/:id/checklist', requireAuth, requirePermiso('instalaciones', 'editar'), async (req, res) => {
   try {
     res.json(await actualizarChecklistItem(req.supabase, {
       companyId: req.usuario.company_id, instalacionId: req.params.id, usuarioId: req.usuario.id,
@@ -2836,7 +2836,7 @@ app.patch('/api/instalaciones/:id/checklist', requireAuth, async (req, res) => {
 // modules/equipos-instalados.js). Es la fuente de "mis paneles/productos"
 // para el futuro portal del cliente — por eso el listado real vive en
 // GET /api/proyectos/:id/equipos, no solo por instalación.
-app.post('/api/instalaciones/:id/evidencias', requireAuth, uploadDocumentoCliente.single('archivo'), async (req, res) => {
+app.post('/api/instalaciones/:id/evidencias', requireAuth, requirePermiso('instalaciones', 'crear'), uploadDocumentoCliente.single('archivo'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'archivo requerido' });
     const instalacion = await obtenerInstalacion(req.supabase, req.usuario.company_id, req.params.id);
@@ -2855,7 +2855,7 @@ app.post('/api/instalaciones/:id/evidencias', requireAuth, uploadDocumentoClient
   }
 });
 
-app.get('/api/instalaciones/:id/evidencias', requireAuth, async (req, res) => {
+app.get('/api/instalaciones/:id/evidencias', requireAuth, requirePermiso('instalaciones', 'ver'), async (req, res) => {
   try {
     res.json(await listarEvidenciasDeInstalacion(req.supabase, req.usuario.company_id, req.params.id, { fase: req.query.fase }));
   } catch (e) {
@@ -2863,7 +2863,7 @@ app.get('/api/instalaciones/:id/evidencias', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/instalaciones/:id/equipos', requireAuth, async (req, res) => {
+app.post('/api/instalaciones/:id/equipos', requireAuth, requirePermiso('instalaciones', 'crear'), async (req, res) => {
   try {
     const instalacion = await obtenerInstalacion(req.supabase, req.usuario.company_id, req.params.id);
     if (!instalacion) return res.status(404).json({ error: 'Instalación no encontrada' });
@@ -2881,7 +2881,7 @@ app.post('/api/instalaciones/:id/equipos', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/instalaciones/:id/equipos', requireAuth, async (req, res) => {
+app.get('/api/instalaciones/:id/equipos', requireAuth, requirePermiso('instalaciones', 'ver'), async (req, res) => {
   try {
     res.json(await listarEquiposDeInstalacion(req.supabase, req.usuario.company_id, req.params.id));
   } catch (e) {
@@ -2891,7 +2891,7 @@ app.get('/api/instalaciones/:id/equipos', requireAuth, async (req, res) => {
 
 // Mismo endpoint que usará el futuro portal del cliente (autenticación
 // distinta, misma función de negocio) — "mis paneles/productos" de TODO el proyecto.
-app.get('/api/proyectos/:id/equipos', requireAuth, async (req, res) => {
+app.get('/api/proyectos/:id/equipos', requireAuth, requirePermiso('instalaciones', 'ver'), async (req, res) => {
   try {
     res.json(await listarEquiposDeProyecto(req.supabase, req.usuario.company_id, req.params.id));
   } catch (e) {
@@ -2899,7 +2899,7 @@ app.get('/api/proyectos/:id/equipos', requireAuth, async (req, res) => {
   }
 });
 
-app.patch('/api/equipos-instalados/:id', requireAuth, async (req, res) => {
+app.patch('/api/equipos-instalados/:id', requireAuth, requirePermiso('instalaciones', 'editar'), async (req, res) => {
   try {
     res.json(await actualizarEquipoInstalado(req.supabase, { companyId: req.usuario.company_id, equipoId: req.params.id, cambios: req.body || {} }));
   } catch (e) {
@@ -3171,7 +3171,7 @@ app.post('/api/ordenes-compra/:id/recibir', requireAuth, requirePermiso('compras
 // Sin integración directa con CFE — seguimiento manual, abierto a
 // cualquier usuario de la empresa (no compromete dinero ni inventario,
 // mismo criterio que instalaciones — a diferencia de compras/cobranza).
-app.get('/api/proyectos/:id/tramite-cfe', requireAuth, async (req, res) => {
+app.get('/api/proyectos/:id/tramite-cfe', requireAuth, requirePermiso('tramites_cfe', 'ver'), async (req, res) => {
   try {
     res.json(await obtenerTramiteDeProyecto(req.supabase, req.usuario.company_id, req.params.id));
   } catch (e) {
@@ -3179,7 +3179,7 @@ app.get('/api/proyectos/:id/tramite-cfe', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/proyectos/:id/tramite-cfe', requireAuth, async (req, res) => {
+app.post('/api/proyectos/:id/tramite-cfe', requireAuth, requirePermiso('tramites_cfe', 'crear'), async (req, res) => {
   try {
     const tramite = await crearTramiteCfe(req.supabase, { companyId: req.usuario.company_id, proyectoId: req.params.id, usuarioId: req.usuario.id });
     res.status(201).json(tramite);
@@ -3188,7 +3188,7 @@ app.post('/api/proyectos/:id/tramite-cfe', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/tramites-cfe', requireAuth, async (req, res) => {
+app.get('/api/tramites-cfe', requireAuth, requirePermiso('tramites_cfe', 'ver'), async (req, res) => {
   try {
     res.json(await listarTramitesCfe(req.supabase, req.usuario.company_id, { estado: req.query.estado }));
   } catch (e) {
@@ -3196,7 +3196,7 @@ app.get('/api/tramites-cfe', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/tramites-cfe/:id', requireAuth, async (req, res) => {
+app.get('/api/tramites-cfe/:id', requireAuth, requirePermiso('tramites_cfe', 'ver'), async (req, res) => {
   try {
     const tramite = await obtenerTramiteCfe(req.supabase, req.usuario.company_id, req.params.id);
     if (!tramite) return res.status(404).json({ error: 'Trámite CFE no encontrado' });
@@ -3206,7 +3206,7 @@ app.get('/api/tramites-cfe/:id', requireAuth, async (req, res) => {
   }
 });
 
-app.patch('/api/tramites-cfe/:id', requireAuth, async (req, res) => {
+app.patch('/api/tramites-cfe/:id', requireAuth, requirePermiso('tramites_cfe', 'editar'), async (req, res) => {
   try {
     res.json(await actualizarTramiteCfe(req.supabase, { companyId: req.usuario.company_id, tramiteId: req.params.id, cambios: req.body || {} }));
   } catch (e) {
@@ -3214,7 +3214,7 @@ app.patch('/api/tramites-cfe/:id', requireAuth, async (req, res) => {
   }
 });
 
-app.patch('/api/tramites-cfe/:id/estado', requireAuth, async (req, res) => {
+app.patch('/api/tramites-cfe/:id/estado', requireAuth, requirePermiso('tramites_cfe', 'editar'), async (req, res) => {
   try {
     res.json(await actualizarEstadoTramiteCfe(req.supabase, { companyId: req.usuario.company_id, tramiteId: req.params.id, estado: req.body?.estado, usuarioId: req.usuario.id }));
   } catch (e) {
@@ -3225,7 +3225,7 @@ app.patch('/api/tramites-cfe/:id/estado', requireAuth, async (req, res) => {
 // Subfase 2H — garantías (2026-09-28, ver modules/garantias.js). Abierto a
 // cualquier usuario autenticado (no compromete dinero ni inventario, mismo
 // criterio que instalaciones/trámites CFE).
-app.post('/api/equipos-instalados/:id/garantia', requireAuth, async (req, res) => {
+app.post('/api/equipos-instalados/:id/garantia', requireAuth, requirePermiso('garantias', 'crear'), async (req, res) => {
   try {
     const garantia = await crearGarantiaDesdeEquipo(req.supabase, { companyId: req.usuario.company_id, equipoInstaladoId: req.params.id, usuarioId: req.usuario.id });
     res.status(201).json(garantia);
@@ -3234,7 +3234,7 @@ app.post('/api/equipos-instalados/:id/garantia', requireAuth, async (req, res) =
   }
 });
 
-app.get('/api/equipos-instalados/:id/garantia', requireAuth, async (req, res) => {
+app.get('/api/equipos-instalados/:id/garantia', requireAuth, requirePermiso('garantias', 'ver'), async (req, res) => {
   try {
     res.json(await obtenerGarantiaDeEquipo(req.supabase, req.usuario.company_id, req.params.id));
   } catch (e) {
@@ -3242,7 +3242,7 @@ app.get('/api/equipos-instalados/:id/garantia', requireAuth, async (req, res) =>
   }
 });
 
-app.get('/api/garantias', requireAuth, async (req, res) => {
+app.get('/api/garantias', requireAuth, requirePermiso('garantias', 'ver'), async (req, res) => {
   try {
     res.json(await listarGarantias(req.supabase, req.usuario.company_id));
   } catch (e) {
@@ -3250,7 +3250,7 @@ app.get('/api/garantias', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/garantias/:id', requireAuth, async (req, res) => {
+app.get('/api/garantias/:id', requireAuth, requirePermiso('garantias', 'ver'), async (req, res) => {
   try {
     const garantia = await obtenerGarantia(req.supabase, req.usuario.company_id, req.params.id);
     if (!garantia) return res.status(404).json({ error: 'Garantía no encontrada' });
@@ -3260,7 +3260,7 @@ app.get('/api/garantias/:id', requireAuth, async (req, res) => {
   }
 });
 
-app.patch('/api/garantias/:id', requireAuth, async (req, res) => {
+app.patch('/api/garantias/:id', requireAuth, requirePermiso('garantias', 'editar'), async (req, res) => {
   try {
     res.json(await actualizarGarantia(req.supabase, { companyId: req.usuario.company_id, garantiaId: req.params.id, cambios: req.body || {} }));
   } catch (e) {
@@ -3268,7 +3268,7 @@ app.patch('/api/garantias/:id', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/garantias/:id/reclamaciones', requireAuth, async (req, res) => {
+app.post('/api/garantias/:id/reclamaciones', requireAuth, requirePermiso('garantias', 'crear'), async (req, res) => {
   try {
     const reclamacion = await crearReclamacion(req.supabase, { companyId: req.usuario.company_id, garantiaId: req.params.id, descripcion: req.body?.descripcion, usuarioId: req.usuario.id });
     res.status(201).json(reclamacion);
@@ -3277,7 +3277,7 @@ app.post('/api/garantias/:id/reclamaciones', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/garantias/:id/reclamaciones', requireAuth, async (req, res) => {
+app.get('/api/garantias/:id/reclamaciones', requireAuth, requirePermiso('garantias', 'ver'), async (req, res) => {
   try {
     res.json(await listarReclamacionesDeGarantia(req.supabase, req.usuario.company_id, req.params.id));
   } catch (e) {
@@ -3285,7 +3285,7 @@ app.get('/api/garantias/:id/reclamaciones', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/reclamaciones/:id', requireAuth, async (req, res) => {
+app.get('/api/reclamaciones/:id', requireAuth, requirePermiso('garantias', 'ver'), async (req, res) => {
   try {
     const reclamacion = await obtenerReclamacion(req.supabase, req.usuario.company_id, req.params.id);
     if (!reclamacion) return res.status(404).json({ error: 'Reclamación no encontrada' });
@@ -3295,7 +3295,7 @@ app.get('/api/reclamaciones/:id', requireAuth, async (req, res) => {
   }
 });
 
-app.patch('/api/reclamaciones/:id/estado', requireAuth, async (req, res) => {
+app.patch('/api/reclamaciones/:id/estado', requireAuth, requirePermiso('garantias', 'editar'), async (req, res) => {
   try {
     res.json(await actualizarEstadoReclamacion(req.supabase, { companyId: req.usuario.company_id, reclamacionId: req.params.id, estado: req.body?.estado, usuarioId: req.usuario.id }));
   } catch (e) {
@@ -3303,7 +3303,7 @@ app.patch('/api/reclamaciones/:id/estado', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/reclamaciones/:id/comentarios', requireAuth, async (req, res) => {
+app.post('/api/reclamaciones/:id/comentarios', requireAuth, requirePermiso('garantias', 'editar'), async (req, res) => {
   try {
     res.json(await agregarComentarioReclamacion(req.supabase, { companyId: req.usuario.company_id, reclamacionId: req.params.id, texto: req.body?.texto, usuarioId: req.usuario.id }));
   } catch (e) {
@@ -3314,7 +3314,7 @@ app.post('/api/reclamaciones/:id/comentarios', requireAuth, async (req, res) => 
 // Subfase 2I — mantenimiento y tickets (2026-09-28, ver
 // modules/mantenimientos.js y modules/tickets.js). Abierto a cualquier
 // usuario autenticado (mismo criterio que instalaciones/trámites CFE/garantías).
-app.post('/api/proyectos/:id/mantenimientos', requireAuth, async (req, res) => {
+app.post('/api/proyectos/:id/mantenimientos', requireAuth, requirePermiso('mantenimiento', 'crear'), async (req, res) => {
   try {
     const mantenimiento = await crearMantenimiento(req.supabase, {
       companyId: req.usuario.company_id, proyectoId: req.params.id, tipo: req.body?.tipo,
@@ -3326,7 +3326,7 @@ app.post('/api/proyectos/:id/mantenimientos', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/proyectos/:id/mantenimientos', requireAuth, async (req, res) => {
+app.get('/api/proyectos/:id/mantenimientos', requireAuth, requirePermiso('mantenimiento', 'ver'), async (req, res) => {
   try {
     res.json(await listarMantenimientosDeProyecto(req.supabase, req.usuario.company_id, req.params.id));
   } catch (e) {
@@ -3334,7 +3334,7 @@ app.get('/api/proyectos/:id/mantenimientos', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/mantenimientos', requireAuth, async (req, res) => {
+app.get('/api/mantenimientos', requireAuth, requirePermiso('mantenimiento', 'ver'), async (req, res) => {
   try {
     res.json(await listarMantenimientos(req.supabase, req.usuario.company_id));
   } catch (e) {
@@ -3342,7 +3342,7 @@ app.get('/api/mantenimientos', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/mantenimientos/:id', requireAuth, async (req, res) => {
+app.get('/api/mantenimientos/:id', requireAuth, requirePermiso('mantenimiento', 'ver'), async (req, res) => {
   try {
     const mantenimiento = await obtenerMantenimiento(req.supabase, req.usuario.company_id, req.params.id);
     if (!mantenimiento) return res.status(404).json({ error: 'Mantenimiento no encontrado' });
@@ -3352,7 +3352,7 @@ app.get('/api/mantenimientos/:id', requireAuth, async (req, res) => {
   }
 });
 
-app.patch('/api/mantenimientos/:id', requireAuth, async (req, res) => {
+app.patch('/api/mantenimientos/:id', requireAuth, requirePermiso('mantenimiento', 'editar'), async (req, res) => {
   try {
     res.json(await actualizarMantenimiento(req.supabase, { companyId: req.usuario.company_id, mantenimientoId: req.params.id, cambios: req.body || {} }));
   } catch (e) {
@@ -3360,7 +3360,7 @@ app.patch('/api/mantenimientos/:id', requireAuth, async (req, res) => {
   }
 });
 
-app.patch('/api/mantenimientos/:id/checklist', requireAuth, async (req, res) => {
+app.patch('/api/mantenimientos/:id/checklist', requireAuth, requirePermiso('mantenimiento', 'editar'), async (req, res) => {
   try {
     res.json(await actualizarChecklistItemMantenimiento(req.supabase, {
       companyId: req.usuario.company_id, mantenimientoId: req.params.id, clave: req.body?.clave, completado: req.body?.completado, usuarioId: req.usuario.id,
@@ -3370,7 +3370,7 @@ app.patch('/api/mantenimientos/:id/checklist', requireAuth, async (req, res) => 
   }
 });
 
-app.post('/api/mantenimientos/:id/programar-siguiente', requireAuth, async (req, res) => {
+app.post('/api/mantenimientos/:id/programar-siguiente', requireAuth, requirePermiso('mantenimiento', 'crear'), async (req, res) => {
   try {
     if (!req.body?.inicio || !req.body?.fin) return res.status(400).json({ error: 'inicio y fin son requeridos' });
     const resultado = await programarSiguienteMantenimiento(req.supabase, {
@@ -3383,7 +3383,7 @@ app.post('/api/mantenimientos/:id/programar-siguiente', requireAuth, async (req,
   }
 });
 
-app.post('/api/tickets', requireAuth, async (req, res) => {
+app.post('/api/tickets', requireAuth, requirePermiso('tickets', 'crear'), async (req, res) => {
   try {
     const ticket = await crearTicket(req.supabase, {
       companyId: req.usuario.company_id, clienteId: req.body?.clienteId, proyectoId: req.body?.proyectoId, equipoInstaladoId: req.body?.equipoInstaladoId,
@@ -3395,7 +3395,7 @@ app.post('/api/tickets', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/tickets', requireAuth, async (req, res) => {
+app.get('/api/tickets', requireAuth, requirePermiso('tickets', 'ver'), async (req, res) => {
   try {
     res.json(await listarTickets(req.supabase, req.usuario.company_id, { estado: req.query.estado, prioridad: req.query.prioridad, clienteId: req.query.clienteId }));
   } catch (e) {
@@ -3403,7 +3403,7 @@ app.get('/api/tickets', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/tickets/:id', requireAuth, async (req, res) => {
+app.get('/api/tickets/:id', requireAuth, requirePermiso('tickets', 'ver'), async (req, res) => {
   try {
     const ticket = await obtenerTicket(req.supabase, req.usuario.company_id, req.params.id);
     if (!ticket) return res.status(404).json({ error: 'Ticket no encontrado' });
@@ -3413,7 +3413,7 @@ app.get('/api/tickets/:id', requireAuth, async (req, res) => {
   }
 });
 
-app.patch('/api/tickets/:id', requireAuth, async (req, res) => {
+app.patch('/api/tickets/:id', requireAuth, requirePermiso('tickets', 'editar'), async (req, res) => {
   try {
     res.json(await actualizarTicket(req.supabase, { companyId: req.usuario.company_id, ticketId: req.params.id, cambios: req.body || {} }));
   } catch (e) {
@@ -3421,7 +3421,7 @@ app.patch('/api/tickets/:id', requireAuth, async (req, res) => {
   }
 });
 
-app.patch('/api/tickets/:id/estado', requireAuth, async (req, res) => {
+app.patch('/api/tickets/:id/estado', requireAuth, requirePermiso('tickets', 'editar'), async (req, res) => {
   try {
     res.json(await actualizarEstadoTicket(req.supabase, { companyId: req.usuario.company_id, ticketId: req.params.id, estado: req.body?.estado, usuarioId: req.usuario.id }));
   } catch (e) {
@@ -3429,7 +3429,7 @@ app.patch('/api/tickets/:id/estado', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/tickets/:id/comentarios', requireAuth, async (req, res) => {
+app.post('/api/tickets/:id/comentarios', requireAuth, requirePermiso('tickets', 'editar'), async (req, res) => {
   try {
     res.json(await agregarComentarioTicket(req.supabase, { companyId: req.usuario.company_id, ticketId: req.params.id, texto: req.body?.texto, usuarioId: req.usuario.id }));
   } catch (e) {
