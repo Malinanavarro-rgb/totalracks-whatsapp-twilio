@@ -1442,7 +1442,7 @@ app.post('/api/agenda/comando/:id/cancelar', requireAuth, async (req, res) => {
 // Lógica real en modules/crm-ui.js (distinto de modules/crm.js, el write path
 // congelado del motor conversacional — ADR-005). Solo lectura/edición de UI.
 
-app.get('/api/crm/clientes', requireAuth, async (req, res) => {
+app.get('/api/crm/clientes', requireAuth, requirePermiso('crm', 'ver'), async (req, res) => {
   try {
     const { nombre, estado, score_min } = req.query;
     const clientes = await listarClientes(req.supabase, req.usuario.company_id, req.usuario, { nombre, estado, score_min });
@@ -1452,7 +1452,7 @@ app.get('/api/crm/clientes', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/crm/oportunidades', requireAuth, async (req, res) => {
+app.get('/api/crm/oportunidades', requireAuth, requirePermiso('crm', 'ver'), async (req, res) => {
   try {
     const oportunidades = await listarOportunidades(req.supabase, req.usuario.company_id);
     res.json(oportunidades);
@@ -1461,7 +1461,7 @@ app.get('/api/crm/oportunidades', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/crm/clientes/:id', requireAuth, async (req, res) => {
+app.get('/api/crm/clientes/:id', requireAuth, requirePermiso('crm', 'ver'), async (req, res) => {
   try {
     const ficha = await obtenerFichaCliente(req.supabase, req.usuario.company_id, req.params.id);
     res.json(ficha);
@@ -1470,7 +1470,7 @@ app.get('/api/crm/clientes/:id', requireAuth, async (req, res) => {
   }
 });
 
-app.patch('/api/crm/clientes/:id', requireAuth, async (req, res) => {
+app.patch('/api/crm/clientes/:id', requireAuth, requirePermiso('crm', 'editar'), async (req, res) => {
   try {
     const cliente = await actualizarCliente(req.supabase, req.usuario.company_id, req.params.id, req.body);
     res.json(cliente);
@@ -1502,7 +1502,7 @@ app.delete('/api/crm/clientes/:id/completo', requireAuth, soloGerencial, async (
   }
 });
 
-app.get('/api/crm/clientes/:id/seguimientos', requireAuth, async (req, res) => {
+app.get('/api/crm/clientes/:id/seguimientos', requireAuth, requirePermiso('crm', 'ver'), async (req, res) => {
   try {
     const seguimientos = await listarSeguimientos(req.supabase, req.usuario.company_id, req.params.id);
     res.json(seguimientos);
@@ -1514,7 +1514,7 @@ app.get('/api/crm/clientes/:id/seguimientos', requireAuth, async (req, res) => {
 // Fase Demo Comercial: "Pregúntale a TARA" sobre un cliente específico —
 // IA real (modules/asistente-consultas.js), de solo lectura, basada en la
 // conversación que ya tuvo con ese cliente. No toca el motor conversacional.
-app.post('/api/crm/clientes/:id/preguntar', requireAuth, async (req, res) => {
+app.post('/api/crm/clientes/:id/preguntar', requireAuth, requirePermiso('crm', 'ver'), async (req, res) => {
   try {
     const { pregunta } = req.body || {};
     if (!pregunta || !pregunta.trim()) return res.status(400).json({ error: 'pregunta requerida' });
@@ -1537,7 +1537,7 @@ app.post('/api/crm/clientes/:id/preguntar', requireAuth, async (req, res) => {
 // oportunidad ya existente (nunca se asume que la extracción es infalible).
 const uploadReciboCFE = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
-app.post('/api/crm/clientes/:id/recibo-cfe', requireAuth, uploadReciboCFE.single('archivo'), async (req, res) => {
+app.post('/api/crm/clientes/:id/recibo-cfe', requireAuth, requirePermiso('crm', 'crear'), uploadReciboCFE.single('archivo'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'archivo requerido' });
 
@@ -1837,7 +1837,7 @@ app.get('/api/documentos-proveedor/:id/archivo', requireAuth, async (req, res) =
 // Documentos del cliente clasificados (2026-09-22, ver modules/documentos-cliente.js).
 const uploadDocumentoCliente = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
-app.post('/api/crm/clientes/:id/documentos', requireAuth, uploadDocumentoCliente.single('archivo'), async (req, res) => {
+app.post('/api/crm/clientes/:id/documentos', requireAuth, requirePermiso('crm', 'crear'), uploadDocumentoCliente.single('archivo'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'archivo requerido' });
     const documento = await subirDocumentoCliente(supabaseServicio, {
@@ -1850,7 +1850,7 @@ app.post('/api/crm/clientes/:id/documentos', requireAuth, uploadDocumentoCliente
   }
 });
 
-app.post('/api/crm/clientes/:id/documentos/desde-mensaje', requireAuth, async (req, res) => {
+app.post('/api/crm/clientes/:id/documentos/desde-mensaje', requireAuth, requirePermiso('crm', 'crear'), async (req, res) => {
   try {
     const documento = await clasificarAdjuntoDeMensaje(req.supabase, {
       company_id: req.usuario.company_id, cliente_id: Number(req.params.id), categoria: req.body?.categoria,
@@ -1862,7 +1862,7 @@ app.post('/api/crm/clientes/:id/documentos/desde-mensaje', requireAuth, async (r
   }
 });
 
-app.get('/api/crm/clientes/:id/documentos', requireAuth, async (req, res) => {
+app.get('/api/crm/clientes/:id/documentos', requireAuth, requirePermiso('crm', 'ver'), async (req, res) => {
   try {
     res.json(await listarDocumentosCliente(req.supabase, req.usuario.company_id, req.params.id, { categoria: req.query.categoria }));
   } catch (e) {
@@ -1870,7 +1870,7 @@ app.get('/api/crm/clientes/:id/documentos', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/crm/clientes/:id/documentos/sin-clasificar', requireAuth, async (req, res) => {
+app.get('/api/crm/clientes/:id/documentos/sin-clasificar', requireAuth, requirePermiso('crm', 'ver'), async (req, res) => {
   try {
     res.json(await adjuntosSinClasificar(req.supabase, req.usuario.company_id, req.params.id));
   } catch (e) {
@@ -1878,7 +1878,7 @@ app.get('/api/crm/clientes/:id/documentos/sin-clasificar', requireAuth, async (r
   }
 });
 
-app.delete('/api/crm/documentos/:id', requireAuth, async (req, res) => {
+app.delete('/api/crm/documentos/:id', requireAuth, requirePermiso('crm', 'eliminar'), async (req, res) => {
   try {
     await eliminarDocumentoCliente(supabaseServicio, req.usuario.company_id, req.params.id);
     res.status(204).send();
@@ -1887,7 +1887,7 @@ app.delete('/api/crm/documentos/:id', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/crm/documentos/:id/archivo', requireAuth, async (req, res) => {
+app.get('/api/crm/documentos/:id/archivo', requireAuth, requirePermiso('crm', 'ver'), async (req, res) => {
   try {
     const { data: documento, error } = await req.supabase
       .from('documentos_cliente').select('bucket, path').eq('id', req.params.id).eq('company_id', req.usuario.company_id).maybeSingle();
@@ -1901,7 +1901,7 @@ app.get('/api/crm/documentos/:id/archivo', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/crm/clientes/:id/seguimientos', requireAuth, async (req, res) => {
+app.post('/api/crm/clientes/:id/seguimientos', requireAuth, requirePermiso('crm', 'crear'), async (req, res) => {
   try {
     const { texto, fecha_programada, prioridad } = req.body;
     if (!texto || !texto.trim()) return res.status(400).json({ error: 'texto requerido' });
@@ -1913,7 +1913,7 @@ app.post('/api/crm/clientes/:id/seguimientos', requireAuth, async (req, res) => 
   }
 });
 
-app.patch('/api/crm/seguimientos/:id', requireAuth, async (req, res) => {
+app.patch('/api/crm/seguimientos/:id', requireAuth, requirePermiso('crm', 'editar'), async (req, res) => {
   try {
     const seguimiento = await actualizarSeguimiento(req.supabase, req.usuario.company_id, req.params.id, req.body);
     res.json(seguimiento);
@@ -1922,7 +1922,7 @@ app.patch('/api/crm/seguimientos/:id', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/crm/clientes/:id/oportunidades', requireAuth, async (req, res) => {
+app.post('/api/crm/clientes/:id/oportunidades', requireAuth, requirePermiso('crm', 'crear'), async (req, res) => {
   try {
     const oportunidad = await crearOportunidad(req.supabase, req.usuario.company_id, req.params.id, req.body);
     res.status(201).json(oportunidad);
@@ -1931,7 +1931,7 @@ app.post('/api/crm/clientes/:id/oportunidades', requireAuth, async (req, res) =>
   }
 });
 
-app.patch('/api/crm/oportunidades/:id', requireAuth, async (req, res) => {
+app.patch('/api/crm/oportunidades/:id', requireAuth, requirePermiso('crm', 'editar'), async (req, res) => {
   try {
     const oportunidad = await actualizarOportunidad(req.supabase, req.usuario.company_id, req.params.id, req.body);
     res.json(oportunidad);
@@ -1942,7 +1942,7 @@ app.patch('/api/crm/oportunidades/:id', requireAuth, async (req, res) => {
 
 // Datos técnicos del inmueble (2026-09-22, ver modules/crm-ui.js) — separada
 // del PATCH genérico de arriba porque además registra quién/cuándo lo levantó.
-app.patch('/api/crm/oportunidades/:id/inmueble', requireAuth, async (req, res) => {
+app.patch('/api/crm/oportunidades/:id/inmueble', requireAuth, requirePermiso('crm', 'editar'), async (req, res) => {
   try {
     const oportunidad = await actualizarDatosInmueble(req.supabase, req.usuario.company_id, req.params.id, req.usuario.id, req.body);
     res.json(oportunidad);
@@ -1951,7 +1951,7 @@ app.patch('/api/crm/oportunidades/:id/inmueble', requireAuth, async (req, res) =
   }
 });
 
-app.delete('/api/crm/oportunidades/:id', requireAuth, async (req, res) => {
+app.delete('/api/crm/oportunidades/:id', requireAuth, requirePermiso('crm', 'eliminar'), async (req, res) => {
   try {
     await eliminarOportunidad(req.supabase, req.usuario.company_id, req.params.id);
     res.status(204).send();
@@ -1963,7 +1963,7 @@ app.delete('/api/crm/oportunidades/:id', requireAuth, async (req, res) => {
 // Centro de Conocimiento, Fase 3 — "Ayúdame a cerrar": Sales Coach con foco
 // en una oportunidad puntual (ver modules/inbox-analisis.js). No persiste,
 // es una consulta bajo demanda desde el CRM.
-app.post('/api/crm/oportunidades/:id/ayudame-a-cerrar', requireAuth, async (req, res) => {
+app.post('/api/crm/oportunidades/:id/ayudame-a-cerrar', requireAuth, requirePermiso('crm', 'ver'), async (req, res) => {
   try {
     const analisis = await analizarOportunidadParaCierre({
       supabase: supabaseServicio, openaiClient: openai, company_id: req.usuario.company_id, oportunidad_id: req.params.id,
@@ -2527,7 +2527,7 @@ app.delete('/api/planes-financiamiento/:id', requireAuth, soloGerencial, async (
 // crea la cotización en borrador; el cálculo se dispara aparte en
 // POST /api/cotizaciones/:id/calcular, para que el formulario capture los
 // datos técnicos en un segundo paso.
-app.post('/api/cotizaciones', requireAuth, async (req, res) => {
+app.post('/api/cotizaciones', requireAuth, requirePermiso('cotizaciones', 'crear'), async (req, res) => {
   try {
     const cotizacion = await crearCotizacionBorrador(req.supabase, {
       companyId: req.usuario.company_id, clienteId: req.body.clienteId,
@@ -2539,7 +2539,7 @@ app.post('/api/cotizaciones', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/cotizaciones/:id/calcular', requireAuth, async (req, res) => {
+app.post('/api/cotizaciones/:id/calcular', requireAuth, requirePermiso('cotizaciones', 'editar'), async (req, res) => {
   try {
     const resultado = await correrCalculoCotizacionManual(req.supabase, {
       companyId: req.usuario.company_id, cotizacionId: req.params.id,
@@ -2553,7 +2553,7 @@ app.post('/api/cotizaciones/:id/calcular', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/cotizaciones', requireAuth, async (req, res) => {
+app.get('/api/cotizaciones', requireAuth, requirePermiso('cotizaciones', 'ver'), async (req, res) => {
   try {
     res.json(await listarCotizaciones(req.supabase, req.usuario.company_id, req.usuario, { clienteId: req.query.clienteId }));
   } catch (e) {
@@ -2561,7 +2561,7 @@ app.get('/api/cotizaciones', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/cotizaciones/:id', requireAuth, async (req, res) => {
+app.get('/api/cotizaciones/:id', requireAuth, requirePermiso('cotizaciones', 'ver'), async (req, res) => {
   try {
     const cotizacion = await obtenerCotizacion(req.supabase, req.usuario.company_id, req.params.id);
     if (!cotizacion) return res.status(404).json({ error: 'Cotización no encontrada' });
@@ -2578,7 +2578,7 @@ app.get('/api/cotizaciones/:id', requireAuth, async (req, res) => {
 // POST /api/cotizaciones/:id/generar-pdf: la AUTORIZACIÓN (¿la cotización
 // es de la empresa del usuario?) se verifica con req.supabase, la URL
 // firmada se genera con supabaseServicio.
-app.get('/api/cotizaciones/:id/pdf', requireAuth, async (req, res) => {
+app.get('/api/cotizaciones/:id/pdf', requireAuth, requirePermiso('cotizaciones', 'ver'), async (req, res) => {
   try {
     const { data: cotizacion, error } = await req.supabase
       .from('cotizaciones').select('pdf_url').eq('id', req.params.id).eq('company_id', req.usuario.company_id).maybeSingle();
@@ -2595,7 +2595,7 @@ app.get('/api/cotizaciones/:id/pdf', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/cotizaciones/:id/revisar-predimensionamiento', requireAuth, async (req, res) => {
+app.post('/api/cotizaciones/:id/revisar-predimensionamiento', requireAuth, requirePermiso('cotizaciones', 'editar'), async (req, res) => {
   try {
     const cotizacion = await marcarPredimensionamientoRevisado(req.supabase, { cotizacionId: req.params.id, usuarioId: req.usuario.id });
     res.json(cotizacion);
@@ -2604,7 +2604,7 @@ app.post('/api/cotizaciones/:id/revisar-predimensionamiento', requireAuth, async
   }
 });
 
-app.post('/api/cotizaciones/:id/validar-ingenieria', requireAuth, async (req, res) => {
+app.post('/api/cotizaciones/:id/validar-ingenieria', requireAuth, requirePermiso('cotizaciones', 'editar'), async (req, res) => {
   try {
     const cotizacion = await marcarIngenieriaValidada(req.supabase, { cotizacionId: req.params.id, usuarioId: req.usuario.id });
     res.json(cotizacion);
@@ -2616,7 +2616,7 @@ app.post('/api/cotizaciones/:id/validar-ingenieria', requireAuth, async (req, re
 // "3 propuestas" (económica / recomendada / ampliada) a partir de los paquetes
 // vigentes y el cálculo de ingeniería ya guardado — solo lectura, no modifica
 // la cotización (ver modules/propuestas-solares.js).
-app.get('/api/cotizaciones/:id/propuestas', requireAuth, async (req, res) => {
+app.get('/api/cotizaciones/:id/propuestas', requireAuth, requirePermiso('cotizaciones', 'ver'), async (req, res) => {
   try {
     const propuestas = await generarPropuestasCotizacion(req.supabase, { companyId: req.usuario.company_id, cotizacionId: req.params.id });
     if (!propuestas) return res.status(404).json({ error: 'Cotización no encontrada' });
@@ -2632,7 +2632,7 @@ app.get('/api/cotizaciones/:id/propuestas', requireAuth, async (req, res) => {
 // (ver modules/propuestas-solares.js::simularRango). desde/hasta opcionales
 // en el query string; sin ellos usa el rango por defecto alrededor del
 // número técnico.
-app.get('/api/cotizaciones/:id/simulador', requireAuth, async (req, res) => {
+app.get('/api/cotizaciones/:id/simulador', requireAuth, requirePermiso('cotizaciones', 'ver'), async (req, res) => {
   try {
     const desde = req.query.desde !== undefined ? Number(req.query.desde) : undefined;
     const hasta = req.query.hasta !== undefined ? Number(req.query.hasta) : undefined;
@@ -2646,7 +2646,7 @@ app.get('/api/cotizaciones/:id/simulador', requireAuth, async (req, res) => {
 
 // Financiamiento configurable — planes activos de la empresa calculados
 // sobre el precio de esta cotización (ver modules/planes-financiamiento.js).
-app.get('/api/cotizaciones/:id/financiamiento', requireAuth, async (req, res) => {
+app.get('/api/cotizaciones/:id/financiamiento', requireAuth, requirePermiso('cotizaciones', 'ver'), async (req, res) => {
   try {
     const financiamiento = await simularFinanciamientoCotizacion(req.supabase, { companyId: req.usuario.company_id, cotizacionId: req.params.id });
     if (!financiamiento) return res.status(404).json({ error: 'Cotización no encontrada' });
@@ -2674,7 +2674,7 @@ app.get('/api/cotizaciones/:id/rentabilidad', requireAuth, soloGerencial, async 
 // cotización (si no lo estaba ya) y crea/recupera su proyecto — nunca dos
 // pasos separados, para que un doble clic no pueda dejar la cotización
 // aceptada sin proyecto.
-app.post('/api/cotizaciones/:id/marcar-aceptada', requireAuth, async (req, res) => {
+app.post('/api/cotizaciones/:id/marcar-aceptada', requireAuth, requirePermiso('cotizaciones', 'editar'), async (req, res) => {
   try {
     const resultado = await marcarCotizacionAceptadaYCrearProyecto(req.supabase, {
       companyId: req.usuario.company_id, cotizacionId: req.params.id, usuarioId: req.usuario.id,
@@ -2699,7 +2699,7 @@ app.get('/api/proyectos/:id', requireAuth, requirePermiso('proyectos', 'ver'), a
 // varios proyectos de venta (casa, negocio, ampliación...). Reemplaza a
 // GET /api/crm/clientes/:id/proyecto (singular) — único consumidor
 // (frontend/src/pages/CrmClienteDetalle.jsx) actualizado en el mismo commit.
-app.get('/api/crm/clientes/:id/proyectos', requireAuth, async (req, res) => {
+app.get('/api/crm/clientes/:id/proyectos', requireAuth, requirePermiso('proyectos', 'ver'), async (req, res) => {
   try {
     res.json(await listarProyectosDeCliente(req.supabase, req.usuario.company_id, req.params.id));
   } catch (e) {
@@ -2707,7 +2707,7 @@ app.get('/api/crm/clientes/:id/proyectos', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/cotizaciones/:id/proyecto', requireAuth, async (req, res) => {
+app.get('/api/cotizaciones/:id/proyecto', requireAuth, requirePermiso('cotizaciones', 'ver'), async (req, res) => {
   try {
     res.json(await obtenerProyectoDeCotizacion(req.supabase, req.usuario.company_id, req.params.id));
   } catch (e) {
@@ -3437,7 +3437,7 @@ app.post('/api/tickets/:id/comentarios', requireAuth, requirePermiso('tickets', 
   }
 });
 
-app.get('/api/cotizaciones/:id/puede-enviar', requireAuth, async (req, res) => {
+app.get('/api/cotizaciones/:id/puede-enviar', requireAuth, requirePermiso('cotizaciones', 'ver'), async (req, res) => {
   try {
     res.json(await puedeEnviarCotizacion(req.supabase, req.params.id));
   } catch (e) {
@@ -3447,7 +3447,7 @@ app.get('/api/cotizaciones/:id/puede-enviar', requireAuth, async (req, res) => {
 
 // Decisión humana del asesor sobre el precio final (Alina, 2026-08-04) —
 // separada del paquete recomendado automático. Body opcional: {precioFinal}.
-app.post('/api/cotizaciones/:id/autorizar-precio', requireAuth, async (req, res) => {
+app.post('/api/cotizaciones/:id/autorizar-precio', requireAuth, requirePermiso('cotizaciones', 'aprobar'), async (req, res) => {
   try {
     const cotizacion = await autorizarPrecioFinal(req.supabase, { cotizacionId: req.params.id, usuarioId: req.usuario.id, precioFinal: req.body?.precioFinal });
     res.json(cotizacion);
@@ -3459,7 +3459,7 @@ app.post('/api/cotizaciones/:id/autorizar-precio', requireAuth, async (req, res)
 // Aprobación de descuentos (2026-09-22, ver modules/cotizacion-descuento.js):
 // cualquier usuario autenticado puede PROPONER un descuento (queda pendiente
 // si excede el límite configurado); solo un gerencial puede autorizarlo.
-app.post('/api/cotizaciones/:id/descuento', requireAuth, async (req, res) => {
+app.post('/api/cotizaciones/:id/descuento', requireAuth, requirePermiso('cotizaciones', 'editar'), async (req, res) => {
   try {
     const resultado = await aplicarDescuentoCotizacion(req.supabase, {
       companyId: req.usuario.company_id, cotizacionId: req.params.id, usuarioId: req.usuario.id, rolUsuario: req.usuario.rol,
@@ -3473,7 +3473,7 @@ app.post('/api/cotizaciones/:id/descuento', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/cotizaciones/:id/descuento/autorizar', requireAuth, async (req, res) => {
+app.post('/api/cotizaciones/:id/descuento/autorizar', requireAuth, requirePermiso('cotizaciones', 'aprobar'), async (req, res) => {
   try {
     const cotizacion = await autorizarDescuentoCotizacion(req.supabase, { companyId: req.usuario.company_id, cotizacionId: req.params.id, usuarioId: req.usuario.id, rolUsuario: req.usuario.rol });
     res.json(cotizacion);
@@ -3489,7 +3489,7 @@ app.post('/api/cotizaciones/:id/descuento/autorizar', requireAuth, async (req, r
 // ingenieria_validada_para_cotizar (eso es precisamente lo que se está
 // armando); solo /generar-pdf lo exige, vía el guard en cotizacion-pdf.js.
 
-app.get('/api/cotizaciones/:id/lineas', requireAuth, async (req, res) => {
+app.get('/api/cotizaciones/:id/lineas', requireAuth, requirePermiso('cotizaciones', 'ver'), async (req, res) => {
   try {
     res.json(await listarLineas(req.supabase, req.params.id));
   } catch (e) {
@@ -3497,7 +3497,7 @@ app.get('/api/cotizaciones/:id/lineas', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/cotizaciones/:id/lineas', requireAuth, async (req, res) => {
+app.post('/api/cotizaciones/:id/lineas', requireAuth, requirePermiso('cotizaciones', 'crear'), async (req, res) => {
   try {
     const linea = await agregarLinea(req.supabase, { companyId: req.usuario.company_id, cotizacionId: req.params.id, ...req.body });
     res.status(201).json(linea);
@@ -3506,7 +3506,7 @@ app.post('/api/cotizaciones/:id/lineas', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/cotizaciones/:id/lineas/aplicar-calculo', requireAuth, async (req, res) => {
+app.post('/api/cotizaciones/:id/lineas/aplicar-calculo', requireAuth, requirePermiso('cotizaciones', 'editar'), async (req, res) => {
   try {
     const lineas = await aplicarCalculoALineas(req.supabase, { companyId: req.usuario.company_id, cotizacionId: req.params.id });
     res.status(201).json(lineas);
@@ -3517,7 +3517,7 @@ app.post('/api/cotizaciones/:id/lineas/aplicar-calculo', requireAuth, async (req
 
 // BOM desglosado panel+inversor (2026-09-22) — ALTERNATIVA a aplicar-calculo,
 // no un reemplazo (ver modules/cotizacion-lineas.js::aplicarBomALineas).
-app.post('/api/cotizaciones/:id/lineas/aplicar-bom', requireAuth, async (req, res) => {
+app.post('/api/cotizaciones/:id/lineas/aplicar-bom', requireAuth, requirePermiso('cotizaciones', 'editar'), async (req, res) => {
   try {
     const resultado = await aplicarBomALineas(req.supabase, { companyId: req.usuario.company_id, cotizacionId: req.params.id });
     res.status(201).json(resultado);
@@ -3526,7 +3526,7 @@ app.post('/api/cotizaciones/:id/lineas/aplicar-bom', requireAuth, async (req, re
   }
 });
 
-app.patch('/api/cotizaciones/lineas/:lineaId', requireAuth, async (req, res) => {
+app.patch('/api/cotizaciones/lineas/:lineaId', requireAuth, requirePermiso('cotizaciones', 'editar'), async (req, res) => {
   try {
     const linea = await actualizarLinea(req.supabase, { companyId: req.usuario.company_id, lineaId: req.params.lineaId, cambios: req.body });
     res.json(linea);
@@ -3535,7 +3535,7 @@ app.patch('/api/cotizaciones/lineas/:lineaId', requireAuth, async (req, res) => 
   }
 });
 
-app.delete('/api/cotizaciones/lineas/:lineaId', requireAuth, async (req, res) => {
+app.delete('/api/cotizaciones/lineas/:lineaId', requireAuth, requirePermiso('cotizaciones', 'eliminar'), async (req, res) => {
   try {
     await eliminarLinea(req.supabase, { companyId: req.usuario.company_id, lineaId: req.params.lineaId });
     res.status(204).send();
@@ -3551,7 +3551,7 @@ app.delete('/api/cotizaciones/lineas/:lineaId', requireAuth, async (req, res) =>
 // AUTORIZACIÓN (¿la cotización es de la empresa del usuario?) se verifica
 // con req.supabase; la operación de Storage se hace con supabaseServicio.
 
-app.post('/api/cotizaciones/:id/generar-pdf', requireAuth, async (req, res) => {
+app.post('/api/cotizaciones/:id/generar-pdf', requireAuth, requirePermiso('cotizaciones', 'ver'), async (req, res) => {
   try {
     const { data: cotizacion, error } = await req.supabase.from('cotizaciones').select('id').eq('id', req.params.id).eq('company_id', req.usuario.company_id).maybeSingle();
     if (error || !cotizacion) return res.status(404).json({ error: 'Cotización no encontrada' });
@@ -3563,7 +3563,7 @@ app.post('/api/cotizaciones/:id/generar-pdf', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/cotizaciones/:id/enviar', requireAuth, async (req, res) => {
+app.post('/api/cotizaciones/:id/enviar', requireAuth, requirePermiso('cotizaciones', 'editar'), async (req, res) => {
   try {
     const { data: cotizacion, error } = await req.supabase.from('cotizaciones').select('cliente_id').eq('id', req.params.id).eq('company_id', req.usuario.company_id).maybeSingle();
     if (error || !cotizacion) return res.status(404).json({ error: 'Cotización no encontrada' });
