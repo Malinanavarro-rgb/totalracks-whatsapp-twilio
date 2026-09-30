@@ -91,7 +91,7 @@ const {
 const { aplicarDescuento: aplicarDescuentoCotizacion, autorizarDescuento: autorizarDescuentoCotizacion } = require('./modules/cotizacion-descuento');
 const { transcribirAudio, describirImagen } = require('./modules/adjuntos-ia');
 const { procesarReciboCFE, extraerDatosReciboCFE, normalizarDatosRecibo } = require('./modules/recibo-cfe');
-const { esGerencial } = require('./modules/permisos');
+const { esGerencial, requirePermiso } = require('./modules/permisos');
 const { crearSolicitud: crearSolicitudConocimiento, listarSolicitudes: listarSolicitudesConocimiento, responderSolicitud: responderSolicitudConocimiento, rechazarSolicitud: rechazarSolicitudConocimiento } = require('./modules/knowledge-requests');
 const { subirDocumento: subirDocumentoProveedor, procesarDocumento: procesarDocumentoProveedor, listarDocumentos: listarDocumentosProveedor, confirmarDocumento: confirmarDocumentoProveedor, generarUrlFirmadaDocumento } = require('./modules/documentos-proveedor');
 const {
@@ -3013,7 +3013,7 @@ app.get('/api/portal/proyectos/:proyectoId/cobranza', requirePortalAuth, async (
 });
 
 // Subfase 2F — inventario (2026-09-25, ver modules/inventario.js).
-app.get('/api/inventario/saldos', requireAuth, async (req, res) => {
+app.get('/api/inventario/saldos', requireAuth, requirePermiso('inventario', 'ver'), async (req, res) => {
   try {
     res.json(await listarSaldos(req.supabase, req.usuario.company_id, { sucursalId: req.query.sucursalId, tipoProducto: req.query.tipoProducto }));
   } catch (e) {
@@ -3021,7 +3021,7 @@ app.get('/api/inventario/saldos', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/inventario/movimientos', requireAuth, async (req, res) => {
+app.get('/api/inventario/movimientos', requireAuth, requirePermiso('inventario', 'ver'), async (req, res) => {
   try {
     res.json(await listarMovimientos(req.supabase, req.usuario.company_id, {
       productoId: req.query.productoId, sucursalId: req.query.sucursalId, proyectoId: req.query.proyectoId,
@@ -3031,7 +3031,7 @@ app.get('/api/inventario/movimientos', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/inventario/movimientos', requireAuth, async (req, res) => {
+app.post('/api/inventario/movimientos', requireAuth, requirePermiso('inventario', 'crear'), async (req, res) => {
   try {
     const resultado = await registrarMovimiento(req.supabase, {
       companyId: req.usuario.company_id, usuarioId: req.usuario.id,
@@ -3048,7 +3048,7 @@ app.post('/api/inventario/movimientos', requireAuth, async (req, res) => {
 // Una instalación reserva/consume el material que ya tiene programado —
 // items: [{productoId, cantidad}]. Cruza pertenencia vía obtenerInstalacion
 // (ya filtra por company_id) antes de tocar cualquier movimiento.
-app.post('/api/instalaciones/:id/inventario/reservar', requireAuth, async (req, res) => {
+app.post('/api/instalaciones/:id/inventario/reservar', requireAuth, requirePermiso('inventario', 'crear'), async (req, res) => {
   try {
     const instalacion = await obtenerInstalacion(req.supabase, req.usuario.company_id, req.params.id);
     if (!instalacion) return res.status(404).json({ error: 'Instalación no encontrada' });
@@ -3059,7 +3059,7 @@ app.post('/api/instalaciones/:id/inventario/reservar', requireAuth, async (req, 
   }
 });
 
-app.post('/api/instalaciones/:id/inventario/consumir', requireAuth, async (req, res) => {
+app.post('/api/instalaciones/:id/inventario/consumir', requireAuth, requirePermiso('inventario', 'crear'), async (req, res) => {
   try {
     const instalacion = await obtenerInstalacion(req.supabase, req.usuario.company_id, req.params.id);
     if (!instalacion) return res.status(404).json({ error: 'Instalación no encontrada' });
@@ -3074,7 +3074,14 @@ app.post('/api/instalaciones/:id/inventario/consumir', requireAuth, async (req, 
 // Crear/editar/recibir gateadas a soloGerencial (compromete dinero/inventario
 // real) — las lecturas quedan abiertas a cualquier usuario de la empresa,
 // mismo criterio que el resto del bloque operativo.
-app.get('/api/proveedores', requireAuth, async (req, res) => {
+// Roles departamentales (Alina, 2026-09-29, autorizado tras
+// NORT_ENERGY_AUDIT_V1.md/NORT_ENERGY_P1_ENTREGA.md) — soloGerencial()
+// reemplazado por requirePermiso('compras', accion): el bypass gerencial
+// sigue intacto (requirePermiso ya lo incluye), pero ahora una empresa
+// puede conceder 'almacen'/'administracion' vía roles_permisos sin que el
+// código lo bloquee de antemano. Ver módulo compras completo en
+// modules/permisos.js.
+app.get('/api/proveedores', requireAuth, requirePermiso('compras', 'ver'), async (req, res) => {
   try {
     res.json(await listarProveedores(req.supabase, req.usuario.company_id, { soloActivos: req.query.soloActivos !== 'false' }));
   } catch (e) {
@@ -3082,7 +3089,7 @@ app.get('/api/proveedores', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/proveedores', requireAuth, soloGerencial, async (req, res) => {
+app.post('/api/proveedores', requireAuth, requirePermiso('compras', 'crear'), async (req, res) => {
   try {
     const proveedor = await crearProveedor(req.supabase, {
       companyId: req.usuario.company_id, nombre: req.body?.nombre, contactoNombre: req.body?.contactoNombre,
@@ -3094,7 +3101,7 @@ app.post('/api/proveedores', requireAuth, soloGerencial, async (req, res) => {
   }
 });
 
-app.patch('/api/proveedores/:id', requireAuth, soloGerencial, async (req, res) => {
+app.patch('/api/proveedores/:id', requireAuth, requirePermiso('compras', 'editar'), async (req, res) => {
   try {
     res.json(await actualizarProveedor(req.supabase, { companyId: req.usuario.company_id, proveedorId: req.params.id, cambios: req.body || {} }));
   } catch (e) {
@@ -3102,7 +3109,7 @@ app.patch('/api/proveedores/:id', requireAuth, soloGerencial, async (req, res) =
   }
 });
 
-app.get('/api/ordenes-compra', requireAuth, async (req, res) => {
+app.get('/api/ordenes-compra', requireAuth, requirePermiso('compras', 'ver'), async (req, res) => {
   try {
     res.json(await listarOrdenesCompra(req.supabase, req.usuario.company_id, { estado: req.query.estado, proveedorId: req.query.proveedorId }));
   } catch (e) {
@@ -3110,7 +3117,7 @@ app.get('/api/ordenes-compra', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/ordenes-compra/:id', requireAuth, async (req, res) => {
+app.get('/api/ordenes-compra/:id', requireAuth, requirePermiso('compras', 'ver'), async (req, res) => {
   try {
     const orden = await obtenerOrdenCompra(req.supabase, req.usuario.company_id, req.params.id);
     if (!orden) return res.status(404).json({ error: 'Orden de compra no encontrada' });
@@ -3120,7 +3127,7 @@ app.get('/api/ordenes-compra/:id', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/ordenes-compra', requireAuth, soloGerencial, async (req, res) => {
+app.post('/api/ordenes-compra', requireAuth, requirePermiso('compras', 'crear'), async (req, res) => {
   try {
     const orden = await crearOrdenCompra(req.supabase, {
       companyId: req.usuario.company_id, proveedorId: req.body?.proveedorId, sucursalId: req.body?.sucursalId, proyectoId: req.body?.proyectoId,
@@ -3133,7 +3140,7 @@ app.post('/api/ordenes-compra', requireAuth, soloGerencial, async (req, res) => 
   }
 });
 
-app.patch('/api/ordenes-compra/:id', requireAuth, soloGerencial, async (req, res) => {
+app.patch('/api/ordenes-compra/:id', requireAuth, requirePermiso('compras', 'editar'), async (req, res) => {
   try {
     res.json(await actualizarOrdenCompra(req.supabase, { companyId: req.usuario.company_id, ordenId: req.params.id, cambios: req.body || {} }));
   } catch (e) {
@@ -3141,7 +3148,7 @@ app.patch('/api/ordenes-compra/:id', requireAuth, soloGerencial, async (req, res
   }
 });
 
-app.patch('/api/ordenes-compra/:id/estado', requireAuth, soloGerencial, async (req, res) => {
+app.patch('/api/ordenes-compra/:id/estado', requireAuth, requirePermiso('compras', 'editar'), async (req, res) => {
   try {
     res.json(await actualizarEstadoOrdenCompra(req.supabase, { companyId: req.usuario.company_id, ordenId: req.params.id, estado: req.body?.estado, usuarioId: req.usuario.id }));
   } catch (e) {
@@ -3149,7 +3156,10 @@ app.patch('/api/ordenes-compra/:id/estado', requireAuth, soloGerencial, async (r
   }
 });
 
-app.post('/api/ordenes-compra/:id/recibir', requireAuth, soloGerencial, async (req, res) => {
+// 'recibir' es la acción de mayor impacto (genera inventario real) —
+// mapeada a 'aprobar', no 'crear' (mismo criterio que la matriz de la
+// auditoría: Administración/Cobranza puede crear Y aprobar compras).
+app.post('/api/ordenes-compra/:id/recibir', requireAuth, requirePermiso('compras', 'aprobar'), async (req, res) => {
   try {
     res.json(await recibirOrdenCompra(req.supabase, { companyId: req.usuario.company_id, ordenId: req.params.id, usuarioId: req.usuario.id }));
   } catch (e) {
