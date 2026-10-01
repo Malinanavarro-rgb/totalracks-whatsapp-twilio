@@ -68,6 +68,23 @@ async function tienePermiso(supabase, { companyId, rol, modulo, accion }) {
   return !(await _empresaTieneMatrizConfigurada(supabase, companyId));
 }
 
+/**
+ * Módulos (de los 12 de MODULOS_PERMISOS) que `rol` puede VER en `companyId`
+ * — para que el frontend (Shell.jsx) oculte del menú lo que el backend
+ * negaría con 403, nunca al revés. Mismo criterio de fallback que
+ * tienePermiso(): gerencial o empresa sin matriz configurada → todos los
+ * módulos (cero restricción, igual que siempre); con matriz configurada,
+ * solo los que tengan una fila con ver=true.
+ */
+async function modulosVisibles(supabase, { companyId, rol }) {
+  if (esGerencial(rol)) return [...MODULOS_PERMISOS];
+  if (!(await _empresaTieneMatrizConfigurada(supabase, companyId))) return [...MODULOS_PERMISOS];
+
+  const { data: filas } = await supabase
+    .from('roles_permisos').select('modulo, ver').eq('company_id', companyId).eq('rol', rol);
+  return (filas || []).filter((f) => f.ver === true).map((f) => f.modulo);
+}
+
 /** El alcance configurado para (rol, módulo) — 'todos' si no hay matriz configurada en la empresa (mismo criterio de fallback que tienePermiso). */
 async function resolverAlcance(supabase, { companyId, rol, modulo }) {
   if (esGerencial(rol)) return 'todos';
@@ -97,5 +114,5 @@ function requirePermiso(modulo, accion) {
 
 module.exports = {
   ROLES_GERENCIALES, MODULOS_PERMISOS, ACCIONES_PERMISOS, ALCANCES_PERMISOS,
-  esGerencial, tienePermiso, resolverAlcance, requirePermiso,
+  esGerencial, tienePermiso, resolverAlcance, requirePermiso, modulosVisibles,
 };

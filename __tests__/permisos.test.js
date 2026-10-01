@@ -2,7 +2,7 @@
 
 const {
   ROLES_GERENCIALES, MODULOS_PERMISOS, ACCIONES_PERMISOS, ALCANCES_PERMISOS,
-  esGerencial, tienePermiso, resolverAlcance, requirePermiso,
+  esGerencial, tienePermiso, resolverAlcance, requirePermiso, modulosVisibles,
 } = require('../modules/permisos');
 
 function crearBuilder(resultado) {
@@ -21,7 +21,9 @@ function crearMockDb(filas = []) {
     from: jest.fn(() => {
       // La primera llamada real (select roles_permisos por rol+modulo) vs.
       // la de "empresaTieneMatrizConfigurada" (select roles_permisos limit 1)
-      // usan la MISMA tabla — se distinguen por los filtros aplicados.
+      // vs. modulosVisibles (select modulo,ver por rol, sin maybeSingle,
+      // awaited directo como lista) usan la MISMA tabla — se distinguen por
+      // los filtros aplicados y el método terminal.
       const filtros = {};
       const builder = {
         select: jest.fn(() => builder),
@@ -36,6 +38,12 @@ function crearMockDb(filas = []) {
           const cualquiera = filas.find((f) => f.company_id === filtros.company_id);
           return Promise.resolve({ data: cualquiera || null, error: null });
         }),
+        // Thenable: modulosVisibles hace `await supabase.from(...).select(...).eq(...).eq(...)`
+        // sin maybeSingle — awaited como lista, filtrada por company_id+rol.
+        then: (resolve) => {
+          const coincide = filas.filter((f) => f.company_id === filtros.company_id && f.rol === filtros.rol);
+          return Promise.resolve({ data: coincide, error: null }).then(resolve);
+        },
       };
       return builder;
     }),
@@ -135,6 +143,42 @@ describe('resolverAlcance()', () => {
   test('con matriz configurada pero SIN fila para esta combinación → "propios" (default seguro, nunca "todos" implícito)', async () => {
     const db = crearMockDb([{ company_id: COMPANY_A, rol: 'ventas', modulo: 'cotizaciones', alcance: 'propios' }]);
     expect(await resolverAlcance(db, { companyId: COMPANY_A, rol: 'almacen', modulo: 'inventario' })).toBe('propios');
+  });
+});
+
+describe('modulosVisibles() — para filtrar el menú en Shell.jsx', () => {
+  test('gerencial → todos los MODULOS_PERMISOS, sin consultar la base', async () => {
+    const db = crearMockDb();
+    expect(await modulosVisibles(db, { companyId: COMPANY_A, rol: 'owner' })).toEqual(MODULOS_PERMISOS);
+    expect(db.from).not.toHaveBeenCalled();
+  });
+
+  test('empresa sin matriz configurada → todos los MODULOS_PERMISOS (cero restricción, igual que siempre)', async () => {
+    const db = crearMockDb([]);
+    expect(await modulosVisibles(db, { companyId: COMPANY_A, rol: 'ventas' })).toEqual(MODULOS_PERMISOS);
+  });
+
+  test('empresa con matriz configurada → solo los módulos con ver=true para ese rol', async () => {
+    const db = crearMockDb([
+      { company_id: COMPANY_A, rol: 'ventas', modulo: 'crm', ver: true },
+      { company_id: COMPANY_A, rol: 'ventas', modulo: 'cotizaciones', ver: true },
+      { company_id: COMPANY_A, rol: 'ventas', modulo: 'tickets', ver: true },
+      { company_id: COMPANY_A, rol: 'almacen', modulo: 'inventario', ver: true },
+    ]);
+    expect(await modulosVisibles(db, { companyId: COMPANY_A, rol: 'ventas' })).toEqual(['crm', 'cotizaciones', 'tickets']);
+  });
+
+  test('con matriz configurada, filas con ver=false se excluyen (nunca se listan como visibles)', async () => {
+    const db = crearMockDb([
+      { company_id: COMPANY_A, rol: 'instalaciones', modulo: 'proyectos', ver: true },
+      { company_id: COMPANY_A, rol: 'instalaciones', modulo: 'cobranza', ver: false },
+    ]);
+    expect(await modulosVisibles(db, { companyId: COMPANY_A, rol: 'instalaciones' })).toEqual(['proyectos']);
+  });
+
+  test('con matriz configurada pero el rol no tiene NINGUNA fila → arreglo vacío (menú vacío de los módulos gateados, nunca "todos" implícito)', async () => {
+    const db = crearMockDb([{ company_id: COMPANY_A, rol: 'ventas', modulo: 'crm', ver: true }]);
+    expect(await modulosVisibles(db, { companyId: COMPANY_A, rol: 'cfe' })).toEqual([]);
   });
 });
 

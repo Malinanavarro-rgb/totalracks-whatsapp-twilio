@@ -48,12 +48,19 @@ function Icono({ nombre }) {
 // Los 7 módulos de la Plataforma SaaS (docs/roadmap — FASE 5). Solo
 // "Centro de Operaciones" está habilitado en Fase 1 — el resto se muestra
 // para no rediseñar la navegación en cada fase futura.
+//
+// `modulo` (opcional): nombre exacto en MODULOS_PERMISOS (modules/permisos.js)
+// — si está presente, el link se oculta cuando sesion.empresaActiva.permisos_modulos
+// no lo incluye (roles departamentales, migración 124). Sin este campo, el
+// link nunca se filtra por rol (ej. Configuración se deja fuera a propósito:
+// su backend todavía no está gateado por requirePermiso, así que ocultarlo
+// sería una restricción nueva que el 403 del servidor no respalda).
 const MODULOS = [
   { ruta: '/operaciones',   etiqueta: 'Centro de Operaciones', icono: 'inicio',         habilitado: true },
   { ruta: '/conversaciones', etiqueta: 'Conversaciones',        icono: 'conversaciones', habilitado: true },
   { ruta: '/inbox',          etiqueta: 'Inbox',                 icono: 'inbox',          habilitado: true },
   { ruta: '/agenda',         etiqueta: 'Agenda TARA',           icono: 'agenda',         habilitado: true },
-  { ruta: '/crm',            etiqueta: 'Ventas',                icono: 'ventas',         habilitado: true },
+  { ruta: '/crm',            etiqueta: 'Ventas',                icono: 'ventas',         habilitado: true, modulo: 'crm' },
   { ruta: '/centro-conocimiento', etiqueta: 'Centro de Conocimiento', icono: 'centroConocimiento', habilitado: true },
   { ruta: '/panel-accion',   etiqueta: 'Panel de Acción',       icono: 'panelAccion',    habilitado: true, soloGerencial: true },
   { ruta: '/configuracion',  etiqueta: 'Configuración',         icono: 'configuracion',  habilitado: true },
@@ -94,7 +101,13 @@ export default function Shell() {
   const { sesion, cerrarSesion } = useAuth();
   const location = useLocation();
   const esGerencial = ROLES_GERENCIALES.includes(sesion?.empresaActiva?.rol);
-  const modulos = modulosParaEmpresa(sesion?.empresaActiva).filter(m => !m.soloGerencial || esGerencial);
+  // Roles departamentales (migración 124): permisos_modulos ausente (sesión
+  // vieja antes de este cambio, o empresa sin matriz configurada) → sin
+  // filtro, igual que siempre. Presente → oculta lo que el backend negaría.
+  const permisosModulos = sesion?.empresaActiva?.permisos_modulos;
+  const modulos = modulosParaEmpresa(sesion?.empresaActiva)
+    .filter(m => !m.soloGerencial || esGerencial)
+    .filter(m => !m.modulo || !permisosModulos || permisosModulos.includes(m.modulo));
 
   // Sidebar responsive (móvil/PWA): drawer off-canvas por debajo de 860px
   // (ver App.css). Cerrado por defecto siempre — se abre solo con el botón

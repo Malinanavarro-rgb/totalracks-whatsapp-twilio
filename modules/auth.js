@@ -16,6 +16,7 @@
 'use strict';
 
 const { crearClienteConSesion } = require('./clients');
+const { modulosVisibles } = require('./permisos');
 
 class ErrorAuth extends Error {
   constructor(message, status) {
@@ -50,7 +51,15 @@ async function obtenerEmpresasDeUsuario(supabase, usuarioId) {
     uiConfigPorSlug = Object.fromEntries((plantillas || []).map(p => [p.slug, p.ui_config || {}]));
   }
 
-  return data.map(fila => ({
+  // Roles departamentales (migración 124): qué módulos puede VER cada rol,
+  // para que Shell.jsx oculte del menú lo que el backend negaría con 403.
+  // Se resuelve aquí (una sola vez, con el mismo criterio de fallback de
+  // permisos.js) para no duplicar esa lógica en el frontend.
+  const permisosPorFila = await Promise.all(
+    data.map(fila => modulosVisibles(supabase, { companyId: fila.company_id, rol: fila.rol }))
+  );
+
+  return data.map((fila, i) => ({
     company_id: fila.company_id,
     nombre: fila.companies?.nombre || null,
     rol: fila.rol,
@@ -61,6 +70,7 @@ async function obtenerEmpresasDeUsuario(supabase, usuarioId) {
     ui_config: { ...(uiConfigPorSlug[fila.companies?.industria_slug] || {}), ...(fila.companies?.nav_labels || {}) },
     onboarding_completado: fila.companies?.onboarding_completado ?? true,
     es_demo: fila.companies?.es_demo || false,
+    permisos_modulos: permisosPorFila[i],
   }));
 }
 

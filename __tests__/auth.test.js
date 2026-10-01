@@ -12,6 +12,7 @@ const {
   iniciarSesion, obtenerEmpresasDeUsuario, resolverSesion,
   solicitarRecuperacion, restablecerPassword, ErrorAuth,
 } = require('../modules/auth');
+const { MODULOS_PERMISOS } = require('../modules/permisos');
 
 // ─── Mock Supabase (thenable, mismo patrón que scheduling-engine.test.js) ─────
 
@@ -21,12 +22,18 @@ function crearBuilder(resultado = { data: null, error: null }) {
     eq:          jest.fn().mockReturnThis(),
     in:          jest.fn().mockReturnThis(),
     order:       jest.fn().mockReturnThis(),
+    limit:       jest.fn().mockReturnThis(),
     maybeSingle: jest.fn().mockResolvedValue(resultado),
     then: (resolve) => resolve(resultado),
   };
   return builder;
 }
 
+// `roles_permisos` (modulosVisibles, llamado una vez por empresa desde
+// obtenerEmpresasDeUsuario) se resuelve aparte del arreglo fromResults
+// secuencial — siempre "sin matriz configurada" (fallback: todos los
+// MODULOS_PERMISOS visibles), para no desalinear los índices de los demás
+// mocks (usuarios_empresas, plantillas_industria) que estos tests ya usan.
 function crearMockSupabase({ signInResult, getUserResult, fromResults = [] } = {}) {
   let idx = 0;
   const builders = [];
@@ -39,7 +46,8 @@ function crearMockSupabase({ signInResult, getUserResult, fromResults = [] } = {
         getUserResult ?? { data: null, error: { message: 'invalid token' } }
       ),
     },
-    from: jest.fn(() => {
+    from: jest.fn((tabla) => {
+      if (tabla === 'roles_permisos') return crearBuilder({ data: [], error: null });
       const b = crearBuilder(fromResults[idx++] ?? { data: null, error: null });
       builders.push(b);
       return b;
@@ -102,6 +110,7 @@ describe('auth', () => {
       expect(resultado.empresaActiva).toEqual({
         company_id: COMPANY_A, nombre: 'Total Racks', rol: 'owner',
         logo_url: null, color_acento: null, industria_slug: null, nav_labels: null, ui_config: {}, onboarding_completado: true, es_demo: false,
+        permisos_modulos: MODULOS_PERMISOS,
       });
       expect(resultado.empresas).toHaveLength(1);
     });
@@ -146,6 +155,7 @@ describe('auth', () => {
       expect(empresas).toEqual([{
         company_id: COMPANY_A, nombre: 'Total Racks', rol: 'supervisor',
         logo_url: null, color_acento: null, industria_slug: null, nav_labels: null, ui_config: {}, onboarding_completado: true, es_demo: false,
+        permisos_modulos: MODULOS_PERMISOS,
       }]);
     });
 
@@ -219,7 +229,34 @@ describe('auth', () => {
       const empresas = await obtenerEmpresasDeUsuario(supabase, USUARIO_ID);
 
       expect(empresas[0].ui_config).toEqual({});
-      expect(supabase.from).toHaveBeenCalledTimes(1); // solo usuarios_empresas, nunca plantillas_industria
+      expect(supabase.from).not.toHaveBeenCalledWith('plantillas_industria');
+    });
+
+    test('roles departamentales (migración 124): con matriz configurada, permisos_modulos trae solo lo que el rol puede ver', async () => {
+      const supabase = crearMockSupabase({
+        fromResults: [{
+          data: [{ company_id: COMPANY_A, rol: 'ventas', created_at: '2026-01-01', companies: { nombre: 'Nort Energy' } }],
+          error: null,
+        }],
+      });
+      // Sobrescribe el mock genérico de roles_permisos (que siempre dice "sin
+      // matriz") para simular una empresa que SÍ configuró la matriz.
+      supabase.from = jest.fn((tabla) => {
+        if (tabla === 'roles_permisos') {
+          return crearBuilder({
+            data: [{ company_id: COMPANY_A, rol: 'ventas', modulo: 'crm', ver: true }],
+            error: null,
+          });
+        }
+        return crearBuilder({
+          data: [{ company_id: COMPANY_A, rol: 'ventas', created_at: '2026-01-01', companies: { nombre: 'Nort Energy' } }],
+          error: null,
+        });
+      });
+
+      const empresas = await obtenerEmpresasDeUsuario(supabase, USUARIO_ID);
+
+      expect(empresas[0].permisos_modulos).toEqual(['crm']);
     });
 
     test('devuelve arreglo vacío si la consulta falla', async () => {
