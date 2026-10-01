@@ -1986,7 +1986,7 @@ app.get('/api/config/personalidad', requireAuth, async (req, res) => {
   }
 });
 
-app.patch('/api/config/personalidad', requireAuth, soloGerencial, async (req, res) => {
+app.patch('/api/config/personalidad', requireAuth, requirePermiso('configuracion', 'editar'), async (req, res) => {
   try {
     res.json(await actualizarPersonalidad(req.supabase, req.usuario.company_id, req.body));
   } catch (e) {
@@ -2002,7 +2002,7 @@ app.get('/api/config/knowledge-base', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/config/knowledge-base', requireAuth, soloGerencial, async (req, res) => {
+app.post('/api/config/knowledge-base', requireAuth, requirePermiso('configuracion', 'crear'), async (req, res) => {
   try {
     res.status(201).json(await crearKnowledgeBase(req.supabase, req.usuario.company_id, req.body));
   } catch (e) {
@@ -2010,7 +2010,7 @@ app.post('/api/config/knowledge-base', requireAuth, soloGerencial, async (req, r
   }
 });
 
-app.patch('/api/config/knowledge-base/:id', requireAuth, soloGerencial, async (req, res) => {
+app.patch('/api/config/knowledge-base/:id', requireAuth, requirePermiso('configuracion', 'editar'), async (req, res) => {
   try {
     res.json(await actualizarKnowledgeBase(req.supabase, req.usuario.company_id, req.params.id, req.body));
   } catch (e) {
@@ -2018,7 +2018,7 @@ app.patch('/api/config/knowledge-base/:id', requireAuth, soloGerencial, async (r
   }
 });
 
-app.delete('/api/config/knowledge-base/:id', requireAuth, soloGerencial, async (req, res) => {
+app.delete('/api/config/knowledge-base/:id', requireAuth, requirePermiso('configuracion', 'eliminar'), async (req, res) => {
   try {
     await eliminarKnowledgeBase(req.supabase, req.usuario.company_id, req.params.id);
     res.status(204).send();
@@ -2047,7 +2047,7 @@ app.get('/api/config/horarios', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/config/horarios', requireAuth, soloGerencial, async (req, res) => {
+app.post('/api/config/horarios', requireAuth, requirePermiso('configuracion', 'crear'), async (req, res) => {
   try {
     res.status(201).json(await crearHorario(req.supabase, req.usuario.company_id, req.body));
   } catch (e) {
@@ -2055,7 +2055,7 @@ app.post('/api/config/horarios', requireAuth, soloGerencial, async (req, res) =>
   }
 });
 
-app.patch('/api/config/horarios/:id', requireAuth, soloGerencial, async (req, res) => {
+app.patch('/api/config/horarios/:id', requireAuth, requirePermiso('configuracion', 'editar'), async (req, res) => {
   try {
     res.json(await actualizarHorario(req.supabase, req.usuario.company_id, req.params.id, req.body));
   } catch (e) {
@@ -2063,7 +2063,7 @@ app.patch('/api/config/horarios/:id', requireAuth, soloGerencial, async (req, re
   }
 });
 
-app.delete('/api/config/horarios/:id', requireAuth, soloGerencial, async (req, res) => {
+app.delete('/api/config/horarios/:id', requireAuth, requirePermiso('configuracion', 'eliminar'), async (req, res) => {
   try {
     await eliminarHorario(req.supabase, req.usuario.company_id, req.params.id);
     res.status(204).send();
@@ -2080,7 +2080,7 @@ app.get('/api/config/horario-atencion', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/config/horario-atencion', requireAuth, soloGerencial, async (req, res) => {
+app.post('/api/config/horario-atencion', requireAuth, requirePermiso('configuracion', 'crear'), async (req, res) => {
   try {
     res.status(201).json(await guardarHorarioAtencionBot(req.supabase, req.usuario.company_id, req.body));
   } catch (e) {
@@ -2088,7 +2088,7 @@ app.post('/api/config/horario-atencion', requireAuth, soloGerencial, async (req,
   }
 });
 
-app.delete('/api/config/horario-atencion/:id', requireAuth, soloGerencial, async (req, res) => {
+app.delete('/api/config/horario-atencion/:id', requireAuth, requirePermiso('configuracion', 'eliminar'), async (req, res) => {
   try {
     await eliminarHorarioAtencionBot(req.supabase, req.usuario.company_id, req.params.id);
     res.status(204).send();
@@ -2105,7 +2105,7 @@ app.get('/api/config/servicios', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/config/servicios', requireAuth, soloGerencial, async (req, res) => {
+app.post('/api/config/servicios', requireAuth, requirePermiso('configuracion', 'crear'), async (req, res) => {
   try {
     res.status(201).json(await crearServicio(req.supabase, req.usuario.company_id, req.body));
   } catch (e) {
@@ -2113,7 +2113,7 @@ app.post('/api/config/servicios', requireAuth, soloGerencial, async (req, res) =
   }
 });
 
-app.patch('/api/config/servicios/:id', requireAuth, soloGerencial, async (req, res) => {
+app.patch('/api/config/servicios/:id', requireAuth, requirePermiso('configuracion', 'editar'), async (req, res) => {
   try {
     res.json(await actualizarServicio(req.supabase, req.usuario.company_id, req.params.id, req.body));
   } catch (e) {
@@ -2121,7 +2121,7 @@ app.patch('/api/config/servicios/:id', requireAuth, soloGerencial, async (req, r
   }
 });
 
-app.delete('/api/config/servicios/:id', requireAuth, soloGerencial, async (req, res) => {
+app.delete('/api/config/servicios/:id', requireAuth, requirePermiso('configuracion', 'eliminar'), async (req, res) => {
   try {
     await eliminarServicio(req.supabase, req.usuario.company_id, req.params.id);
     res.status(204).send();
@@ -2143,7 +2143,7 @@ app.get('/api/config/asesores', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/config/asesores', requireAuth, soloGerencial, async (req, res) => {
+app.post('/api/config/asesores', requireAuth, requirePermiso('configuracion', 'crear'), async (req, res) => {
   try {
     res.status(201).json(await crearAsesor(req.supabase, req.usuario.company_id, req.body));
   } catch (e) {
@@ -2151,7 +2151,7 @@ app.post('/api/config/asesores', requireAuth, soloGerencial, async (req, res) =>
   }
 });
 
-app.patch('/api/config/asesores/:id', requireAuth, soloGerencial, async (req, res) => {
+app.patch('/api/config/asesores/:id', requireAuth, requirePermiso('configuracion', 'editar'), async (req, res) => {
   try {
     res.json(await actualizarAsesor(req.supabase, req.usuario.company_id, req.params.id, req.body));
   } catch (e) {
@@ -2159,7 +2159,7 @@ app.patch('/api/config/asesores/:id', requireAuth, soloGerencial, async (req, re
   }
 });
 
-app.delete('/api/config/asesores/:id', requireAuth, soloGerencial, async (req, res) => {
+app.delete('/api/config/asesores/:id', requireAuth, requirePermiso('configuracion', 'eliminar'), async (req, res) => {
   try {
     await eliminarAsesor(req.supabase, req.usuario.company_id, req.params.id);
     res.status(204).send();
@@ -2176,7 +2176,7 @@ app.get('/api/config/pipeline-etapas', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/config/pipeline-etapas', requireAuth, soloGerencial, async (req, res) => {
+app.post('/api/config/pipeline-etapas', requireAuth, requirePermiso('configuracion', 'crear'), async (req, res) => {
   try {
     res.status(201).json(await crearPipelineEtapa(req.supabase, req.usuario.company_id, req.body));
   } catch (e) {
@@ -2184,7 +2184,7 @@ app.post('/api/config/pipeline-etapas', requireAuth, soloGerencial, async (req, 
   }
 });
 
-app.patch('/api/config/pipeline-etapas/:id', requireAuth, soloGerencial, async (req, res) => {
+app.patch('/api/config/pipeline-etapas/:id', requireAuth, requirePermiso('configuracion', 'editar'), async (req, res) => {
   try {
     res.json(await actualizarPipelineEtapa(req.supabase, req.usuario.company_id, req.params.id, req.body));
   } catch (e) {
@@ -2192,7 +2192,7 @@ app.patch('/api/config/pipeline-etapas/:id', requireAuth, soloGerencial, async (
   }
 });
 
-app.delete('/api/config/pipeline-etapas/:id', requireAuth, soloGerencial, async (req, res) => {
+app.delete('/api/config/pipeline-etapas/:id', requireAuth, requirePermiso('configuracion', 'eliminar'), async (req, res) => {
   try {
     await eliminarPipelineEtapa(req.supabase, req.usuario.company_id, req.params.id);
     res.status(204).send();
@@ -2215,7 +2215,7 @@ app.get('/api/config/canales', requireAuth, async (req, res) => {
 // El dueño de la empresa sigue teniendo que sacar estos valores de Meta
 // Business Manager a mano (sin Embedded Signup todavía) — esto solo evita
 // que Alina tenga que correr el script por cada empresa.
-app.post('/api/config/canales/whatsapp-meta', requireAuth, soloGerencial, async (req, res) => {
+app.post('/api/config/canales/whatsapp-meta', requireAuth, requirePermiso('configuracion', 'crear'), async (req, res) => {
   try {
     const { whatsappBusinessAccountId, phoneNumberId, metaBusinessId, accessToken } = req.body || {};
     if (!whatsappBusinessAccountId || !phoneNumberId || !accessToken) {
@@ -2238,7 +2238,7 @@ app.post('/api/config/canales/whatsapp-meta', requireAuth, soloGerencial, async 
 // expuesto al frontend): cambiar ese code por un token de larga duración,
 // suscribir el webhook compartido de TARA a ese WABA, y guardar las
 // credenciales con el mismo conectarWhatsAppMeta() que ya usa el alta manual.
-app.post('/api/config/canales/whatsapp-meta/embedded-signup', requireAuth, soloGerencial, async (req, res) => {
+app.post('/api/config/canales/whatsapp-meta/embedded-signup', requireAuth, requirePermiso('configuracion', 'crear'), async (req, res) => {
   try {
     const { code, wabaId, phoneNumberId, metaBusinessId } = req.body || {};
     if (!code || !wabaId || !phoneNumberId) {
@@ -2263,7 +2263,7 @@ app.post('/api/config/canales/whatsapp-meta/embedded-signup', requireAuth, soloG
 // Alta sin depender de crear cuentas manualmente en Supabase Dashboard.
 // Lógica real en modules/invitaciones.js.
 
-app.get('/api/config/usuarios', requireAuth, soloGerencial, async (req, res) => {
+app.get('/api/config/usuarios', requireAuth, requirePermiso('configuracion', 'ver'), async (req, res) => {
   try {
     const [miembros, invitacionesPendientes] = await Promise.all([
       listarMiembros(req.supabase, req.usuario.company_id),
@@ -2275,7 +2275,7 @@ app.get('/api/config/usuarios', requireAuth, soloGerencial, async (req, res) => 
   }
 });
 
-app.post('/api/config/usuarios/invitar', requireAuth, soloGerencial, async (req, res) => {
+app.post('/api/config/usuarios/invitar', requireAuth, requirePermiso('configuracion', 'crear'), async (req, res) => {
   try {
     const { nombre, email, rol } = req.body;
     if (!nombre || !email) return res.status(400).json({ error: 'nombre y email requeridos' });
@@ -2287,7 +2287,7 @@ app.post('/api/config/usuarios/invitar', requireAuth, soloGerencial, async (req,
   }
 });
 
-app.patch('/api/config/usuarios/:usuarioId', requireAuth, soloGerencial, async (req, res) => {
+app.patch('/api/config/usuarios/:usuarioId', requireAuth, requirePermiso('configuracion', 'editar'), async (req, res) => {
   try {
     const { nombre, ...resto } = req.body;
     let resultado;
@@ -2315,7 +2315,7 @@ app.get('/api/config/workflows', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/config/workflows', requireAuth, soloGerencial, async (req, res) => {
+app.post('/api/config/workflows', requireAuth, requirePermiso('configuracion', 'crear'), async (req, res) => {
   try {
     res.status(201).json(await crearWorkflow(req.supabase, req.usuario.company_id, req.body));
   } catch (e) {
@@ -2323,7 +2323,7 @@ app.post('/api/config/workflows', requireAuth, soloGerencial, async (req, res) =
   }
 });
 
-app.patch('/api/config/workflows/:id', requireAuth, soloGerencial, async (req, res) => {
+app.patch('/api/config/workflows/:id', requireAuth, requirePermiso('configuracion', 'editar'), async (req, res) => {
   try {
     res.json(await actualizarWorkflow(req.supabase, req.usuario.company_id, req.params.id, req.body));
   } catch (e) {
@@ -2331,7 +2331,7 @@ app.patch('/api/config/workflows/:id', requireAuth, soloGerencial, async (req, r
   }
 });
 
-app.delete('/api/config/workflows/:id', requireAuth, soloGerencial, async (req, res) => {
+app.delete('/api/config/workflows/:id', requireAuth, requirePermiso('configuracion', 'eliminar'), async (req, res) => {
   try {
     await eliminarWorkflow(req.supabase, req.usuario.company_id, req.params.id);
     res.status(204).send();
@@ -2348,7 +2348,7 @@ app.get('/api/config/workflows/:workflowId/nodos', requireAuth, async (req, res)
   }
 });
 
-app.post('/api/config/workflows/:workflowId/nodos', requireAuth, soloGerencial, async (req, res) => {
+app.post('/api/config/workflows/:workflowId/nodos', requireAuth, requirePermiso('configuracion', 'crear'), async (req, res) => {
   try {
     res.status(201).json(await crearNodo(req.supabase, req.usuario.company_id, req.params.workflowId, req.body));
   } catch (e) {
@@ -2356,7 +2356,7 @@ app.post('/api/config/workflows/:workflowId/nodos', requireAuth, soloGerencial, 
   }
 });
 
-app.patch('/api/config/nodos/:id', requireAuth, soloGerencial, async (req, res) => {
+app.patch('/api/config/nodos/:id', requireAuth, requirePermiso('configuracion', 'editar'), async (req, res) => {
   try {
     res.json(await actualizarNodo(req.supabase, req.usuario.company_id, req.params.id, req.body));
   } catch (e) {
@@ -2364,7 +2364,7 @@ app.patch('/api/config/nodos/:id', requireAuth, soloGerencial, async (req, res) 
   }
 });
 
-app.delete('/api/config/nodos/:id', requireAuth, soloGerencial, async (req, res) => {
+app.delete('/api/config/nodos/:id', requireAuth, requirePermiso('configuracion', 'eliminar'), async (req, res) => {
   try {
     await eliminarNodo(req.supabase, req.usuario.company_id, req.params.id);
     res.status(204).send();
