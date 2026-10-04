@@ -26,6 +26,7 @@ const { iniciarSesion, obtenerEmpresasDeUsuario, solicitarRecuperacion, restable
 const { registrarEmpresa, ErrorRegistro } = require('./modules/registro');
 const { crearRequireAuth }              = require('./modules/auth-middleware');
 const { obtenerMetricas }               = require('./modules/dashboard');
+const { generarManifestParaEmpresa }    = require('./modules/pwa');
 const {
   listarConversaciones, obtenerHistorial, tomarConversacion,
   regresarATara, enviarMensajeHumano, registrarMensajeEntranteHumano,
@@ -4304,6 +4305,21 @@ app.get('/api/status', (req, res) => res.json({
 // el mismo servicio Express — sin costo ni deploy adicional en Render.
 
 const FRONTEND_DIST = path.join(__dirname, 'frontend', 'dist');
+
+// PWA instalable con marca por empresa (Alina, 2026-10-04): intercepta ANTES
+// de express.static para que /manifest.webmanifest no sirva siempre el
+// archivo genérico que vite-plugin-pwa generó en build. Sin cookie de
+// empresa (visitante sin sesión) o empresa sin pwa_icon_url configurado →
+// mismo manifest genérico de siempre (modules/pwa.js, Motor Universal).
+app.get('/manifest.webmanifest', async (req, res) => {
+  try {
+    const manifest = await generarManifestParaEmpresa(supabaseServicio, req.cookies?.tara_company);
+    res.type('application/manifest+json').json(manifest);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.use(express.static(FRONTEND_DIST));
 
 app.get(/^(?!\/api|\/oauth|\/webhook|\/health|\/privacidad|\/terminos).*/, (req, res) => {
