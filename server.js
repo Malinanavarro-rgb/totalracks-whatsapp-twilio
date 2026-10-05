@@ -90,7 +90,7 @@ const {
   crearTicket, obtenerTicket, listarTickets, actualizarTicket, actualizarEstadoTicket, agregarComentarioTicket,
 } = require('./modules/tickets');
 const { aplicarDescuento: aplicarDescuentoCotizacion, autorizarDescuento: autorizarDescuentoCotizacion } = require('./modules/cotizacion-descuento');
-const { transcribirAudio, describirImagen } = require('./modules/adjuntos-ia');
+const { transcribirAudio, describirImagen, describirDocumento } = require('./modules/adjuntos-ia');
 const { procesarReciboCFE, extraerDatosReciboCFE, normalizarDatosRecibo } = require('./modules/recibo-cfe');
 const { esGerencial, requirePermiso } = require('./modules/permisos');
 const { crearSolicitud: crearSolicitudConocimiento, listarSolicitudes: listarSolicitudesConocimiento, responderSolicitud: responderSolicitudConocimiento, rechazarSolicitud: rechazarSolicitudConocimiento } = require('./modules/knowledge-requests');
@@ -402,6 +402,13 @@ async function procesarMensajeEntrante(message, enviar, proveedor = 'desconocido
             } else if (adjunto.tipo_contenido === 'imagen') {
               const descripcion = await describirImagen(openai, buffer, mimeType);
               if (descripcion) message.content = descripcion;
+            } else if (mimeType === 'application/pdf') {
+              // Documento genérico (Alina, 2026-10-05): no era un recibo CFE
+              // — se intenta leer su texto real (pdf-parse) y resumirlo. Un
+              // PDF escaneado sin capa de texto devuelve '' y se conserva el
+              // placeholder, igual que cualquier otro adjunto no interpretable.
+              const descripcionDoc = await describirDocumento(openai, buffer, mimeType);
+              if (descripcionDoc) message.content = descripcionDoc;
             }
           }
         } catch (e) {

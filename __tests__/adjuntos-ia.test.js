@@ -4,8 +4,17 @@ jest.mock('openai', () => ({
   toFile: jest.fn(async (buffer, filename, opts) => ({ __mockFile: true, buffer, filename, opts })),
 }));
 
+const mockGetText = jest.fn();
+const mockDestroy = jest.fn().mockResolvedValue();
+jest.mock('pdf-parse', () => ({
+  PDFParse: jest.fn().mockImplementation(() => ({
+    getText: mockGetText,
+    destroy: mockDestroy,
+  })),
+}));
+
 const { toFile } = require('openai');
-const { transcribirAudio, describirImagen } = require('../modules/adjuntos-ia');
+const { transcribirAudio, describirImagen, describirDocumento } = require('../modules/adjuntos-ia');
 
 function crearOpenAIMock({ transcripcion = 'hola quiero información', descripcion = 'Una playera azul con logo bordado.' } = {}) {
   return {
@@ -77,6 +86,66 @@ describe('adjuntos-ia', () => {
       const openaiClient = crearOpenAIMock();
       openaiClient.chat.completions.create.mockResolvedValue({ choices: [{ message: { content: '' } }] });
       const resultado = await describirImagen(openaiClient, Buffer.from('x'), 'image/png');
+      expect(resultado).toBe('');
+    });
+  });
+
+  describe('describirDocumento()', () => {
+    test('mimeType distinto de application/pdf → string vacío, nunca llama pdf-parse ni la IA', async () => {
+      const openaiClient = crearOpenAIMock();
+      const resultado = await describirDocumento(openaiClient, Buffer.from('x'), 'image/jpeg');
+      expect(resultado).toBe('');
+      expect(mockGetText).not.toHaveBeenCalled();
+      expect(openaiClient.chat.completions.create).not.toHaveBeenCalled();
+    });
+
+    test('PDF con texto legible → lo extrae con pdf-parse, lo resume con IA y envuelve en frase de contexto', async () => {
+      mockGetText.mockResolvedValue({ text: 'CONTRATO DE PRESTACIÓN DE SERVICIOS entre las partes...' });
+      const openaiClient = crearOpenAIMock({ descripcion: 'Un contrato de prestación de servicios entre dos partes.' });
+
+      const resultado = await describirDocumento(openaiClient, Buffer.from('pdf-binario'), 'application/pdf');
+
+      expect(mockDestroy).toHaveBeenCalled();
+      const llamada = openaiClient.chat.completions.create.mock.calls[0][0];
+      expect(llamada.model).toBe('gpt-4o-mini');
+      expect(llamada.messages[1].content).toBe('CONTRATO DE PRESTACIÓN DE SERVICIOS entre las partes...');
+      expect(resultado).toBe('La clienta envió un documento: Un contrato de prestación de servicios entre dos partes.');
+    });
+
+    test('PDF escaneado sin capa de texto (menos de 30 caracteres) → string vacío, nunca llama a la IA ni inventa contenido', async () => {
+      mockGetText.mockResolvedValue({ text: '  \n  ' });
+      const openaiClient = crearOpenAIMock();
+
+      const resultado = await describirDocumento(openaiClient, Buffer.from('pdf-escaneado'), 'application/pdf');
+
+      expect(resultado).toBe('');
+      expect(openaiClient.chat.completions.create).not.toHaveBeenCalled();
+    });
+
+    test('destruye el parser aunque getText() falle (nunca deja el recurso abierto)', async () => {
+      mockGetText.mockRejectedValue(new Error('PDF corrupto'));
+      const openaiClient = crearOpenAIMock();
+
+      await expect(describirDocumento(openaiClient, Buffer.from('x'), 'application/pdf')).rejects.toThrow('PDF corrupto');
+      expect(mockDestroy).toHaveBeenCalled();
+    });
+
+    test('texto muy largo se trunca a 8000 caracteres antes de mandarlo a la IA', async () => {
+      mockGetText.mockResolvedValue({ text: 'A'.repeat(10000) });
+      const openaiClient = crearOpenAIMock();
+
+      await describirDocumento(openaiClient, Buffer.from('x'), 'application/pdf');
+
+      const llamada = openaiClient.chat.completions.create.mock.calls[0][0];
+      expect(llamada.messages[1].content.length).toBe(8000);
+    });
+
+    test('respuesta vacía de la IA: devuelve string vacío', async () => {
+      mockGetText.mockResolvedValue({ text: 'texto legible suficiente para pasar el umbral' });
+      const openaiClient = crearOpenAIMock();
+      openaiClient.chat.completions.create.mockResolvedValue({ choices: [{ message: { content: '' } }] });
+
+      const resultado = await describirDocumento(openaiClient, Buffer.from('x'), 'application/pdf');
       expect(resultado).toBe('');
     });
   });
