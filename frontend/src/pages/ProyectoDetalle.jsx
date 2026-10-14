@@ -334,12 +334,17 @@ export default function ProyectoDetalle() {
     }
   }
 
-  // Subfase 2H (2026-09-28) — "Ver garantía": idempotente (crearGarantiaDesdeEquipo
-  // devuelve la existente si ya se había creado), así que un solo botón sirve
-  // tanto para crearla la primera vez como para verla después.
+  // Subfase 2H (2026-09-28) — "Ver garantía": un solo botón sirve tanto para
+  // verla después de creada como para crearla la primera vez. Corregido
+  // 2026-10-14 (re-auditoría post-permisos): antes llamaba directo a
+  // crearGarantiaDesdeEquipo (requiere permiso 'crear'), lo que bloqueaba con
+  // 403 a cualquier rol que solo necesitara VERLA (ya creada) y no tuviera
+  // permiso de crear garantías. Ahora intenta leerla primero (permiso 'ver',
+  // mucho más común) y solo crea si de verdad no existe todavía.
   async function verGarantiaDeEquipo(equipoId) {
     try {
-      const garantia = await api.crearGarantiaDesdeEquipo(equipoId);
+      const existente = await api.garantiaDeEquipo(equipoId);
+      const garantia = existente || await api.crearGarantiaDesdeEquipo(equipoId);
       navegar(`/garantias/${garantia.id}`);
     } catch (e2) {
       setErrorEquipos(e2.message);

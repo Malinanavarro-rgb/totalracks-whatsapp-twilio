@@ -3230,9 +3230,10 @@ app.patch('/api/tramites-cfe/:id/estado', requireAuth, requirePermiso('tramites_
   }
 });
 
-// Subfase 2H — garantías (2026-09-28, ver modules/garantias.js). Abierto a
-// cualquier usuario autenticado (no compromete dinero ni inventario, mismo
-// criterio que instalaciones/trámites CFE).
+// Subfase 2H — garantías (2026-09-28, ver modules/garantias.js). Gateado por
+// requirePermiso desde la matriz de roles departamentales (migración 124) —
+// el frontend (ProyectoDetalle.jsx) llama primero al GET de abajo ('ver',
+// mucho más amplio) y solo cae aquí ('crear') si de verdad no existe todavía.
 app.post('/api/equipos-instalados/:id/garantia', requireAuth, requirePermiso('garantias', 'crear'), async (req, res) => {
   try {
     const garantia = await crearGarantiaDesdeEquipo(req.supabase, { companyId: req.usuario.company_id, equipoInstaladoId: req.params.id, usuarioId: req.usuario.id });
