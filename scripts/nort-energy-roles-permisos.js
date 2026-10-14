@@ -13,14 +13,13 @@
  * hoy. Solo toma efecto de verdad para un usuario nuevo al que se le
  * asigne uno de estos 7 roles.
  *
- * IMPORTANTE — alcance de la aplicación real (ver NORT_ENERGY_P1_ENTREGA.md):
- * el middleware requirePermiso() SOLO está aplicado hoy en las rutas de
- * Compras e Inventario. Los demás módulos de esta matriz (proyectos,
- * cobranza, instalaciones, tramites_cfe, garantias, mantenimiento,
- * tickets, crm, cotizaciones, configuracion) quedan sembrados como DATO
- * listo, pero sin ningún endpoint que todavía los consulte — extenderlos
- * es agregar `requirePermiso(modulo, accion)` a cada ruta, sin tocar esta
- * tabla de nuevo.
+ * Actualizado 2026-10-14 (re-auditoría post-permisos): +3 filas de
+ * ventas (instalaciones/tramites_cfe/mantenimiento, solo lectura — antes no
+ * podía ver ninguna desde el expediente del proyecto) y +1 de postventa
+ * (instalaciones, solo lectura — sin esto no llegaba a "Equipos instalados"
+ * para acceder a garantías). requirePermiso() ya está aplicado en las 134
+ * rutas de todo el bloque operativo + CRM + Cotizaciones + Configuración
+ * (ver NORT_ENERGY_P1_ENTREGA.md) — esta tabla ya no es solo dato en espera.
  *
  * Uso: node scripts/nort-energy-roles-permisos.js
  */
@@ -45,6 +44,12 @@ const MATRIZ = [
   fila('ventas', 'proyectos', { V: true, alcance: 'propios' }),
   fila('ventas', 'cobranza', { V: true, alcance: 'propios' }),
   fila('ventas', 'tickets', { V: true, alcance: 'propios' }),
+  // Solo-lectura (re-auditoría 2026-10-14): ventas es quien responde al
+  // cliente "¿cuándo me instalan?"/"¿cómo va mi trámite CFE?" — antes no
+  // podía ver NINGUNA de las 2 cosas desde el expediente del proyecto.
+  fila('ventas', 'instalaciones', { V: true, alcance: 'propios' }),
+  fila('ventas', 'tramites_cfe', { V: true, alcance: 'propios' }),
+  fila('ventas', 'mantenimiento', { V: true, alcance: 'propios' }),
 
   // ── INGENIERÍA ──────────────────────────────────────────────────────────
   fila('ingenieria', 'crm', { V: true, alcance: 'todos' }),
@@ -78,6 +83,10 @@ const MATRIZ = [
 
   // ── POSTVENTA ────────────────────────────────────────────────────────────
   fila('postventa', 'proyectos', { V: true, alcance: 'todos' }),
+  // Solo-lectura (re-auditoría 2026-10-14): sin esto, postventa no podía ni
+  // siquiera VER la sección "Equipos instalados" del proyecto — el único
+  // camino para llegar a la garantía de un equipo específico desde ahí.
+  fila('postventa', 'instalaciones', { V: true, alcance: 'todos' }),
   fila('postventa', 'garantias', { V: true, C: true, E: true, alcance: 'todos' }),
   fila('postventa', 'mantenimiento', { V: true, C: true, E: true, alcance: 'todos' }),
   fila('postventa', 'tickets', { V: true, C: true, E: true, alcance: 'todos' }),
@@ -100,7 +109,6 @@ const MATRIZ = [
   }
 
   console.log(`✅ Nort Energy — matriz de roles departamentales sembrada: ${MATRIZ.length} filas (7 roles).`);
-  console.log('   Hoy solo se hace cumplir en Compras e Inventario — ver NORT_ENERGY_P1_ENTREGA.md para el resto.');
   process.exit(0);
 })().catch((err) => {
   console.error('❌ Error fatal:', err.message);
