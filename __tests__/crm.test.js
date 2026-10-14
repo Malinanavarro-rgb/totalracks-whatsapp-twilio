@@ -26,7 +26,7 @@ const mockFrom = jest.fn((tabla) => {
 
 jest.mock('../modules/clients', () => ({ supabaseServicio: { from: (...args) => mockFrom(...args) } }));
 
-const { crearOportunidadSiCorresponde } = require('../modules/crm');
+const { crearOportunidadSiCorresponde, requiereCrearOportunidad } = require('../modules/crm');
 
 const COMPANY_A = 'aaaaaaaa-0000-0000-0000-000000000001';
 
@@ -42,9 +42,51 @@ beforeEach(() => {
   prepararResultados();
 });
 
+// Nort Energy, auditoría 2026-10-14 (punto 8 del plan de corrección): el
+// número de WhatsApp recibe mensajes personales, números equivocados y spam
+// (contactos heredados de un uso anterior del número) — estos nunca deben
+// convertirse en oportunidad comercial, sin importar palabras clave sueltas.
+describe('crm.requiereCrearOportunidad() — bloqueo por clasificación (punto 8, 2026-10-14)', () => {
+  test('conversacion_personal con palabra clave de trigger → NO requiere oportunidad', () => {
+    expect(requiereCrearOportunidad('oye, cuánto cuesta el regalo que me pediste', [], 'conversacion_personal')).toBe(false);
+  });
+  test('numero_equivocado → NO requiere oportunidad, aunque la intención sea interes_compra', () => {
+    expect(requiereCrearOportunidad('busco otra cosa', ['interes_compra'], 'numero_equivocado')).toBe(false);
+  });
+  test('spam → NO requiere oportunidad', () => {
+    expect(requiereCrearOportunidad('quiero cotizar esto', [], 'spam')).toBe(false);
+  });
+  test('informacion_administrativa → NO requiere oportunidad', () => {
+    expect(requiereCrearOportunidad('precio de envío', [], 'informacion_administrativa')).toBe(false);
+  });
+  test('contexto_insuficiente NUNCA bloquea — una clasificación incierta no debe frenar a un posible cliente real', () => {
+    expect(requiereCrearOportunidad('quiero cotizar paneles', [], 'contexto_insuficiente')).toBe(true);
+  });
+  test('prospecto no bloquea — sigue la lógica normal de triggers/intenciones', () => {
+    expect(requiereCrearOportunidad('quiero cotizar paneles', [], 'prospecto')).toBe(true);
+  });
+  test('sin clasificación (undefined) — comportamiento idéntico al de antes de este cambio', () => {
+    expect(requiereCrearOportunidad('quiero cotizar paneles', [])).toBe(true);
+    expect(requiereCrearOportunidad('hola, buenos días', [])).toBe(false);
+  });
+  test('conversación antes personal que ahora pide paneles → SÍ requiere oportunidad (la clasificación es del turno actual, nunca queda bloqueada para siempre)', () => {
+    expect(requiereCrearOportunidad('oye, ya lo pensé, sí quiero cotizar los paneles para mi casa', [], 'prospecto')).toBe(true);
+  });
+});
+
 describe('crm.crearOportunidadSiCorresponde() — Fase Demo Comercial', () => {
   test('no hace ninguna consulta si el mensaje no amerita crear oportunidad', async () => {
     await crearOportunidadSiCorresponde(1, COMPANY_A, 'Uniformes', 'hola, buenos días', []);
+    expect(mockFrom).not.toHaveBeenCalled();
+  });
+
+  test('clasificación conversacion_personal con palabra clave de trigger → no crea oportunidad ni consulta la base', async () => {
+    await crearOportunidadSiCorresponde(1, COMPANY_A, 'Paneles', 'oye cuánto cuesta el favor que te pedí', [], {}, 'conversacion_personal');
+    expect(mockFrom).not.toHaveBeenCalled();
+  });
+
+  test('clasificación spam con intención interes_compra → no crea oportunidad', async () => {
+    await crearOportunidadSiCorresponde(1, COMPANY_A, 'Paneles', 'mensaje de spam', ['interes_compra'], {}, 'spam');
     expect(mockFrom).not.toHaveBeenCalled();
   });
 

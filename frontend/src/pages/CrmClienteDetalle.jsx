@@ -102,6 +102,24 @@ export default function CrmClienteDetalle() {
   const [categoriaSubida, setCategoriaSubida] = useState('foto_techo');
   const [subiendoDocumento, setSubiendoDocumento] = useState(false);
   const [categoriaPorAdjunto, setCategoriaPorAdjunto] = useState({}); // { [mensajeId]: categoria }
+  // Reclasificación manual (punto 8, 2026-10-14) — siempre gana sobre la clasificación automática de la IA.
+  const [opcionesClasificacion, setOpcionesClasificacion] = useState([]);
+  const [reclasificando, setReclasificando] = useState(false);
+
+  useEffect(() => { api.opcionesClasificacion().then(setOpcionesClasificacion).catch(() => {}); }, []);
+
+  async function reclasificar(nuevoTipoContacto) {
+    if (!nuevoTipoContacto) return;
+    setReclasificando(true);
+    try {
+      await api.reclasificarCliente(clienteId, nuevoTipoContacto);
+      cargar();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setReclasificando(false);
+    }
+  }
 
   function cargar() {
     Promise.all([api.fichaCliente(clienteId), api.seguimientos(clienteId), api.cotizaciones(clienteId)])
@@ -467,6 +485,19 @@ export default function CrmClienteDetalle() {
         <div className="expediente-encabezado-titulo">
           <h1>{cliente.nombre || cliente.telefono}</h1>
           <span className={`pill pill--${score.clase}`}>{score.texto}</span>
+          {/* Reclasificación manual (punto 8, 2026-10-14) — siempre gana sobre la IA. */}
+          <select
+            value={cliente.tipo_contacto || ''}
+            disabled={reclasificando}
+            onChange={(e) => reclasificar(e.target.value)}
+            title={cliente.tipo_contacto_fuente === 'manual' ? 'Clasificado manualmente' : 'Clasificado automáticamente por TARA'}
+          >
+            <option value="" disabled>Sin clasificar</option>
+            {opcionesClasificacion.map((o) => (
+              <option key={o.valor} value={o.valor}>{o.etiqueta}</option>
+            ))}
+          </select>
+          {cliente.tipo_contacto_fuente === 'manual' && <span className="operaciones-nota">· clasificado a mano</span>}
         </div>
         <p className="operaciones-nota">
           {[cliente.ciudad, oportunidadPrincipal?.tipo_propiedad, cliente.fuente].filter(Boolean).join(' · ') || 'Sin más datos de contexto todavía'}

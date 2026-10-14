@@ -59,11 +59,21 @@ const KPI_TIPOS = {
     return error ? 0 : (count || 0);
   },
 
-  /** Clientes nuevos en los últimos N días. */
+  /**
+   * Clientes nuevos en los últimos N días. Excluye los clasificados como
+   * conversación personal/número equivocado/spam/información administrativa
+   * (punto 8, auditoría Nort Energy 2026-10-14) — un contacto heredado de un
+   * uso anterior del número de WhatsApp no debe inflar "leads nuevos". Los
+   * NO clasificados todavía (tipo_contacto NULL — el caso de cualquier
+   * cliente creado antes de este cambio, o uno nuevo que su primer mensaje
+   * aún no se procesa) siguen contando — cero regresión, nunca se asume que
+   * "sin clasificar" significa "no es un lead".
+   */
   async conteo_clientes_nuevos(supabase, company_id, { dias }, ahora) {
     const { count, error } = await supabase
       .from('clientes').select('*', { count: 'exact', head: true })
-      .eq('company_id', company_id).gte('created_at', _haceDias(ahora, dias));
+      .eq('company_id', company_id).gte('created_at', _haceDias(ahora, dias))
+      .or('tipo_contacto.is.null,tipo_contacto.not.in.(conversacion_personal,numero_equivocado,spam,informacion_administrativa)');
     return error ? 0 : (count || 0);
   },
 

@@ -44,7 +44,7 @@ const CAMPOS_OPORTUNIDAD = [
 async function listarClientes(supabase, company_id, usuario, filtros = {}) {
   let query = supabase
     .from('clientes')
-    .select('id, nombre, telefono, empresa, ciudad, estado, atendido_por, asesor_id, score_interes, logo_url')
+    .select('id, nombre, telefono, empresa, ciudad, estado, atendido_por, asesor_id, score_interes, logo_url, tipo_contacto, tipo_contacto_fuente')
     .eq('company_id', company_id);
 
   if (!ROLES_GERENCIALES.includes(usuario.rol)) {

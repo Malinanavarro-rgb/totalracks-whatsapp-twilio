@@ -91,6 +91,7 @@ const {
 } = require('./modules/tickets');
 const { aplicarDescuento: aplicarDescuentoCotizacion, autorizarDescuento: autorizarDescuentoCotizacion } = require('./modules/cotizacion-descuento');
 const { transcribirAudio, describirImagen, describirDocumento } = require('./modules/adjuntos-ia');
+const { reclasificarManualmente, OPCIONES_RECLASIFICACION_MANUAL } = require('./modules/clasificacion-cliente');
 const { procesarReciboCFE, extraerDatosReciboCFE, normalizarDatosRecibo } = require('./modules/recibo-cfe');
 const { esGerencial, requirePermiso } = require('./modules/permisos');
 const { crearSolicitud: crearSolicitudConocimiento, listarSolicitudes: listarSolicitudesConocimiento, responderSolicitud: responderSolicitudConocimiento, rechazarSolicitud: rechazarSolicitudConocimiento } = require('./modules/knowledge-requests');
@@ -1485,6 +1486,28 @@ app.patch('/api/crm/clientes/:id', requireAuth, requirePermiso('crm', 'editar'),
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
   }
+});
+
+// Reclasificación manual (punto 8, auditoría Nort Energy 2026-10-14) — ruta
+// separada del PATCH genérico de arriba: siempre gana sobre la clasificación
+// automática de la IA (congela tipo_contacto_fuente='manual') y queda
+// registrada en bitacora_decisiones — ver modules/clasificacion-cliente.js.
+app.patch('/api/crm/clientes/:id/clasificacion', requireAuth, requirePermiso('crm', 'editar'), async (req, res) => {
+  try {
+    const cliente = await reclasificarManualmente(req.supabase, {
+      clienteId: req.params.id, companyId: req.usuario.company_id,
+      nuevaClasificacion: req.body.tipoContacto, usuarioId: req.usuario.id,
+    });
+    res.json(cliente);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// Opciones de reclasificación manual — única fuente de verdad en
+// modules/clasificacion-cliente.js, el frontend nunca las hardcodea.
+app.get('/api/crm/clasificaciones', requireAuth, (req, res) => {
+  res.json(OPCIONES_RECLASIFICACION_MANUAL);
 });
 
 app.delete('/api/crm/clientes/:id', requireAuth, soloGerencial, async (req, res) => {

@@ -118,6 +118,16 @@ class Orchestrator {
     this._actualizarScore  = deps.actualizarScore   || null;
     this._crearOportunidad = deps.crearOportunidad  || null;
     this._actionRunner     = deps.actionRunner      || this._crearActionRunnerPorDefecto();
+
+    // Nort Energy, auditoría 2026-10-14 (punto 8 del plan de corrección):
+    // persiste aiOutput.clasificacion_contexto en el cliente — hoy ya se
+    // calcula cada turno y se loguea (AuditLogger), pero se descartaba
+    // después. Opcional y null-safe, mismo patrón que _actualizarScore —
+    // corre SIEMPRE que hay un cliente, sin importar si el turno propuso
+    // alguna acción (a diferencia de _actualizarScore, que vive dentro de
+    // _ejecutarAcciones y por lo tanto nunca corre en turnos sin acciones —
+    // justo los turnos personales/spam que más importa clasificar).
+    this._actualizarClasificacion = deps.actualizarClasificacion || null;
   }
 
   /**
@@ -136,7 +146,8 @@ class Orchestrator {
           ctx.aiOutput.categoria_principal || null,
           ctx.mensaje_actual,
           ctx.aiOutput.intenciones || [],
-          ctx.capturedFields
+          ctx.capturedFields,
+          ctx.aiOutput.clasificacion_contexto || null
         )
       );
     }
@@ -386,7 +397,17 @@ class Orchestrator {
       }
     }
 
-    // ── 11. Auditoría ─────────────────────────────────────────────────────
+    // ── 11. Clasificación persistida (punto 8, 2026-10-14) ────────────────
+    // Incondicional — corre en todo turno con cliente, tenga o no acciones.
+    if (this._actualizarClasificacion && clienteRaw?.id) {
+      try {
+        await this._actualizarClasificacion(clienteRaw.id, message.company_id, aiOutput.clasificacion_contexto);
+      } catch (err) {
+        this._log.logError(ctx, 'crm.actualizarClasificacion', err, { session_id: sessionId });
+      }
+    }
+
+    // ── 12. Auditoría ─────────────────────────────────────────────────────
     timings.total_ms = Date.now() - t0;
     this._log.logAICall(ctx, aiInput, aiOutput, { session_id: sessionId });
     this._log.logChannelEvent(ctx, 'mensaje_enviado', {
@@ -1062,6 +1083,7 @@ function crearOrchestrator(overrides = {}) {
     crearOportunidadSiCorresponde,
     actualizarScoreInteres,
   }                    = require('./crm');
+  const { actualizarClasificacionAutomatica } = require('./clasificacion-cliente');
 
   const mock   = new MockProvider({ latencia_ms: 0 });
   const engine = new AIEngine(mock);
@@ -1092,7 +1114,8 @@ function crearOrchestrator(overrides = {}) {
         ctx.aiOutput.categoria_principal || null,
         ctx.mensaje_actual,
         ctx.aiOutput.intenciones || [],
-        ctx.capturedFields
+        ctx.capturedFields,
+        ctx.aiOutput.clasificacion_contexto || null
       )
     );
 
@@ -1265,6 +1288,8 @@ function crearOrchestrator(overrides = {}) {
       || ((companyId, mensaje) => obtenerFaqRelevante(supabase, companyId, mensaje)),
     actionRunner,
     actualizarScore:      overrides.actualizarScore      || actualizarScoreInteres,
+    actualizarClasificacion: overrides.actualizarClasificacion
+      || ((clienteId, companyId, clasificacion) => actualizarClasificacionAutomatica(supabase, clienteId, companyId, clasificacion)),
   });
 }
 

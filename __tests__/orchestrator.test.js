@@ -683,6 +683,7 @@ describe('Orchestrator — acciones propuestas (stub FASE 4)', () => {
       expect.any(String),  // ctx.mensaje_actual
       expect.any(Array),   // aiOutput.intenciones
       {},                  // ctx.capturedFields — sin workflow activo en este turno (Alina, 2026-09-15)
+      null,                // aiOutput.clasificacion_contexto — este mock no lo define (punto 8, 2026-10-14)
     );
   });
 
@@ -710,6 +711,77 @@ describe('Orchestrator — acciones propuestas (stub FASE 4)', () => {
     await orch.procesarMensaje(makeMessage());
 
     expect(deps.crearOportunidad).not.toHaveBeenCalled();
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 7B. CLASIFICACIÓN PERSISTIDA (punto 8, auditoría Nort Energy 2026-10-14)
+// ═════════════════════════════════════════════════════════════════════════════
+
+describe('Orchestrator — actualizarClasificacion (punto 8, 2026-10-14)', () => {
+  it('se llama con cliente.id, company_id del mensaje y aiOutput.clasificacion_contexto', async () => {
+    const deps = makeDeps({ actualizarClasificacion: jest.fn().mockResolvedValue(undefined) });
+    const orch = new Orchestrator(deps);
+    await orch.procesarMensaje(makeMessage());
+
+    expect(deps.actualizarClasificacion).toHaveBeenCalledWith(42, 'company-uuid-001', expect.any(String));
+  });
+
+  it('CRÍTICO: corre incluso cuando acciones_propuestas está vacío — a diferencia de actualizarScore, que vive dentro de _ejecutarAcciones y por eso nunca corre en turnos sin acciones (justo los turnos personales/spam que más importa clasificar)', async () => {
+    const mockAI = {
+      procesar: jest.fn().mockResolvedValue({
+        respuesta_texto:     'Entendido.',
+        categoria_principal: 'Sin clasificar',
+        datos_extraidos:     {},
+        intenciones:         [],
+        sentimiento:         'Neutral',
+        etapa_sugerida:      null,
+        acciones_propuestas: [],
+        clasificacion_contexto: 'conversacion_personal',
+        confianza:           0.6,
+        tokens_entrada:      30,
+        tokens_salida:       10,
+        modelo_utilizado:    'mock',
+        proveedor_utilizado: 'mock',
+        latencia_ms:         5,
+      }),
+    };
+
+    const deps = makeDeps({ aiEngine: mockAI, actualizarClasificacion: jest.fn().mockResolvedValue(undefined) });
+    const orch = new Orchestrator(deps);
+    await orch.procesarMensaje(makeMessage());
+
+    expect(deps.actualizarClasificacion).toHaveBeenCalledWith(42, 'company-uuid-001', 'conversacion_personal');
+  });
+
+  it('dependencia opcional — su ausencia no rompe el turno', async () => {
+    const deps = makeDeps();
+    delete deps.actualizarClasificacion;
+    const orch = new Orchestrator(deps);
+    await expect(orch.procesarMensaje(makeMessage())).resolves.toBeDefined();
+  });
+
+  it('si actualizarClasificacion lanza, se loguea el error pero el turno sigue respondiendo al cliente', async () => {
+    const deps = makeDeps({ actualizarClasificacion: jest.fn().mockRejectedValue(new Error('DB caída')) });
+    const orch = new Orchestrator(deps);
+    const resultado = await orch.procesarMensaje(makeMessage());
+
+    expect(typeof resultado.respuesta_texto).toBe('string');
+    expect(resultado.respuesta_texto.length).toBeGreaterThan(0);
+    expect(deps.auditLogger.logError).toHaveBeenCalledWith(
+      expect.anything(), 'crm.actualizarClasificacion', expect.any(Error), expect.anything()
+    );
+  });
+
+  it('sin cliente resuelto (clienteRaw.id ausente) → nunca se llama', async () => {
+    const deps = makeDeps({
+      obtenerOCrearCliente: jest.fn().mockResolvedValue(null),
+      actualizarClasificacion: jest.fn().mockResolvedValue(undefined),
+    });
+    const orch = new Orchestrator(deps);
+    await orch.procesarMensaje(makeMessage());
+
+    expect(deps.actualizarClasificacion).not.toHaveBeenCalled();
   });
 });
 

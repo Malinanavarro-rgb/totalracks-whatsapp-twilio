@@ -99,6 +99,10 @@ export const api = {
   actualizarCliente:  (clienteId, cambios) =>
     pedir(`/api/crm/clientes/${clienteId}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
   eliminarClienteCrm: (clienteId) => pedir(`/api/crm/clientes/${clienteId}`, { method: 'DELETE' }),
+  // Reclasificación manual (punto 8, 2026-10-14) — siempre gana sobre la clasificación automática de la IA.
+  reclasificarCliente: (clienteId, tipoContacto) =>
+    pedir(`/api/crm/clientes/${clienteId}/clasificacion`, { method: 'PATCH', body: JSON.stringify({ tipoContacto }) }),
+  opcionesClasificacion: () => pedir('/api/crm/clasificaciones'),
   // Borrado completo (cliente + todo su historial) — solo empresas demo.
   eliminarClienteCompleto: (clienteId) => pedir(`/api/crm/clientes/${clienteId}/completo`, { method: 'DELETE' }),
   seguimientos:       (clienteId) => pedir(`/api/crm/clientes/${clienteId}/seguimientos`),

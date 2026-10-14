@@ -114,7 +114,24 @@ const TRIGGERS_OPORTUNIDAD = [
 // real ("una casa de 2 pisos, son 5 climas") clasificado correctamente
 // como interes_compra/solicitud_cotizacion nunca generaba oportunidad. No
 // es específico de ningún giro — afecta a cualquier empresa.
-function requiereCrearOportunidad(mensajeCliente, intenciones) {
+
+// Nort Energy, auditoría 2026-10-14 (punto 8 del plan de corrección): estas
+// clasificaciones (modules/clasificacion-contexto.js) describen una
+// conversación que NO es un prospecto — nunca debe convertirse en
+// oportunidad comercial sin importar palabras clave o intenciones sueltas.
+// 'contexto_insuficiente' deliberadamente NO está aquí: una clasificación
+// incierta no debe bloquear a un posible cliente real — cae en la lógica de
+// siempre (triggers/intenciones). Si una conversación antes clasificada como
+// personal/spam/etc. vuelve a escribir con intención real, este chequeo se
+// re-evalúa con la clasificación de ESE turno — nunca queda bloqueada para
+// siempre por una clasificación vieja.
+const CLASIFICACIONES_QUE_BLOQUEAN_OPORTUNIDAD = new Set([
+  'conversacion_personal', 'numero_equivocado', 'spam', 'informacion_administrativa',
+]);
+
+function requiereCrearOportunidad(mensajeCliente, intenciones, clasificacionContexto) {
+  if (clasificacionContexto && CLASIFICACIONES_QUE_BLOQUEAN_OPORTUNIDAD.has(clasificacionContexto)) return false;
+
   const msg = mensajeCliente.toLowerCase();
   return TRIGGERS_OPORTUNIDAD.some(t => msg.includes(t)) ||
     intenciones.includes('solicitud_cotizacion') ||
@@ -192,8 +209,8 @@ function _mapearCapturedFieldsAOportunidad(capturedFields) {
  * @param {string[]} intenciones
  * @param {Object}   [capturedFields]    - workflow_sessions.captured_fields, si el turno viene de un workflow (Alina, 2026-09-15)
  */
-async function crearOportunidadSiCorresponde(clienteId, companyId, categoriaPrincipal, mensajeCliente, intenciones, capturedFields) {
-  if (!requiereCrearOportunidad(mensajeCliente, intenciones)) return;
+async function crearOportunidadSiCorresponde(clienteId, companyId, categoriaPrincipal, mensajeCliente, intenciones, capturedFields, clasificacionContexto) {
+  if (!requiereCrearOportunidad(mensajeCliente, intenciones, clasificacionContexto)) return;
   try {
     const { data: existentes } = await supabase
       .from('oportunidades')
@@ -233,4 +250,6 @@ module.exports = {
   obtenerHistorial,
   guardarConversacion,
   crearOportunidadSiCorresponde,
+  requiereCrearOportunidad,
+  CLASIFICACIONES_QUE_BLOQUEAN_OPORTUNIDAD,
 };

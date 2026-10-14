@@ -9,6 +9,7 @@ function crearBuilder(resultado) {
     neq: jest.fn().mockReturnThis(),
     in: jest.fn().mockReturnThis(),
     not: jest.fn().mockReturnThis(),
+    or: jest.fn().mockReturnThis(),
     gte: jest.fn().mockReturnThis(),
     lte: jest.fn().mockReturnThis(),
     lt: jest.fn().mockReturnThis(),
@@ -47,6 +48,20 @@ describe('dashboard-engine', () => {
       const db = crearMockDb({ clientes: () => ({ count: 3, error: null }) });
       const valor = await KPI_TIPOS.conteo_clientes_nuevos(db, COMPANY_A, { dias: 7 }, AHORA);
       expect(valor).toBe(3);
+    });
+
+    // Punto 8, auditoría Nort Energy 2026-10-14: un contacto personal/número
+    // equivocado/spam/informativo no debe inflar "leads nuevos" — pero un
+    // cliente SIN clasificar todavía (tipo_contacto NULL, el caso de todo
+    // cliente creado antes de este cambio) sigue contando, nunca se asume
+    // "sin clasificar" = "no es un lead".
+    test('conteo_clientes_nuevos: excluye clasificaciones no comerciales, pero incluye NULL (sin clasificar)', async () => {
+      const db = crearMockDb({ clientes: () => ({ count: 3, error: null }) });
+      await KPI_TIPOS.conteo_clientes_nuevos(db, COMPANY_A, { dias: 30 }, AHORA);
+      const builder = db.from.mock.results[0].value;
+      expect(builder.or).toHaveBeenCalledWith(
+        'tipo_contacto.is.null,tipo_contacto.not.in.(conversacion_personal,numero_equivocado,spam,informacion_administrativa)'
+      );
     });
 
     test('conteo_citas_por_estado_desde', async () => {
