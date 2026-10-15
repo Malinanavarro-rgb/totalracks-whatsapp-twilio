@@ -139,6 +139,7 @@ const { obtenerPlantillaDeEmpresa }      = require('./modules/plantillas-industr
 // Plataforma Comercial (Panel Maestro, Billing, Onboarding).
 const { crearOrganizacionConCompany, listarOrganizaciones, obtenerOrganizacion } = require('./modules/organizaciones');
 const { listarPlanes, crearPlan, actualizarPlan } = require('./modules/planes');
+const { listarModulosCatalogo } = require('./modules/modulos-catalogo');
 const {
   obtenerSuscripcionVigente, crearSuscripcionManual, suspenderOrganizacion, reactivarOrganizacion,
   extenderPrueba, regalarMeses, cancelarSuscripcion, aplicarDescuento,
@@ -4056,15 +4057,25 @@ app.get('/api/admin/planes', requireAdmin, async (req, res) => {
   }
 });
 
+app.get('/api/admin/modulos-catalogo', requireAdmin, async (req, res) => {
+  try {
+    res.json(await listarModulosCatalogo(supabaseServicio));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/api/admin/planes', requireAdmin, async (req, res) => {
   try {
     const { clave, nombre, precioCentavos, moneda, periodo, esAutoservicio, diasPrueba, perks, limites, orden } = req.body || {};
     if (!clave || !nombre) {
       return res.status(400).json({ error: 'clave y nombre son requeridos' }); // precioCentavos puede ser null (plan tipo Enterprise)
     }
-    res.status(201).json(await crearPlan(supabaseServicio, {
+    const plan = await crearPlan(supabaseServicio, {
       clave, nombre, precioCentavos, moneda, periodo, esAutoservicio, diasPrueba, perks, limites, orden,
-    }));
+    });
+    await registrarEventoAdmin(supabaseServicio, { adminId: req.admin.id, accion: 'crear_plan', detalle: { planId: plan.id, clave: plan.clave } });
+    res.status(201).json(plan);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -4072,7 +4083,9 @@ app.post('/api/admin/planes', requireAdmin, async (req, res) => {
 
 app.patch('/api/admin/planes/:id', requireAdmin, async (req, res) => {
   try {
-    res.json(await actualizarPlan(supabaseServicio, req.params.id, req.body || {}));
+    const plan = await actualizarPlan(supabaseServicio, req.params.id, req.body || {});
+    await registrarEventoAdmin(supabaseServicio, { adminId: req.admin.id, accion: 'editar_plan', detalle: { planId: plan.id, clave: plan.clave, cambios: Object.keys(req.body || {}) } });
+    res.json(plan);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

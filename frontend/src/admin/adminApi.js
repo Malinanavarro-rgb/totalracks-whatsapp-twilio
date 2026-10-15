@@ -42,6 +42,7 @@ export const adminApi = {
   planes: () => pedir('/api/admin/planes'),
   crearPlan: (datos) => pedir('/api/admin/planes', { method: 'POST', body: JSON.stringify(datos) }),
   actualizarPlan: (id, cambios) => pedir(`/api/admin/planes/${id}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
+  modulosCatalogo: () => pedir('/api/admin/modulos-catalogo'),
 
   crearSuscripcion: (datos) => pedir('/api/admin/suscripciones', { method: 'POST', body: JSON.stringify(datos) }),
   cambiarPlanSuscripcion: (suscripcionId, planId) =>
