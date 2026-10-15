@@ -218,10 +218,23 @@ class OpenAIProvider extends AIProvider {
    * @returns {number}
    */
   calcularCosto(tokens_entrada, tokens_salida, modelo) {
-    const precios = PRICING_PER_M[modelo] || PRICING_PER_M['gpt-4o-mini'];
-    return (tokens_entrada / 1_000_000) * precios.input
-         + (tokens_salida  / 1_000_000) * precios.output;
+    return calcularCostoOpenAI(tokens_entrada, tokens_salida, modelo);
   }
 }
 
-module.exports = { OpenAIProvider, INTENCIONES_VALIDAS, CLASIFICACIONES_VALIDAS };
+/**
+ * Cálculo puro, reutilizable sin instanciar OpenAIProvider — usado también
+ * por modules/ia-consumo.js (Fase 1 de TARA AI Engine, 2026-10-16). Mismo
+ * contrato/resultado que OpenAIProvider.calcularCosto() — se extrajo aquí
+ * para no requerir una instancia del provider solo para calcular un precio.
+ * Si el modelo no está en el catálogo, cae a gpt-4o-mini (igual que antes) —
+ * el llamador que necesite distinguir "modelo desconocido" de "ya se
+ * calculó" debe verificar `modelo in PRICING_PER_M` antes de llamar esto.
+ */
+function calcularCostoOpenAI(tokens_entrada, tokens_salida, modelo) {
+  const precios = PRICING_PER_M[modelo] || PRICING_PER_M['gpt-4o-mini'];
+  return (tokens_entrada / 1_000_000) * precios.input
+       + (tokens_salida  / 1_000_000) * precios.output;
+}
+
+module.exports = { OpenAIProvider, INTENCIONES_VALIDAS, CLASIFICACIONES_VALIDAS, calcularCostoOpenAI, PRICING_PER_M };

@@ -92,6 +92,7 @@ const {
 const { aplicarDescuento: aplicarDescuentoCotizacion, autorizarDescuento: autorizarDescuentoCotizacion } = require('./modules/cotizacion-descuento');
 const { transcribirAudio, describirImagen, describirDocumento } = require('./modules/adjuntos-ia');
 const { reclasificarManualmente, OPCIONES_RECLASIFICACION_MANUAL } = require('./modules/clasificacion-cliente');
+const { registrarConsumoIA } = require('./modules/ia-consumo');
 const { procesarReciboCFE, extraerDatosReciboCFE, normalizarDatosRecibo } = require('./modules/recibo-cfe');
 const { esGerencial, requirePermiso } = require('./modules/permisos');
 const { crearSolicitud: crearSolicitudConocimiento, listarSolicitudes: listarSolicitudesConocimiento, responderSolicitud: responderSolicitudConocimiento, rechazarSolicitud: rechazarSolicitudConocimiento } = require('./modules/knowledge-requests');
@@ -1604,7 +1605,10 @@ app.post('/api/operador/preguntar', requireAuth, async (req, res) => {
 
     const alcance = { nivel: 'empresa', company_id: req.usuario.company_id };
     const usuario = { id: req.usuario.id, rol: req.usuario.rol };
-    const resultado = await preguntarOperador({ supabase: req.supabase, openaiClient: openai, pregunta: pregunta.trim(), alcance, usuario });
+    const resultado = await preguntarOperador({
+      supabase: req.supabase, openaiClient: openai, pregunta: pregunta.trim(), alcance, usuario,
+      registrarConsumo: (datos) => registrarConsumoIA(req.supabase, datos),
+    });
     res.json(resultado);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -1619,7 +1623,10 @@ app.post('/api/operador/convertir-para-cliente', requireAuth, async (req, res) =
     const { texto } = req.body || {};
     if (!texto || !texto.trim()) return res.status(400).json({ error: 'texto requerido' });
 
-    const respuestaCliente = await convertirParaCliente({ openaiClient: openai, textoInterno: texto.trim() });
+    const respuestaCliente = await convertirParaCliente({
+      openaiClient: openai, textoInterno: texto.trim(), companyId: req.usuario.company_id,
+      registrarConsumo: (datos) => registrarConsumoIA(req.supabase, datos),
+    });
     res.json({ respuesta_cliente: respuestaCliente });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -3890,7 +3897,10 @@ app.post('/api/admin/operador/preguntar', requireAdmin, async (req, res) => {
     if (!pregunta || !pregunta.trim()) return res.status(400).json({ error: 'pregunta requerida' });
 
     const alcance = { nivel: 'plataforma' };
-    const resultado = await preguntarOperador({ supabase: supabaseServicio, openaiClient: openai, pregunta: pregunta.trim(), alcance });
+    const resultado = await preguntarOperador({
+      supabase: supabaseServicio, openaiClient: openai, pregunta: pregunta.trim(), alcance,
+      registrarConsumo: (datos) => registrarConsumoIA(supabaseServicio, datos),
+    });
     res.json(resultado);
   } catch (e) {
     res.status(500).json({ error: e.message });

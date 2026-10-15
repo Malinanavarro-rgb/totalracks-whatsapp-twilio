@@ -56,9 +56,10 @@ const SYSTEM_PROMPT = [
  * @param {{id: string, rol: string}} [opciones.usuario] - calculado por el caller a partir de la sesión, nunca por el modelo; requerido por las tools de escritura del Business Memory Core (trazabilidad de quién propuso/confirmó/rechazó)
  * @param {{role: string, content: string}[]} [opciones.historialCorto]
  * @param {string} [opciones.modelo]
+ * @param {Function} [opciones.registrarConsumo] - opcional, Fase 1 TARA AI Engine (2026-10-16): (datos) => Promise<void>, una llamada por cada iteración real de tool-calling — nunca agregado, cada iteración es una llamada facturable distinta
  * @returns {Promise<{respuesta_texto: string, tokens_total: number, iteraciones: number, tools_usadas: string[]}>}
  */
-async function preguntar({ supabase, openaiClient, pregunta, alcance, usuario, historialCorto = [], modelo = MODELO_DEFAULT }) {
+async function preguntar({ supabase, openaiClient, pregunta, alcance, usuario, historialCorto = [], modelo = MODELO_DEFAULT, registrarConsumo }) {
   if (!alcance || !alcance.nivel) {
     throw new Error('operador-engine.preguntar: alcance requerido (lo calcula el caller, nunca el usuario final)');
   }
@@ -101,10 +102,26 @@ async function preguntar({ supabase, openaiClient, pregunta, alcance, usuario, h
         max_tokens:  MAX_TOKENS_RESPUESTA,
       });
     } catch (e) {
+      if (registrarConsumo) {
+        await registrarConsumo({
+          companyId: alcance.company_id, organizationId: alcance.organization_id,
+          proveedor: 'openai', modelo, operacion: 'modo_operador',
+          tokensEntrada: null, tokensSalida: null, resultado: 'error',
+        }).catch(() => {});
+      }
       return {
         respuesta_texto: 'Tuve un problema técnico consultando la información. Intenta de nuevo en unos segundos.',
         tokens_total: tokensTotal, iteraciones: iteracion, tools_usadas: toolsUsadas, error: e.message,
       };
+    }
+
+    if (registrarConsumo) {
+      await registrarConsumo({
+        companyId: alcance.company_id, organizationId: alcance.organization_id,
+        proveedor: 'openai', modelo, operacion: 'modo_operador',
+        tokensEntrada: respuesta.usage?.prompt_tokens, tokensSalida: respuesta.usage?.completion_tokens,
+        resultado: 'exito',
+      }).catch(() => {});
     }
 
     const choice = respuesta.choices[0];
@@ -164,22 +181,43 @@ const SYSTEM_PROMPT_RESPUESTA_CLIENTE = [
  * @param {{chat: {completions: {create: Function}}}} opciones.openaiClient
  * @param {string} opciones.textoInterno - la respuesta interna de Modo Operador a traducir
  * @param {string} [opciones.modelo]
+ * @param {string} [opciones.companyId] - opcional, Fase 1 TARA AI Engine (2026-10-16): solo para medición de costo
+ * @param {Function} [opciones.registrarConsumo] - opcional, (datos) => Promise<void>
  * @returns {Promise<string>} el mensaje listo para enviar al cliente
  */
-async function convertirParaCliente({ openaiClient, textoInterno, modelo = MODELO_DEFAULT }) {
+async function convertirParaCliente({ openaiClient, textoInterno, modelo = MODELO_DEFAULT, companyId, registrarConsumo }) {
   if (!textoInterno || !textoInterno.trim()) {
     throw new Error('operador-engine.convertirParaCliente: textoInterno requerido');
   }
 
-  const respuesta = await openaiClient.chat.completions.create({
-    model: modelo,
-    messages: [
-      { role: 'system', content: SYSTEM_PROMPT_RESPUESTA_CLIENTE },
-      { role: 'user', content: textoInterno },
-    ],
-    temperature: 0.3,
-    max_tokens: MAX_TOKENS_RESPUESTA,
-  });
+  let respuesta;
+  try {
+    respuesta = await openaiClient.chat.completions.create({
+      model: modelo,
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT_RESPUESTA_CLIENTE },
+        { role: 'user', content: textoInterno },
+      ],
+      temperature: 0.3,
+      max_tokens: MAX_TOKENS_RESPUESTA,
+    });
+  } catch (e) {
+    if (registrarConsumo) {
+      await registrarConsumo({
+        companyId, proveedor: 'openai', modelo, operacion: 'modo_operador_respuesta_cliente',
+        tokensEntrada: null, tokensSalida: null, resultado: 'error',
+      }).catch(() => {});
+    }
+    throw e;
+  }
+
+  if (registrarConsumo) {
+    await registrarConsumo({
+      companyId, proveedor: 'openai', modelo, operacion: 'modo_operador_respuesta_cliente',
+      tokensEntrada: respuesta.usage?.prompt_tokens, tokensSalida: respuesta.usage?.completion_tokens,
+      resultado: 'exito',
+    }).catch(() => {});
+  }
 
   return respuesta.choices[0]?.message?.content?.trim() || 'No pude generar una versión para cliente de este texto.';
 }

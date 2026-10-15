@@ -128,6 +128,13 @@ class Orchestrator {
     // _ejecutarAcciones y por lo tanto nunca corre en turnos sin acciones —
     // justo los turnos personales/spam que más importa clasificar).
     this._actualizarClasificacion = deps.actualizarClasificacion || null;
+
+    // Fase 1 de TARA AI Engine (2026-10-16): mide el costo real de cada
+    // llamada — hoy AIProvider.calcularCosto() existe pero nunca se invoca.
+    // Opcional, null-safe, mismo patrón — corre siempre que hubo un intento
+    // de respuesta (con o sin acciones, con o sin cliente resuelto, a
+    // diferencia de _actualizarClasificacion que requiere cliente).
+    this._registrarConsumoIA = deps.registrarConsumoIA || null;
   }
 
   /**
@@ -407,7 +414,25 @@ class Orchestrator {
       }
     }
 
-    // ── 12. Auditoría ─────────────────────────────────────────────────────
+    // ── 12. Consumo de IA (Fase 1 TARA AI Engine, 2026-10-16) ─────────────
+    if (this._registrarConsumoIA) {
+      try {
+        await this._registrarConsumoIA({
+          companyId: message.company_id,
+          proveedor: aiOutput.proveedor_utilizado,
+          modelo: aiOutput.modelo_utilizado,
+          operacion: 'conversacion',
+          tokensEntrada: aiOutput.tokens_entrada,
+          tokensSalida: aiOutput.tokens_salida,
+          resultado: aiOutput.proveedor_utilizado === 'none' ? 'fallback' : 'exito',
+          latenciaMs: aiOutput.latencia_ms,
+        });
+      } catch (err) {
+        this._log.logError(ctx, 'ia-consumo.registrarConsumoIA', err, { session_id: sessionId });
+      }
+    }
+
+    // ── 13. Auditoría ─────────────────────────────────────────────────────
     timings.total_ms = Date.now() - t0;
     this._log.logAICall(ctx, aiInput, aiOutput, { session_id: sessionId });
     this._log.logChannelEvent(ctx, 'mensaje_enviado', {
@@ -1084,6 +1109,7 @@ function crearOrchestrator(overrides = {}) {
     actualizarScoreInteres,
   }                    = require('./crm');
   const { actualizarClasificacionAutomatica } = require('./clasificacion-cliente');
+  const { registrarConsumoIA } = require('./ia-consumo');
 
   const mock   = new MockProvider({ latencia_ms: 0 });
   const engine = new AIEngine(mock);
@@ -1290,6 +1316,8 @@ function crearOrchestrator(overrides = {}) {
     actualizarScore:      overrides.actualizarScore      || actualizarScoreInteres,
     actualizarClasificacion: overrides.actualizarClasificacion
       || ((clienteId, companyId, clasificacion) => actualizarClasificacionAutomatica(supabase, clienteId, companyId, clasificacion)),
+    registrarConsumoIA: overrides.registrarConsumoIA
+      || ((datos) => registrarConsumoIA(supabase, datos)),
   });
 }
 

@@ -785,6 +785,70 @@ describe('Orchestrator — actualizarClasificacion (punto 8, 2026-10-14)', () =>
   });
 });
 
+describe('Orchestrator — registrarConsumoIA (Fase 1 TARA AI Engine, 2026-10-16)', () => {
+  it('se llama con company_id del mensaje, proveedor/modelo/tokens del aiOutput y resultado "exito"', async () => {
+    const deps = makeDeps({ registrarConsumoIA: jest.fn().mockResolvedValue(undefined) });
+    const orch = new Orchestrator(deps);
+    await orch.procesarMensaje(makeMessage());
+
+    expect(deps.registrarConsumoIA).toHaveBeenCalledWith(expect.objectContaining({
+      companyId: 'company-uuid-001',
+      proveedor: expect.any(String),
+      modelo: expect.any(String),
+      operacion: 'conversacion',
+      tokensEntrada: expect.any(Number),
+      tokensSalida: expect.any(Number),
+      resultado: 'exito',
+    }));
+  });
+
+  it('proveedor_utilizado "none" (fallback total) → resultado "fallback", nunca "exito"', async () => {
+    const mockAI = { procesar: jest.fn().mockResolvedValue({
+      respuesta_texto: 'Tuve un momento técnico. ¿Puedes repetir tu mensaje?',
+      categoria_principal: 'Sin clasificar', datos_extraidos: {}, intenciones: [], sentimiento: 'Neutral',
+      etapa_sugerida: null, acciones_propuestas: [], confianza: 0,
+      tokens_entrada: 0, tokens_salida: 0, modelo_utilizado: 'fallback', proveedor_utilizado: 'none', latencia_ms: 0,
+    }) };
+    const deps = makeDeps({ aiEngine: mockAI, registrarConsumoIA: jest.fn().mockResolvedValue(undefined) });
+    const orch = new Orchestrator(deps);
+    await orch.procesarMensaje(makeMessage());
+
+    expect(deps.registrarConsumoIA).toHaveBeenCalledWith(expect.objectContaining({ resultado: 'fallback' }));
+  });
+
+  it('CRÍTICO: corre incluso cuando acciones_propuestas está vacío — mismo turno sin acciones que cubre actualizarClasificacion', async () => {
+    const mockAI = { procesar: jest.fn().mockResolvedValue({
+      respuesta_texto: 'ok', categoria_principal: 'Sin clasificar', datos_extraidos: {}, intenciones: [],
+      sentimiento: 'Neutral', etapa_sugerida: null, acciones_propuestas: [], clasificacion_contexto: 'conversacion_personal',
+      confianza: 0.6, tokens_entrada: 30, tokens_salida: 10, modelo_utilizado: 'mock', proveedor_utilizado: 'mock', latencia_ms: 5,
+    }) };
+    const deps = makeDeps({ aiEngine: mockAI, registrarConsumoIA: jest.fn().mockResolvedValue(undefined) });
+    const orch = new Orchestrator(deps);
+    await orch.procesarMensaje(makeMessage());
+
+    expect(deps.registrarConsumoIA).toHaveBeenCalledTimes(1);
+  });
+
+  it('dependencia opcional — su ausencia no rompe el turno', async () => {
+    const deps = makeDeps();
+    delete deps.registrarConsumoIA;
+    const orch = new Orchestrator(deps);
+    await expect(orch.procesarMensaje(makeMessage())).resolves.toBeDefined();
+  });
+
+  it('si registrarConsumoIA lanza, se loguea el error pero el turno sigue respondiendo al cliente', async () => {
+    const deps = makeDeps({ registrarConsumoIA: jest.fn().mockRejectedValue(new Error('DB caída')) });
+    const orch = new Orchestrator(deps);
+    const resultado = await orch.procesarMensaje(makeMessage());
+
+    expect(typeof resultado.respuesta_texto).toBe('string');
+    expect(resultado.respuesta_texto.length).toBeGreaterThan(0);
+    expect(deps.auditLogger.logError).toHaveBeenCalledWith(
+      expect.anything(), 'ia-consumo.registrarConsumoIA', expect.any(Error), expect.anything()
+    );
+  });
+});
+
 // ═════════════════════════════════════════════════════════════════════════════
 // 8. WORKFLOW ENGINE — Integración con Orchestrator (FASE 4A)
 // ═════════════════════════════════════════════════════════════════════════════

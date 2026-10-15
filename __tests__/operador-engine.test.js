@@ -205,5 +205,80 @@ describe('operador-engine', () => {
       const resultado = await convertirParaCliente({ openaiClient, textoInterno: 'algo' });
       expect(resultado).toBe('No pude generar una versión para cliente de este texto.');
     });
+
+    // Fase 1 TARA AI Engine (2026-10-16) — medición de consumo real.
+    test('registrarConsumo se llama una vez, con prompt/completion tokens reales y resultado "exito"', async () => {
+      const openaiClient = { chat: { completions: { create: jest.fn().mockResolvedValue({
+        choices: [{ message: { content: 'Respuesta para el cliente' } }],
+        usage: { prompt_tokens: 80, completion_tokens: 20, total_tokens: 100 },
+      }) } } };
+      const registrarConsumo = jest.fn().mockResolvedValue(undefined);
+
+      await convertirParaCliente({ openaiClient, textoInterno: 'texto interno', companyId: 'company-1', registrarConsumo });
+
+      expect(registrarConsumo).toHaveBeenCalledTimes(1);
+      expect(registrarConsumo).toHaveBeenCalledWith({
+        companyId: 'company-1', proveedor: 'openai', modelo: 'gpt-4o-mini', operacion: 'modo_operador_respuesta_cliente',
+        tokensEntrada: 80, tokensSalida: 20, resultado: 'exito',
+      });
+    });
+
+    test('si OpenAI falla, registra resultado "error" (tokens null) y vuelve a lanzar — nunca inventa tokens', async () => {
+      const openaiClient = { chat: { completions: { create: jest.fn().mockRejectedValue(new Error('timeout')) } } };
+      const registrarConsumo = jest.fn().mockResolvedValue(undefined);
+
+      await expect(convertirParaCliente({ openaiClient, textoInterno: 'texto', registrarConsumo })).rejects.toThrow('timeout');
+
+      expect(registrarConsumo).toHaveBeenCalledWith(expect.objectContaining({ resultado: 'error', tokensEntrada: null, tokensSalida: null }));
+    });
+
+    test('sin registrarConsumo inyectado, el comportamiento es idéntico a antes — nunca lo requiere', async () => {
+      const openaiClient = { chat: { completions: { create: jest.fn().mockResolvedValue(respuestaTextoDirecta('ok')) } } };
+      await expect(convertirParaCliente({ openaiClient, textoInterno: 'algo' })).resolves.toBe('ok');
+    });
+  });
+
+  describe('preguntar() — registrarConsumo (Fase 1 TARA AI Engine, 2026-10-16)', () => {
+    test('una llamada de registrarConsumo POR ITERACIÓN real de tool-calling — nunca se agregan', async () => {
+      const create = jest.fn()
+        .mockResolvedValueOnce({ ...respuestaConToolCall('tareas_abiertas', {}), usage: { prompt_tokens: 200, completion_tokens: 30, total_tokens: 230 } })
+        .mockResolvedValueOnce({ ...respuestaTextoDirecta('Tienes 3 tareas abiertas.'), usage: { prompt_tokens: 250, completion_tokens: 15, total_tokens: 265 } });
+      const openaiClient = { chat: { completions: { create } } };
+      mockEjecutarTool.mockResolvedValue({ tareas: [] });
+      const registrarConsumo = jest.fn().mockResolvedValue(undefined);
+
+      await preguntar({ supabase: {}, openaiClient, pregunta: '¿qué tareas quedaron abiertas?', alcance: ALCANCE_EMPRESA, usuario: USUARIO_TEST, registrarConsumo });
+
+      expect(registrarConsumo).toHaveBeenCalledTimes(2); // 2 iteraciones reales, nunca 1 agregada
+      expect(registrarConsumo).toHaveBeenNthCalledWith(1, expect.objectContaining({
+        companyId: 'company-1', proveedor: 'openai', operacion: 'modo_operador', tokensEntrada: 200, tokensSalida: 30, resultado: 'exito',
+      }));
+      expect(registrarConsumo).toHaveBeenNthCalledWith(2, expect.objectContaining({ tokensEntrada: 250, tokensSalida: 15 }));
+    });
+
+    test('alcance plataforma (sin company_id) → registrarConsumo recibe companyId undefined, nunca inventado', async () => {
+      const openaiClient = { chat: { completions: { create: jest.fn().mockResolvedValue({ ...respuestaTextoDirecta('ok'), usage: { prompt_tokens: 10, completion_tokens: 5 } }) } } };
+      const registrarConsumo = jest.fn().mockResolvedValue(undefined);
+
+      await preguntar({ supabase: {}, openaiClient, pregunta: 'pregunta', alcance: { nivel: 'plataforma' }, registrarConsumo });
+
+      expect(registrarConsumo).toHaveBeenCalledWith(expect.objectContaining({ companyId: undefined, organizationId: undefined }));
+    });
+
+    test('si OpenAI falla en una iteración, registra resultado "error" sin tokens, nunca detiene el fallback de respuesta', async () => {
+      const openaiClient = { chat: { completions: { create: jest.fn().mockRejectedValue(new Error('rate limit')) } } };
+      const registrarConsumo = jest.fn().mockResolvedValue(undefined);
+
+      const resultado = await preguntar({ supabase: {}, openaiClient, pregunta: 'pregunta', alcance: ALCANCE_EMPRESA, registrarConsumo });
+
+      expect(resultado.error).toBe('rate limit');
+      expect(registrarConsumo).toHaveBeenCalledWith(expect.objectContaining({ resultado: 'error', tokensEntrada: null, tokensSalida: null }));
+    });
+
+    test('sin registrarConsumo inyectado, preguntar() funciona idéntico a antes', async () => {
+      const openaiClient = { chat: { completions: { create: jest.fn().mockResolvedValue(respuestaTextoDirecta('ok')) } } };
+      const resultado = await preguntar({ supabase: {}, openaiClient, pregunta: 'pregunta', alcance: ALCANCE_EMPRESA });
+      expect(resultado.respuesta_texto).toBe('ok');
+    });
   });
 });
