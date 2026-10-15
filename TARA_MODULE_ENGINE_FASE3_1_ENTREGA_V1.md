@@ -52,12 +52,18 @@ Confirmé que este repo no tiene infraestructura de pruebas de frontend (cero ar
 - `requireAdmin` sigue siendo el único guardián de estas rutas — ningún cambio de permisos.
 - `modulos_empresa` / `modulo-engine.js` / el piloto de observación de Tickets no se tocaron.
 
-## 7. Pendiente de tu autorización separada (no se hizo aquí)
+## 7. Actualización 2026-10-17 — Fase 3.2 completada
 
-1. Correr la migración 130 contra producción.
-2. Poblar `limites.modulos.incluidos` para los 4 planes reales (Fase 3.2, ya identificada en la propuesta: los 13 módulos en los 4 planes, según tu decisión comercial confirmada).
-3. Push de estos commits.
+Autorizaste la Fase 3.2 el mismo día. Se corrió contra producción, por ti, el SQL con fusión aditiva (`limites || jsonb_build_object(...)`) — verificado antes (lectura real de los 4 planes + catálogo real de 13 módulos) y después (los 4 planes muestran `modulos.incluidos` con los 13 códigos, `schema_version: 1`, y **ningún otro valor de `limites` cambió** respecto a la lectura previa). Los 4 planes reales (Launch/Professional/Unlimited/Enterprise) ya tienen el catálogo completo asignado, consistente con la decisión comercial confirmada.
+
+Migración 130 también corrida en producción (con la corrección: incluye `'demo_activar'`/`'demo_finalizar'`, que la primera versión había omitido). Commits de Fase 3.1 (`5fafe5c` y anteriores) ya están en `origin/main`.
+
+## 8. Pendiente, sin autorizar todavía
+
+- Conectar `HerramientasTab.jsx` / `POST /api/config/modulos/:codigo/activar` (Fase 3.3 de la propuesta) — UI de empresa para "Mi empresa → Explorar herramientas".
+- Tabla `solicitudes_ampliacion` (Fase 3.4).
+- Cambiar `requireModuloActivo()` de observación a bloqueo real (requiere revisar datos reales de `modulo_enforcement_observaciones` primero, Fase 2).
 
 ---
 
-Sin despliegues, sin migraciones corridas, sin cambios a los planes reales — tal como pediste.
+Fase 3.1 y 3.2 completas, en producción, sin tocar nada fuera de lo autorizado explícitamente en cada paso.
