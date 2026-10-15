@@ -93,6 +93,7 @@ const { aplicarDescuento: aplicarDescuentoCotizacion, autorizarDescuento: autori
 const { transcribirAudio, describirImagen, describirDocumento } = require('./modules/adjuntos-ia');
 const { reclasificarManualmente, OPCIONES_RECLASIFICACION_MANUAL } = require('./modules/clasificacion-cliente');
 const { registrarConsumoIA } = require('./modules/ia-consumo');
+const { requireModuloActivo } = require('./modules/modulo-engine');
 const { procesarReciboCFE, extraerDatosReciboCFE, normalizarDatosRecibo } = require('./modules/recibo-cfe');
 const { esGerencial, requirePermiso } = require('./modules/permisos');
 const { crearSolicitud: crearSolicitudConocimiento, listarSolicitudes: listarSolicitudesConocimiento, responderSolicitud: responderSolicitudConocimiento, rechazarSolicitud: rechazarSolicitudConocimiento } = require('./modules/knowledge-requests');
@@ -3422,7 +3423,7 @@ app.post('/api/mantenimientos/:id/programar-siguiente', requireAuth, requirePerm
   }
 });
 
-app.post('/api/tickets', requireAuth, requirePermiso('tickets', 'crear'), async (req, res) => {
+app.post('/api/tickets', requireAuth, requireModuloActivo('tickets'), requirePermiso('tickets', 'crear'), async (req, res) => {
   try {
     const ticket = await crearTicket(req.supabase, {
       companyId: req.usuario.company_id, clienteId: req.body?.clienteId, proyectoId: req.body?.proyectoId, equipoInstaladoId: req.body?.equipoInstaladoId,
@@ -3434,7 +3435,7 @@ app.post('/api/tickets', requireAuth, requirePermiso('tickets', 'crear'), async 
   }
 });
 
-app.get('/api/tickets', requireAuth, requirePermiso('tickets', 'ver'), async (req, res) => {
+app.get('/api/tickets', requireAuth, requireModuloActivo('tickets'), requirePermiso('tickets', 'ver'), async (req, res) => {
   try {
     res.json(await listarTickets(req.supabase, req.usuario.company_id, { estado: req.query.estado, prioridad: req.query.prioridad, clienteId: req.query.clienteId }));
   } catch (e) {
@@ -3442,7 +3443,7 @@ app.get('/api/tickets', requireAuth, requirePermiso('tickets', 'ver'), async (re
   }
 });
 
-app.get('/api/tickets/:id', requireAuth, requirePermiso('tickets', 'ver'), async (req, res) => {
+app.get('/api/tickets/:id', requireAuth, requireModuloActivo('tickets'), requirePermiso('tickets', 'ver'), async (req, res) => {
   try {
     const ticket = await obtenerTicket(req.supabase, req.usuario.company_id, req.params.id);
     if (!ticket) return res.status(404).json({ error: 'Ticket no encontrado' });
@@ -3452,7 +3453,7 @@ app.get('/api/tickets/:id', requireAuth, requirePermiso('tickets', 'ver'), async
   }
 });
 
-app.patch('/api/tickets/:id', requireAuth, requirePermiso('tickets', 'editar'), async (req, res) => {
+app.patch('/api/tickets/:id', requireAuth, requireModuloActivo('tickets'), requirePermiso('tickets', 'editar'), async (req, res) => {
   try {
     res.json(await actualizarTicket(req.supabase, { companyId: req.usuario.company_id, ticketId: req.params.id, cambios: req.body || {} }));
   } catch (e) {
@@ -3460,7 +3461,7 @@ app.patch('/api/tickets/:id', requireAuth, requirePermiso('tickets', 'editar'), 
   }
 });
 
-app.patch('/api/tickets/:id/estado', requireAuth, requirePermiso('tickets', 'editar'), async (req, res) => {
+app.patch('/api/tickets/:id/estado', requireAuth, requireModuloActivo('tickets'), requirePermiso('tickets', 'editar'), async (req, res) => {
   try {
     res.json(await actualizarEstadoTicket(req.supabase, { companyId: req.usuario.company_id, ticketId: req.params.id, estado: req.body?.estado, usuarioId: req.usuario.id }));
   } catch (e) {
@@ -3468,7 +3469,7 @@ app.patch('/api/tickets/:id/estado', requireAuth, requirePermiso('tickets', 'edi
   }
 });
 
-app.post('/api/tickets/:id/comentarios', requireAuth, requirePermiso('tickets', 'editar'), async (req, res) => {
+app.post('/api/tickets/:id/comentarios', requireAuth, requireModuloActivo('tickets'), requirePermiso('tickets', 'editar'), async (req, res) => {
   try {
     res.json(await agregarComentarioTicket(req.supabase, { companyId: req.usuario.company_id, ticketId: req.params.id, texto: req.body?.texto, usuarioId: req.usuario.id }));
   } catch (e) {
