@@ -4,9 +4,10 @@ const { calcularEspejoDesdeNavLabels } = require('../modules/modulos-espejo');
 const { MODULOS_PERMISOS } = require('../modules/permisos');
 
 describe('calcularEspejoDesdeNavLabels()', () => {
-  test('nav_labels real de Nort Energy (snapshot exacto, 2026-10-16) → predicción exacta: 8 activos, 2 inactivos', () => {
-    // Mismo arreglo real leído de producción al diseñar esta fase — fijado
-    // aquí para que el test no dependa de que los datos reales no cambien.
+  test('nav_labels real de Nort Energy (snapshot exacto, 2026-10-17, con integrado:true en instalaciones/cobranza) → predicción exacta', () => {
+    // Mismo arreglo real leído de producción — con el paso previo del script
+    // ya aplicado (integrado:true en instalaciones/cobranza, pedido el
+    // 2026-10-17 para no presentarlas como "desactivadas").
     const navNortEnergy = [
       { ruta: '/operaciones', habilitado: true },
       { ruta: '/crm/pipeline', modulo: 'crm', habilitado: true },
@@ -19,9 +20,9 @@ describe('calcularEspejoDesdeNavLabels()', () => {
       { ruta: '/conversaciones', habilitado: true },
       { ruta: '/inbox', habilitado: true },
       { ruta: '/agenda', habilitado: true },
-      { ruta: '/instalaciones', modulo: 'instalaciones', habilitado: false },
+      { ruta: '/instalaciones', modulo: 'instalaciones', habilitado: false, integrado: true },
       { ruta: '/tramites-cfe', modulo: 'tramites_cfe', habilitado: true },
-      { ruta: '/cobranza', modulo: 'cobranza', habilitado: false },
+      { ruta: '/cobranza', modulo: 'cobranza', habilitado: false, integrado: true },
       { ruta: '/inventario', modulo: 'inventario', habilitado: true },
       { ruta: '/compras', modulo: 'compras', habilitado: true },
       { ruta: '/garantias', modulo: 'garantias', habilitado: true },
@@ -33,14 +34,29 @@ describe('calcularEspejoDesdeNavLabels()', () => {
     ];
 
     const espejo = calcularEspejoDesdeNavLabels(navNortEnergy);
-    const porModulo = Object.fromEntries(espejo.map((e) => [e.modulo_codigo, e.activo]));
+    const porModulo = Object.fromEntries(espejo.map((e) => [e.modulo_codigo, e.estado]));
 
     expect(espejo).toHaveLength(10);
     expect(porModulo).toEqual({
-      crm: true, cotizaciones: true, tramites_cfe: true, inventario: true, compras: true,
-      garantias: true, mantenimiento: true, tickets: true,
-      instalaciones: false, cobranza: false,
+      crm: 'activo', cotizaciones: 'activo', tramites_cfe: 'activo', inventario: 'activo', compras: 'activo',
+      garantias: 'activo', mantenimiento: 'activo', tickets: 'activo',
+      instalaciones: 'integrado', cobranza: 'integrado',
     });
+  });
+
+  test('integrado:true nunca se interpreta como "inactivo" — gana sobre habilitado:false', () => {
+    const espejo = calcularEspejoDesdeNavLabels([{ ruta: '/x', modulo: 'instalaciones', habilitado: false, integrado: true }]);
+    expect(espejo).toEqual([{ modulo_codigo: 'instalaciones', estado: 'integrado' }]);
+  });
+
+  test('habilitado:false SIN integrado → inactivo de verdad, nunca se confunde con integrado', () => {
+    const espejo = calcularEspejoDesdeNavLabels([{ ruta: '/x', modulo: 'cobranza', habilitado: false }]);
+    expect(espejo).toEqual([{ modulo_codigo: 'cobranza', estado: 'inactivo' }]);
+  });
+
+  test('habilitado:true → activo, integrado:true no se necesita ni se infiere para módulos con nav propia', () => {
+    const espejo = calcularEspejoDesdeNavLabels([{ ruta: '/x', modulo: 'crm', habilitado: true }]);
+    expect(espejo).toEqual([{ modulo_codigo: 'crm', estado: 'activo' }]);
   });
 
   test('empresa sin ningún campo "modulo" en su nav (las otras 16 empresas reales de TARA hoy) → espejo vacío, nunca inventa filas', () => {
@@ -59,18 +75,17 @@ describe('calcularEspejoDesdeNavLabels()', () => {
     expect(calcularEspejoDesdeNavLabels([])).toEqual([]);
   });
 
-  test('el mismo módulo repetido en 2 entradas de nav → una sola fila, activo si CUALQUIERA de las entradas está habilitada', () => {
+  test('el mismo módulo repetido en 2 entradas → una sola fila, gana el estado de mayor prioridad (integrado > activo > inactivo)', () => {
     const nav = [
       { ruta: '/crm/pipeline', modulo: 'crm', habilitado: false },
       { ruta: '/crm', modulo: 'crm', habilitado: true },
     ];
-    const espejo = calcularEspejoDesdeNavLabels(nav);
-    expect(espejo).toEqual([{ modulo_codigo: 'crm', activo: true }]);
+    expect(calcularEspejoDesdeNavLabels(nav)).toEqual([{ modulo_codigo: 'crm', estado: 'activo' }]);
   });
 
-  test('entrada con modulo pero sin habilitado (undefined) → activo false, nunca se asume true por default', () => {
+  test('entrada con modulo pero sin habilitado (undefined) → inactivo, nunca se asume activo por default', () => {
     const espejo = calcularEspejoDesdeNavLabels([{ ruta: '/x', modulo: 'tickets' }]);
-    expect(espejo).toEqual([{ modulo_codigo: 'tickets', activo: false }]);
+    expect(espejo).toEqual([{ modulo_codigo: 'tickets', estado: 'inactivo' }]);
   });
 });
 

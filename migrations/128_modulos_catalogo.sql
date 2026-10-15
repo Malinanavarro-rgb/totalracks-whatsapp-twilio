@@ -1,5 +1,6 @@
--- TARA Matrix™ — TARA Module Engine, Fase 0-1 (Alina, 2026-10-16, ver
--- TARA_MODULE_ENGINE_PLAN_V1.md)
+-- TARA Matrix™ — TARA Module Engine, Fase 0-1 (Alina, 2026-10-16, revisado
+-- 2026-10-17 tras tu revisión del informe de entrega de la Fase 0-1 —
+-- ver TARA_MODULE_ENGINE_PLAN_V1.md).
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Fase 0: catálogo universal de módulos. Reutiliza los mismos identificadores
 -- de texto de modules/permisos.js::MODULOS_PERMISOS (crm, cotizaciones, etc.)
@@ -12,9 +13,15 @@
 -- real detrás (confirmado en NORT_ENERGY_AUDIT_V2.md), y esta fase registra
 -- capacidades reales, no páginas pendientes.
 --
--- Reversible: DROP TABLE modulos_empresa; DROP TABLE modulos_catalogo;
--- (en ese orden, por la FK) — ninguna otra tabla referencia estas dos todavía.
--- Idempotente: CREATE TABLE IF NOT EXISTS + ON CONFLICT DO NOTHING en el seed.
+-- REVERSIÓN — en este orden (por las FK), nada más referencia estas 2 tablas
+-- ni la columna nueva de `companies` todavía (Fase 2 no implementada):
+--   DROP TABLE modulos_empresa;
+--   DROP TABLE modulos_catalogo;
+--   ALTER TABLE companies DROP COLUMN module_engine_configurado_en;
+--
+-- IDEMPOTENCIA — correr este archivo 2 veces es seguro: CREATE TABLE IF NOT
+-- EXISTS y ON CONFLICT DO NOTHING hacen que la segunda corrida no cambie
+-- nada (ni falle, ni duplique filas del catálogo).
 CREATE TABLE IF NOT EXISTS modulos_catalogo (
   codigo text PRIMARY KEY,
   nombre text NOT NULL,
@@ -29,19 +36,41 @@ CREATE TABLE IF NOT EXISTS modulos_catalogo (
 
 -- Fase 1: configuración real por empresa — puro registro todavía, NINGÚN
 -- middleware ni ruta lo consulta en esta fase (requireModuloActivo queda
--- para Fase 2, con su propia autorización). Sin fila para una empresa+módulo
--- = sin opinión registrada todavía (una futura Fase 2 debe tratar esto como
--- "activo", igual que roles_permisos trata "sin matriz configurada").
+-- para Fase 2, con su propia autorización).
+--
+-- `estado` (3 valores, no un booleano) — corrección pedida el 2026-10-17:
+-- un booleano activo/inactivo no distingue "este módulo no se usa" de "se
+-- usa de verdad, solo que vive integrado en otra pantalla, sin nav propia"
+-- (caso real: Instalaciones/Cobranza de Nort Energy, vía Proyecto 360°).
+--   'activo'    — módulo independiente, con su propia navegación.
+--   'integrado' — funcionalidad real en uso, sin nav propia (vive dentro de
+--                 otra pantalla) — NUNCA se presenta comercialmente como
+--                 desactivado.
+--   'inactivo'  — genuinamente no se usa hoy.
+--
+-- Sin fila para una empresa+módulo = sin opinión registrada todavía (una
+-- futura Fase 2 debe tratar esto como "activo", igual que roles_permisos
+-- trata "sin matriz configurada" — cero regresión).
 CREATE TABLE IF NOT EXISTS modulos_empresa (
   company_id uuid NOT NULL REFERENCES companies(id),
   modulo_codigo text NOT NULL REFERENCES modulos_catalogo(codigo),
-  activo boolean NOT NULL DEFAULT false,
+  estado text NOT NULL DEFAULT 'activo' CHECK (estado IN ('activo', 'integrado', 'inactivo')),
   activado_en timestamptz,
   activado_por uuid,
   PRIMARY KEY (company_id, modulo_codigo)
 );
 
 CREATE INDEX IF NOT EXISTS idx_modulos_empresa_company ON modulos_empresa (company_id);
+
+-- Distingue, a nivel EMPRESA (no por módulo), "nunca se migró al Module
+-- Engine" (NULL — las 16 empresas que no son Nort Energy, hoy; tratar
+-- exactamente como hoy, sin restricción) de "ya se migró, aunque sea con
+-- cero módulos activos asignados" (no NULL — una futura Fase 2 decide qué
+-- hacer con ese caso explícitamente, nunca se confunde con "pendiente de
+-- configurar"). Pedido explícito del 2026-10-17 — sin esto, una empresa
+-- recién migrada sin ningún módulo activo sería indistinguible de una que
+-- nunca se tocó.
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS module_engine_configurado_en timestamptz;
 
 -- Catálogo inicial — 13 módulos reales (12 de MODULOS_PERMISOS + agenda).
 -- 'configuracion' nunca se vende/activa por separado (toda empresa la
