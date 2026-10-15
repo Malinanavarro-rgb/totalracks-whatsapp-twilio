@@ -399,4 +399,9 @@ export const api = {
   checkoutSession:         (datos) => pedir('/api/billing/checkout-session', { method: 'POST', body: JSON.stringify(datos) }),
   portalSession:           (datos) => pedir('/api/billing/portal-session', { method: 'POST', body: JSON.stringify(datos) }),
   reintentarPago:          () => pedir('/api/billing/reintentar-pago', { method: 'POST' }),
+
+  // Portal del Cliente — Explorar herramientas (Configuración, Fase 3.3/3.4)
+  modulosEmpresa:          () => pedir('/api/config/modulos'),
+  activarModulo:           (codigo) => pedir(`/api/config/modulos/${codigo}/activar`, { method: 'POST' }),
+  solicitarAmpliacion:     (codigo, notas) => pedir(`/api/config/modulos/${codigo}/solicitar-ampliacion`, { method: 'POST', body: JSON.stringify({ notas }) }),
 };

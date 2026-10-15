@@ -140,6 +140,8 @@ const { obtenerPlantillaDeEmpresa }      = require('./modules/plantillas-industr
 const { crearOrganizacionConCompany, listarOrganizaciones, obtenerOrganizacion } = require('./modules/organizaciones');
 const { listarPlanes, crearPlan, actualizarPlan } = require('./modules/planes');
 const { listarModulosCatalogo } = require('./modules/modulos-catalogo');
+const { listarModulosEmpresa, activarModulo } = require('./modules/modulos-empresa');
+const { crearSolicitud, listarSolicitudes, revisarSolicitud } = require('./modules/solicitudes-ampliacion');
 const {
   obtenerSuscripcionVigente, crearSuscripcionManual, suspenderOrganizacion, reactivarOrganizacion,
   extenderPrueba, regalarMeses, cancelarSuscripcion, aplicarDescuento,
@@ -4091,6 +4093,33 @@ app.patch('/api/admin/planes/:id', requireAdmin, async (req, res) => {
   }
 });
 
+// Fase 3.4 — revisión manual de solicitudes de ampliación (sin gateway de pago conectado).
+app.get('/api/admin/solicitudes-ampliacion', requireAdmin, async (req, res) => {
+  try {
+    res.json(await listarSolicitudes(supabaseServicio, { estado: req.query.estado }));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/admin/solicitudes-ampliacion/:id', requireAdmin, async (req, res) => {
+  try {
+    const { aprobar, notas } = req.body || {};
+    if (typeof aprobar !== 'boolean') return res.status(400).json({ error: 'aprobar (boolean) es requerido' });
+
+    const data = await revisarSolicitud(supabaseServicio, req.params.id, { aprobar, revisadoPor: req.admin.id, notasRevision: notas });
+    await registrarEventoAdmin(supabaseServicio, {
+      adminId: req.admin.id,
+      accion: aprobar ? 'aprobar_solicitud_ampliacion' : 'rechazar_solicitud_ampliacion',
+      organizationId: data.organization_id, companyId: data.company_id,
+      detalle: { solicitudId: data.id, moduloCodigo: data.modulo_codigo },
+    });
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Suscripciones — alta manual (sin Stripe todavía) y acciones de "licencias".
 app.post('/api/admin/suscripciones', requireAdmin, async (req, res) => {
   try {
@@ -4310,6 +4339,45 @@ app.get('/api/billing/pagos', requireAuth, soloGerencial, async (req, res) => {
 // pago real que reintentar — nunca simula un éxito falso.
 app.post('/api/billing/reintentar-pago', requireAuth, soloGerencial, async (req, res) => {
   res.status(501).json({ error: 'Disponible cuando se conecte un proveedor de pagos' });
+});
+
+// Portal del Cliente — "Explorar herramientas" (TARA Module Engine, Fase
+// 3.3): catálogo + estado real de la empresa + si está incluido en su plan
+// vigente. Activar solo escribe si el módulo SÍ está incluido en el plan
+// (nunca cobra); si no, la empresa debe usar solicitar-ampliacion.
+app.get('/api/config/modulos', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    const organizationId = await _organizationIdDeUsuario(req);
+    res.json(await listarModulosEmpresa(supabaseServicio, { companyId: req.usuario.company_id, organizationId }));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/config/modulos/:codigo/activar', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    const organizationId = await _organizationIdDeUsuario(req);
+    res.json(await activarModulo(supabaseServicio, {
+      companyId: req.usuario.company_id, organizationId, moduloCodigo: req.params.codigo, activadoPor: req.usuario.id,
+    }));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// Fase 3.4: solicitud de ampliación (módulo no incluido en el plan) — el
+// Super Admin la revisa manualmente, sin gateway de pago conectado.
+app.post('/api/config/modulos/:codigo/solicitar-ampliacion', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    const organizationId = await _organizationIdDeUsuario(req);
+    const data = await crearSolicitud(supabaseServicio, {
+      companyId: req.usuario.company_id, organizationId, moduloCodigo: req.params.codigo,
+      notas: req.body?.notas, solicitadoPor: req.usuario.id,
+    });
+    res.status(201).json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Webhook de Stripe: SIN cookie/sesión — autenticado por firma. Reusa

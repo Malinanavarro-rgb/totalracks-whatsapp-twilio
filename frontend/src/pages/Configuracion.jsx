@@ -12,6 +12,7 @@ import PipelineTab from './configuracion/PipelineTab';
 import CanalesTab from './configuracion/CanalesTab';
 import WorkflowsTab from './configuracion/WorkflowsTab';
 import SuscripcionTab from './configuracion/SuscripcionTab';
+import HerramientasTab from './configuracion/HerramientasTab';
 import DocumentosProveedorTab from './configuracion/DocumentosProveedorTab';
 
 // Mismo set que `soloGerencial` en server.js (owner/administrador — SIN
@@ -41,6 +42,9 @@ const TABS = [
   // expone precio/facturación de la empresa — el resto de Configuración no
   // muestra información financiera, así que no aplica la misma regla.
   { id: 'suscripcion',   etiqueta: 'Suscripción y Facturación', Componente: SuscripcionTab, soloGerencial: true },
+  // Misma sensibilidad que Suscripción: activar/solicitar módulos cambia
+  // la capacidad operativa contratada de la empresa.
+  { id: 'herramientas',  etiqueta: 'Explorar herramientas', Componente: HerramientasTab, soloGerencial: true },
 ];
 
 export default function Configuracion() {

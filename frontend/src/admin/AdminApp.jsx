@@ -10,6 +10,7 @@ import OrganizacionDetalle from './pages/OrganizacionDetalle';
 import Planes from './pages/Planes';
 import CentroCobro from './pages/CentroCobro';
 import Auditoria from './pages/Auditoria';
+import SolicitudesAmpliacion from './pages/SolicitudesAmpliacion';
 import DemoEnVivo from './pages/DemoEnVivo';
 import './admin.css';
 
@@ -38,6 +39,7 @@ export default function AdminApp() {
           <Route path="planes" element={<Planes />} />
           <Route path="centro-cobro" element={<CentroCobro />} />
           <Route path="auditoria" element={<Auditoria />} />
+          <Route path="solicitudes-ampliacion" element={<SolicitudesAmpliacion />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/superadmin" replace />} />

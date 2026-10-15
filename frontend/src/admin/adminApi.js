@@ -68,6 +68,10 @@ export const adminApi = {
   analitica: () => pedir('/api/admin/analitica'),
   auditLog: (organizationId) => pedir(`/api/admin/audit-log${organizationId ? `?organizationId=${organizationId}` : ''}`),
 
+  solicitudesAmpliacion: (estado) => pedir(`/api/admin/solicitudes-ampliacion${estado ? `?estado=${estado}` : ''}`),
+  revisarSolicitudAmpliacion: (id, aprobar, notas) =>
+    pedir(`/api/admin/solicitudes-ampliacion/${id}`, { method: 'PATCH', body: JSON.stringify({ aprobar, notas }) }),
+
   empresasDemo: () => pedir('/api/admin/demo/empresas'),
   sesionesDemoActivas: () => pedir('/api/admin/demo/activas'),
   activarDemo: (companyId, authorizedPhone, duracionMinutos) =>

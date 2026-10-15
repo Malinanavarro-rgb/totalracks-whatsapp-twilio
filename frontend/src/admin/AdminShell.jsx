@@ -8,6 +8,7 @@ const NAV = [
   { ruta: '/superadmin/demo', etiqueta: 'Demo en Tiempo Real', icono: '●' },
   { ruta: '/superadmin/centro-cobro', etiqueta: 'Centro de Cobro', icono: '$' },
   { ruta: '/superadmin/planes', etiqueta: 'Planes', icono: '◈' },
+  { ruta: '/superadmin/solicitudes-ampliacion', etiqueta: 'Solicitudes', icono: '↑' },
   { ruta: '/superadmin/auditoria', etiqueta: 'Auditoría', icono: '≡' },
 ];
 
