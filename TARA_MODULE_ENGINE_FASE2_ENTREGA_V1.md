@@ -19,12 +19,31 @@ También encontré 2 inconsistencias en el texto comercial ya existente (`planes
 
 | Plan | Módulos propuestos | Diferenciador real (ya existe en `limites`) |
 |---|---|---|
-| Launch | crm, cotizaciones, agenda, configuracion | Igual que Professional en funciones (coincide con su propio texto de perks) — se diferencia por `max_sucursales`/duración de prueba, no por módulos |
+| Launch | Los 13 completos (confirmado: `dias_prueba:30`, mismos `limites` que Professional, perks dice literalmente "Acceso completo a Professional") | 30 días de prueba — se diferencia por duración, nunca por módulos |
 | Professional | Los 13 completos (coincide con el uso real de Nort Energy/Total Racks) | `api:false`, `webhooks:false`, `max_sucursales:2` — ya existente |
 | Unlimited | Los 13 completos | `api:true`, `webhooks:true`, `max_sucursales:null` (ilimitadas) — ya existente |
 | Enterprise | Los 13 completos + lo que se negocie por contrato | Personalizado, sin límites — ya existente |
 
-En otras palabras: con la evidencia real, **la diferenciación entre planes ya vive en `limites` (sucursales, API, webhooks), no en qué módulos se pueden usar** — los 13 módulos del catálogo son, hoy, parte de la operación básica de cualquier empresa de este giro. Si quieres que SÍ exista una diferenciación real por módulo (ej. que Launch no incluya Inventario), dime explícitamente cuáles — no lo voy a inferir ni a aplicar solo.
+En otras palabras: con la evidencia real, **la diferenciación entre planes ya vive en `limites` (sucursales, API, webhooks), no en qué módulos se pueden usar** — los 13 módulos del catálogo son, hoy, parte de la operación básica de cualquier empresa de este giro.
+
+---
+
+## 1.1 Decisión comercial confirmada (2026-10-17, tras tu revisión)
+
+Confirmaste la tabla de arriba — **los 13 módulos disponibles en Launch, Professional, Unlimited y Enterprise**, sin retirar nada que Nort Energy/Total Racks ya usan. La diferenciación entre planes se basa en 8 dimensiones que tú misma listaste:
+
+| Dimensión | ¿Existe ya en `planes.limites`? | Nota |
+|---|---|---|
+| Usuarios permitidos | Sí (`max_usuarios`) | Hoy `null` (ilimitado) en los 4 planes reales — pendiente de definir límites reales si se desea diferenciar |
+| Sucursales | Sí (`max_sucursales`) | Launch/Professional: 2. Unlimited/Enterprise: ilimitadas |
+| Integraciones API | Sí (`api`) | Launch/Professional: `false`. Unlimited/Enterprise: `true` |
+| Webhooks | Sí (`webhooks`) | Mismo patrón que API |
+| **Consumo de inteligencia artificial** | **No existe todavía** | Ahora es viable gracias a `ia_consumo_logs` (Fase 1 de TARA AI Engine, 2026-10-16) — ya se está registrando costo real por empresa; falta sumarlo y compararlo contra un límite por plan. Diseño pendiente, no implementado |
+| **Automatizaciones** | **No existe todavía** | No hay un contador de automatizaciones activas por empresa hoy — requiere definir qué cuenta como "una automatización" antes de poder limitarlo |
+| Capacidad operativa | Parcial (`max_sucursales`/`max_usuarios` ya la aproximan) | No hay un límite explícito separado hoy |
+| Soporte | No estructurado en `limites` | Hoy es un perk de texto libre ("Soporte prioritario", "Soporte dedicado"), no un dato consultable |
+
+**No se modificó ningún precio, límite ni beneficio existente** — esta tabla es un mapa de qué ya existe vs. qué falta diseñar, no un cambio aplicado.
 
 ---
 
