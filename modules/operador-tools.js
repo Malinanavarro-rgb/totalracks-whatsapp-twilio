@@ -522,6 +522,21 @@ const TOOLS_SOLO_GERENCIAL = new Set([
   'aplicar_refuerzo_kce', 'fusionar_aprendizajes', 'resolver_alerta_kce',
 ]);
 
+// TARA AI — Consulta Empresarial, Fase 1 (Alina, 2026-10-16). Lista blanca
+// EXPLÍCITA (no "todo menos TOOLS_SOLO_GERENCIAL") para que agregar una tool
+// nueva al catálogo nunca la habilite aquí por default — cada una se audita
+// y se agrega a mano. Las 8 de abajo ya están auditadas: las 6 genéricas
+// filtran por company_id vía _companyIdsDeAlcance/_aplicarFiltroCompany, y
+// las 2 de catálogo/FAQ exigen _exigirAlcanceEmpresa. Ninguna de las 10
+// tools de TOOLS_SOLO_GERENCIAL (BMC/KCE, crean/confirman/rechazan/
+// modifican memoria) está habilitada todavía para este contexto — pedido
+// explícito de la autorización de Fase 1.
+const TOOLS_CONSULTA_EMPRESARIAL = [
+  'tareas_abiertas', 'proyectos_en_riesgo', 'decisiones_recientes',
+  'buscar_documentos', 'resumen_pipeline', 'buscar_cliente',
+  'consultar_catalogo_tecnico', 'consultar_faq_solar',
+];
+
 /**
  * Ejecuta una tool por nombre, aplicando el alcance calculado por el
  * servidor. Nunca confía en un company_id/organization_id que venga en
@@ -567,4 +582,5 @@ module.exports = {
   CATALOGO_TOOLS,
   IMPLEMENTACIONES,
   TOOLS_SOLO_GERENCIAL,
+  TOOLS_CONSULTA_EMPRESARIAL,
 };

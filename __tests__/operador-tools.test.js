@@ -31,6 +31,7 @@ jest.mock('../modules/kce', () => ({
 const {
   tareasAbiertas, proyectosEnRiesgo, decisionesRecientes, buscarDocumentos,
   resumenPipeline, buscarCliente, ejecutarTool, CATALOGO_TOOLS, IMPLEMENTACIONES, TOOLS_SOLO_GERENCIAL,
+  TOOLS_CONSULTA_EMPRESARIAL,
   registrarAprendizajeNegocio, listarAprendizajesPendientes,
   confirmarAprendizajeTool, rechazarAprendizajeTool, marcarAprendizajeObsoletoTool,
   ejecutarKceTool, listarAlertasKceTool, aplicarRefuerzoKceTool, fusionarAprendizajesTool, resolverAlertaKceTool,
@@ -441,6 +442,24 @@ describe('operador-tools', () => {
       mockEjecutarKCE.mockResolvedValue({ ejecucion: {}, alertas: [], reporteTexto: 'reporte' });
       await ejecutarTool('ejecutar_kce', {}, {}, ALCANCE_EMPRESA, USUARIO, OPENAI_MOCK);
       expect(mockEjecutarKCE).toHaveBeenCalledWith({ supabase: {}, openaiClient: OPENAI_MOCK, company_id: COMPANY_A, usuario_id: 'user-1' });
+    });
+  });
+
+  describe('TOOLS_CONSULTA_EMPRESARIAL — TARA AI Consulta Empresarial, Fase 1 (2026-10-16)', () => {
+    test('todas las tools listadas existen en el catálogo real', () => {
+      const nombresReales = new Set(CATALOGO_TOOLS.map(t => t.function.name));
+      for (const nombre of TOOLS_CONSULTA_EMPRESARIAL) expect(nombresReales.has(nombre)).toBe(true);
+    });
+
+    test('CRÍTICO: ninguna tool de TOOLS_SOLO_GERENCIAL (BMC/KCE) está en la lista blanca', () => {
+      for (const nombre of TOOLS_CONSULTA_EMPRESARIAL) expect(TOOLS_SOLO_GERENCIAL.has(nombre)).toBe(false);
+    });
+
+    test('son exactamente las 8 tools de solo lectura ya auditadas, ni una más ni una menos', () => {
+      expect([...TOOLS_CONSULTA_EMPRESARIAL].sort()).toEqual([
+        'buscar_cliente', 'buscar_documentos', 'consultar_catalogo_tecnico', 'consultar_faq_solar',
+        'decisiones_recientes', 'proyectos_en_riesgo', 'resumen_pipeline', 'tareas_abiertas',
+      ]);
     });
   });
 });

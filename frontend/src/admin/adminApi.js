@@ -63,6 +63,9 @@ export const adminApi = {
 
   preguntarOperador: (pregunta) =>
     pedir('/api/admin/operador/preguntar', { method: 'POST', body: JSON.stringify({ pregunta }) }),
+  empresasConsultables: () => pedir('/api/admin/empresas-consultables'),
+  preguntarOperadorEmpresa: (companyId, pregunta) =>
+    pedir('/api/admin/operador/consultar-empresa', { method: 'POST', body: JSON.stringify({ companyId, pregunta }) }),
 
   centroCobro: () => pedir('/api/admin/centro-cobro'),
   analitica: () => pedir('/api/admin/analitica'),

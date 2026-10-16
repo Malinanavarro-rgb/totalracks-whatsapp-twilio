@@ -57,12 +57,17 @@ const SYSTEM_PROMPT = [
  * @param {{role: string, content: string}[]} [opciones.historialCorto]
  * @param {string} [opciones.modelo]
  * @param {Function} [opciones.registrarConsumo] - opcional, Fase 1 TARA AI Engine (2026-10-16): (datos) => Promise<void>, una llamada por cada iteración real de tool-calling — nunca agregado, cada iteración es una llamada facturable distinta
+ * @param {string[]} [opciones.herramientasPermitidas] - TARA AI Consulta Empresarial, Fase 1 (2026-10-16): lista blanca de nombres de tool (ver operador-tools.js::CATALOGO_TOOLS). Sin esto, comportamiento idéntico a antes (catálogo completo) — ningún caller existente se ve afectado. Con esto: (a) el modelo nunca VE en su schema las tools excluidas, (b) por si acaso, cualquier tool_call a un nombre fuera de la lista se rechaza también en el dispatcher, sin ejecutarse.
  * @returns {Promise<{respuesta_texto: string, tokens_total: number, iteraciones: number, tools_usadas: string[]}>}
  */
-async function preguntar({ supabase, openaiClient, pregunta, alcance, usuario, historialCorto = [], modelo = MODELO_DEFAULT, registrarConsumo }) {
+async function preguntar({ supabase, openaiClient, pregunta, alcance, usuario, historialCorto = [], modelo = MODELO_DEFAULT, registrarConsumo, herramientasPermitidas }) {
   if (!alcance || !alcance.nivel) {
     throw new Error('operador-engine.preguntar: alcance requerido (lo calcula el caller, nunca el usuario final)');
   }
+
+  const toolsDisponibles = herramientasPermitidas
+    ? CATALOGO_TOOLS.filter(t => herramientasPermitidas.includes(t.function.name))
+    : CATALOGO_TOOLS;
 
   // Business Memory Core (BMC): solo a nivel 'empresa' (una sola compañía) —
   // a nivel organización/plataforma habría que agregar el resumen de N
@@ -97,7 +102,7 @@ async function preguntar({ supabase, openaiClient, pregunta, alcance, usuario, h
       respuesta = await openaiClient.chat.completions.create({
         model:       modelo,
         messages,
-        tools:       CATALOGO_TOOLS,
+        tools:       toolsDisponibles,
         temperature: 0.3,
         max_tokens:  MAX_TOKENS_RESPUESTA,
       });
@@ -135,11 +140,17 @@ async function preguntar({ supabase, openaiClient, pregunta, alcance, usuario, h
         try { argumentos = JSON.parse(toolCall.function.arguments || '{}'); } catch { /* argumentos inválidos → {} */ }
 
         let resultado;
-        try {
-          resultado = await ejecutarTool(toolCall.function.name, argumentos, supabase, alcance, usuario, openaiClient);
-          toolsUsadas.push(toolCall.function.name);
-        } catch (e) {
-          resultado = { error: e.message };
+        if (herramientasPermitidas && !herramientasPermitidas.includes(toolCall.function.name)) {
+          // Nunca debería pasar (la tool ni siquiera estaba en el schema que vio el modelo) —
+          // defensa en profundidad explícita, nunca se ejecuta una tool fuera de la lista blanca.
+          resultado = { error: `"${toolCall.function.name}" no está disponible en este contexto.` };
+        } else {
+          try {
+            resultado = await ejecutarTool(toolCall.function.name, argumentos, supabase, alcance, usuario, openaiClient);
+            toolsUsadas.push(toolCall.function.name);
+          } catch (e) {
+            resultado = { error: e.message };
+          }
         }
 
         messages.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(resultado) });

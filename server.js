@@ -42,6 +42,8 @@ const { calcularEstadoDelDia }           = require('./modules/agenda-engine');
 const { resolverEvento }                = require('./modules/agenda-engine/recomendaciones');
 const { calcularCambiosNombreEmpresa }  = require('./modules/nombre-cliente');
 const { preguntar: preguntarOperador, convertirParaCliente } = require('./modules/operador-engine');
+const { TOOLS_CONSULTA_EMPRESARIAL } = require('./modules/operador-tools');
+const { resolverContextoEmpresarial, listarEmpresasConsultables } = require('./modules/operador-contexto-empresarial');
 const { resolverOCrearHilo, registrarMensaje, listarHilos, obtenerHilo, listarMensajesDeHilo, actualizarHilo } = require('./modules/inbox');
 const { analizarHilo, analizarConversacionPegada, analizarOportunidadParaCierre, programarAnalisis, obtenerAnalisisHilo } = require('./modules/inbox-analisis');
 const { tipoContenidoDeMime, subirAdjunto, generarUrlFirmada } = require('./modules/inbox-adjuntos');
@@ -3908,6 +3910,48 @@ app.post('/api/admin/operador/preguntar', requireAdmin, async (req, res) => {
     res.json(resultado);
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// TARA AI — Consulta Empresarial, Fase 1 (Alina, 2026-10-16). Ruta NUEVA,
+// separada de /api/admin/operador/preguntar de arriba (que sigue intacta,
+// sin alcance de empresa) — Super Admin elige UNA empresa de un selector
+// (nunca la escribe en el texto) y conversa solo sobre ella.
+//
+// El company_id SIEMPRE se resuelve y valida aquí, server-side, antes de
+// llamar al motor — nunca se construye a partir del texto de `pregunta` ni
+// de nada que decida el modelo. Catálogo de herramientas restringido a
+// TOOLS_CONSULTA_EMPRESARIAL (8 tools de solo lectura ya auditadas) — las
+// 10 de BMC/KCE (crean/confirman/rechazan/modifican memoria) quedan
+// deshabilitadas para esta ruta, sin excepción, en esta fase.
+//
+// Deliberadamente SIN `usuario`: ninguna tool gerencial-only es alcanzable
+// desde este catálogo restringido, así que no hace falta simular un rol —
+// evita crear una identidad ficticia de empleado para el Super Admin.
+app.get('/api/admin/empresas-consultables', requireAdmin, async (req, res) => {
+  try {
+    res.json(await listarEmpresasConsultables(supabaseServicio));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/admin/operador/consultar-empresa', requireAdmin, async (req, res) => {
+  try {
+    const { companyId, pregunta } = req.body || {};
+    if (!pregunta || !pregunta.trim()) return res.status(400).json({ error: 'pregunta requerida' });
+
+    const empresa = await resolverContextoEmpresarial(supabaseServicio, companyId);
+    const alcance = { nivel: 'empresa', company_id: empresa.id, organization_id: empresa.organization_id };
+
+    const resultado = await preguntarOperador({
+      supabase: supabaseServicio, openaiClient: openai, pregunta: pregunta.trim(), alcance,
+      herramientasPermitidas: TOOLS_CONSULTA_EMPRESARIAL,
+      registrarConsumo: (datos) => registrarConsumoIA(supabaseServicio, datos),
+    });
+    res.json({ ...resultado, empresa: { id: empresa.id, nombre: empresa.nombre } });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
   }
 });
 
