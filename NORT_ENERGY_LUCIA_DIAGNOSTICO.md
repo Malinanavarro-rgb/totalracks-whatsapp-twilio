@@ -179,3 +179,19 @@ Sin cambios de código — se apoya 100% en lo que ya se construyó en el punto 
 ---
 
 Quedo a la espera de tu autorización antes de implementar.
+
+---
+
+## Addendum 2026-10-17 — verificación en vivo + hallazgos nuevos
+
+Volviste a pedir este mismo diagnóstico (prompt extendido, con secciones de identidad, panel inteligente, pruebas y entregable). Antes de repetir el trabajo, verifiqué en vivo (solo lectura, Supabase real) que todo lo que afirma este documento sigue vigente hoy: `servicios` de Nort Energy tiene exactamente las 4 filas citadas arriba (incluyendo `mantenimiento paneles: $500 MXN / 30 min`), y `personalities.objetivo` es textualmente el citado en la sección 1. El diagnóstico de arriba sigue siendo válido tal cual — no se repite, se complementa con 4 hallazgos que tu nuevo prompt sí pide y el documento original no cubría:
+
+1. **"Panel Inteligente" (tu sección 10) no está cubierto arriba.** Hoy el panel de cliente (`frontend/src/pages/CrmClienteDetalle.jsx`) muestra `score_interes` (genérico 0-100, badge alta/media/baja intención) y `siguiente_accion` (de la oportunidad) — pero no desglosa INTENCIÓN / SERVICIO / ETAPA / DATOS FALTANTES / ESTADO como piezas separadas. Para construirlo: (a) el modelo tendría que devolver `servicio_detectado` y `datos_faltantes` en el schema JSON (ya devuelve algo parecido vía `categoria_principal`/`datos_extraidos`, falta formalizarlo), y (b) una sección nueva en ese componente para mostrarlo.
+
+2. **No existe "escalar a asesor humano" para Nort Energy (tu sección 9).** Ya existe en código un handler `crear_ticket_soporte` (`modules/orchestrator.js`, línea ~1252), pero está reservado explícitamente "únicamente TARA-OS" (el soporte de la propia plataforma) — confirmé en vivo que `personalities.capacidades` de Nort Energy es `null`, así que hoy Lucía solo tiene habilitada `crear_oportunidad`. Ni "escalar al asesor" ni "registrar la solicitud cuando falta información" existen hoy para esta empresa.
+
+3. **El score de interés es genérico, no distingue tipo de interés.** `actualizarScoreInteres()` suma +10 por turno con acción sin importar si la intención es venta nueva o mantenimiento — un cliente de mantenimiento ($500) sube el mismo score que uno interesado en un sistema nuevo. No es necesariamente un error, pero es una asimetría real no documentada antes.
+
+4. **`modules/mantenimientos.js` ya existe pero es de back-office, no conversacional.** Hay un motor completo (checklist, `programarSiguienteMantenimiento`, KPIs) para proyectos YA cerrados, pero no está conectado al Orchestrator/ActionRunner — Lucía no puede agendar un mantenimiento de seguimiento post-venta vía WhatsApp usando ese motor, solo lo usan técnicos/portal admin. La propuesta original (`servicios-relevantes.js`) resuelve al prospecto nuevo preguntando precio, no al cliente post-venta real.
+
+**Pendiente de tu decisión:** ¿el alcance de esta fase se queda en lo ya propuesto arriba (informar precio real + agendar cita, sin tocar escalación ni panel inteligente), o quieres que extienda la propuesta de implementación para cubrir también estos 4 puntos antes de autorizar?
