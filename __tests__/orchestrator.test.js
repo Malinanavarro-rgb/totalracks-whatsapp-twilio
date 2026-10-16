@@ -2675,4 +2675,64 @@ describe('Orchestrator — identificación obligatoria de contacto (nombre + mot
       expect(resolverIdentificacion(null, undefined)).toEqual({ nombre: null, motivo: null, estado: 'sin_identificar' });
     });
   });
+
+  // Hallazgo real de la prueba de validación en WhatsApp (2026-10-16): las
+  // acciones de un nodo de workflow completado (camino B) NO pasaban por el
+  // gate — _finalizarWorkflow llama a _ejecutarAcciones por su cuenta, nunca
+  // por el "accionesAutorizadas" filtrado del paso 9. Corregido el mismo día.
+  describe('camino B — acciones al completar un nodo de workflow también exigen identificación', () => {
+    const nodoFinalConAccionComercial = {
+      nombre: 'confirmar_cita', es_fin: true, campo: 'confirmacion', pregunta: '¿Confirmas tu cita?', modo_respuesta: 'replace_ai',
+      acciones: [{ tipo: 'agendar_cita', parametros: { inicio: '2026-08-01T10:00:00Z', fin: '2026-08-01T10:30:00Z' } }],
+    };
+
+    function clienteSinIdentificar() {
+      return { id: 42, telefono: '+5218112345678', nombre: 'Sin nombre', ciudad: 'Monterrey', fuente: 'WhatsApp', estado: 'Nuevo', score_interes: 0 };
+    }
+
+    test('CRÍTICO: nodo final con acción comercial, cliente SIN identificar → la acción NUNCA se ejecuta', async () => {
+      const wfEngine = makeWorkflowEngine({
+        obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+        obtenerNodoActual:   jest.fn().mockResolvedValue(nodoFinalConAccionComercial),
+        avanzar:             jest.fn().mockResolvedValue({ sesion: { ...sesionEnProceso, status: 'completado' }, completado: true, siguiente_nodo: null }),
+      });
+      const actionRunner = { ejecutar: jest.fn() };
+      const deps = makeDeps({ workflowEngine: wfEngine, actionRunner, obtenerOCrearCliente: jest.fn().mockResolvedValue(clienteSinIdentificar()) });
+      const orch = new Orchestrator(deps);
+
+      const resultado = await orch.procesarMensaje(makeMessage({ content: 'sí' }));
+
+      expect(actionRunner.ejecutar).not.toHaveBeenCalled();
+      expect(resultado.respuesta_texto).toMatch(/con quién tengo el gusto|en qué te puedo ayudar/i);
+    });
+
+    test('bloqueado por identificación: reabre la sesión de workflow (mismo mecanismo ya usado para faltan_datos/sin_disponibilidad)', async () => {
+      const wfEngine = makeWorkflowEngine({
+        obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+        obtenerNodoActual:   jest.fn().mockResolvedValue(nodoFinalConAccionComercial),
+        avanzar:             jest.fn().mockResolvedValue({ sesion: { ...sesionEnProceso, status: 'completado' }, completado: true, siguiente_nodo: null }),
+      });
+      const deps = makeDeps({ workflowEngine: wfEngine, obtenerOCrearCliente: jest.fn().mockResolvedValue(clienteSinIdentificar()) });
+      const orch = new Orchestrator(deps);
+
+      await orch.procesarMensaje(makeMessage({ content: 'sí' }));
+
+      expect(wfEngine.iniciarSesion).toHaveBeenCalled();
+    });
+
+    test('nodo final CON identificación completa: sigue funcionando exactamente igual que antes (sin regresión)', async () => {
+      const wfEngine = makeWorkflowEngine({
+        obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+        obtenerNodoActual:   jest.fn().mockResolvedValue(nodoFinalConAccionComercial),
+        avanzar:             jest.fn().mockResolvedValue({ sesion: { ...sesionEnProceso, status: 'completado' }, completado: true, siguiente_nodo: null }),
+      });
+      const actionRunner = { ejecutar: jest.fn().mockResolvedValue({ id: 'cita-1' }) };
+      const deps = makeDeps({ workflowEngine: wfEngine, actionRunner }); // makeCliente() default ya está identificado
+      const orch = new Orchestrator(deps);
+
+      await orch.procesarMensaje(makeMessage({ content: 'sí' }));
+
+      expect(actionRunner.ejecutar).toHaveBeenCalled();
+    });
+  });
 });

@@ -15,7 +15,7 @@ const multer       = require('multer');
 
 const { supabase, supabaseServicio, crearClienteConSesion, twilioClient, stripe, openai } = require('./modules/clients');
 const { obtenerConfigEmpresa }          = require('./modules/config');
-const { crearOrchestrator }             = require('./modules/orchestrator');
+const { crearOrchestrator, resolverIdentificacion } = require('./modules/orchestrator');
 const { TwilioWhatsAppAdapter }         = require('./adapters/channels/twilio-whatsapp');
 const { MetaCloudWhatsAppAdapter }      = require('./adapters/channels/meta-cloud-whatsapp');
 const { obtenerAdapterMetaParaEmpresa, conectarWhatsAppMeta } = require('./modules/meta-auth');
@@ -612,18 +612,31 @@ async function procesarMensajeEntrante(message, enviar, proveedor = 'desconocido
         // Si ya estamos exactamente en el nodo que dispara la acción, se
         // deja correr por el camino normal del workflow (evita disparo doble
         // en el mismo turno).
+        //
+        // Identificación obligatoria de contacto (Alina, 2026-10-16 —
+        // hallazgo real de la prueba de validación en WhatsApp: este atajo
+        // disparó ejecutar_motor_ingenieria con el cliente todavía en
+        // "Sin nombre"/sin motivo, porque vive fuera del Orchestrator y
+        // nunca pasaba por el gate de orchestrator.js). Mismo chequeo
+        // exacto (resolverIdentificacion, ya exportado) antes de disparar
+        // — si no está identificado, simplemente no se dispara aquí; el
+        // cliente sigue su turno normal por el camino del workflow (donde
+        // _finalizarWorkflow también lo bloquearía al llegar al nodo real).
         if (nodoAccion && sesionActiva.current_node !== nodoAccion.nombre) {
-          const capturedFields = {
-            ...(sesionActiva.captured_fields || {}),
-            ...Object.fromEntries(
-              Object.entries(resultado.ai_output?.datos_extraidos || {})
-                .filter(([, v]) => v != null && String(v).trim() !== '')
-            ),
-          };
-          const calculo = await correrCotizacionDesdeWorkflow(supabaseServicio, {
-            companyId: message.company_id, clienteId: cliente.id, capturedFields, destinatario: message.from,
-          });
-          if (calculo) yaRespondioIngenieria = true;
+          const identificacion = resolverIdentificacion(cliente, resultado.ai_output?.datos_contacto);
+          if (identificacion.estado === 'identificado') {
+            const capturedFields = {
+              ...(sesionActiva.captured_fields || {}),
+              ...Object.fromEntries(
+                Object.entries(resultado.ai_output?.datos_extraidos || {})
+                  .filter(([, v]) => v != null && String(v).trim() !== '')
+              ),
+            };
+            const calculo = await correrCotizacionDesdeWorkflow(supabaseServicio, {
+              companyId: message.company_id, clienteId: cliente.id, capturedFields, destinatario: message.from,
+            });
+            if (calculo) yaRespondioIngenieria = true;
+          }
         }
       }
     }

@@ -850,9 +850,25 @@ class Orchestrator {
   async _finalizarWorkflow(nodo, sesionCompletada, workflowId, ctx, clienteRaw, aiOutput, company_id, sessionId) {
     if (!nodo?.acciones?.length) return aiOutput.respuesta_texto;
 
-    const resultados = await this._ejecutarAcciones(
-      nodo.acciones, ctx, clienteRaw, aiOutput, sessionId, sesionCompletada?.captured_fields
+    // Identificación obligatoria de contacto (Alina, 2026-10-16 — hallazgo
+    // real de la prueba de validación: las acciones de un nodo de workflow
+    // completado NUNCA pasaban por el gate del paso 9, porque este camino
+    // (_finalizarWorkflow) llama a _ejecutarAcciones por su cuenta, antes de
+    // que exista ningún "accionesAutorizadas" filtrado). Si el nodo incluye
+    // alguna de las 4 acciones que requieren identificación y todavía no la
+    // hay, se sintetiza el MISMO resultado 'faltan_datos' que ya usa
+    // agendar_cita_con_horario_solicitado — reusa el mecanismo de reabrir
+    // sesión y la pregunta natural de abajo, sin duplicar esa lógica.
+    const identificacion = _resolverIdentificacion(clienteRaw, aiOutput.datos_contacto);
+    const bloqueadoPorIdentificacion = nodo.acciones.some(a =>
+      ACCIONES_REQUIEREN_IDENTIFICACION.includes(a?.tipo) && identificacion.estado !== 'identificado'
     );
+
+    const resultados = bloqueadoPorIdentificacion
+      ? [{ tipo: 'faltan_datos', campos: [identificacion.nombre ? 'motivo' : 'nombre'] }]
+      : await this._ejecutarAcciones(
+          nodo.acciones, ctx, clienteRaw, aiOutput, sessionId, sesionCompletada?.captured_fields
+        );
 
     // Mismo criterio que ya existía para 'sin_disponibilidad' (TA.9 v2):
     // reabre una sesión para que el cliente pueda retomar la conversación
