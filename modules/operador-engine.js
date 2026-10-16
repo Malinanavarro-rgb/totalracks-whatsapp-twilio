@@ -58,9 +58,10 @@ const SYSTEM_PROMPT = [
  * @param {string} [opciones.modelo]
  * @param {Function} [opciones.registrarConsumo] - opcional, Fase 1 TARA AI Engine (2026-10-16): (datos) => Promise<void>, una llamada por cada iteración real de tool-calling — nunca agregado, cada iteración es una llamada facturable distinta
  * @param {string[]} [opciones.herramientasPermitidas] - TARA AI Consulta Empresarial, Fase 1 (2026-10-16): lista blanca de nombres de tool (ver operador-tools.js::CATALOGO_TOOLS). Sin esto, comportamiento idéntico a antes (catálogo completo) — ningún caller existente se ve afectado. Con esto: (a) el modelo nunca VE en su schema las tools excluidas, (b) por si acaso, cualquier tool_call a un nombre fuera de la lista se rechaza también en el dispatcher, sin ejecutarse.
+ * @param {string} [opciones.instruccionesAdicionales] - TARA AI Consulta Empresarial, Fase 2 (2026-10-16): texto que se agrega AL FINAL del system prompt para este caller específico, sin tocar SYSTEM_PROMPT (compartido con /api/operador/preguntar del tenant, que no debe cambiar de comportamiento). Sin esto, system prompt idéntico a antes.
  * @returns {Promise<{respuesta_texto: string, tokens_total: number, iteraciones: number, tools_usadas: string[]}>}
  */
-async function preguntar({ supabase, openaiClient, pregunta, alcance, usuario, historialCorto = [], modelo = MODELO_DEFAULT, registrarConsumo, herramientasPermitidas }) {
+async function preguntar({ supabase, openaiClient, pregunta, alcance, usuario, historialCorto = [], modelo = MODELO_DEFAULT, registrarConsumo, herramientasPermitidas, instruccionesAdicionales }) {
   if (!alcance || !alcance.nivel) {
     throw new Error('operador-engine.preguntar: alcance requerido (lo calcula el caller, nunca el usuario final)');
   }
@@ -83,9 +84,10 @@ async function preguntar({ supabase, openaiClient, pregunta, alcance, usuario, h
     }
   }
 
-  const systemPrompt = resumenNegocio?.resumen
+  let systemPrompt = resumenNegocio?.resumen
     ? `${SYSTEM_PROMPT} Memoria empresarial de este negocio (resumen ejecutivo ya validado por un humano): ${resumenNegocio.resumen}`
     : SYSTEM_PROMPT;
+  if (instruccionesAdicionales) systemPrompt = `${systemPrompt} ${instruccionesAdicionales}`;
 
   const messages = [
     { role: 'system', content: systemPrompt },

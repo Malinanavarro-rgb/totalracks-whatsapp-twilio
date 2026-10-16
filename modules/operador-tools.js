@@ -39,6 +39,7 @@ const {
 const { esGerencial } = require('./permisos');
 const { buscarProductosMencionados, formatearParaKnowledge: formatearCatalogoParaKnowledge } = require('./catalogo-tecnico');
 const { buscarFaqRelevante, formatearParaKnowledge: formatearFaqParaKnowledge } = require('./faq-solar');
+const { REGLA_TIPOS } = require('./dashboard-engine');
 
 /**
  * Resuelve el alcance a una lista de company_id a filtrar, o `null` si no
@@ -174,6 +175,58 @@ async function consultarFaqSolarTool(supabase, alcance, { texto } = {}) {
     return 'No hay ninguna pregunta frecuente cargada que coincida con eso.';
   }
   return formatearFaqParaKnowledge(entradas);
+}
+
+// ── "Qué necesita mi atención" (TARA AI Consulta Empresarial, Fase 2,
+// 2026-10-16) — las 6 reglas de REGLA_TIPOS ya construidas y en producción
+// para el dashboard visual (modules/dashboard-engine.js), reusadas TAL
+// CUAL, cero lógica de negocio nueva. Los parámetros de severidad/estados
+// excluidos son los MISMOS valores reales que ya usa el dashboard de Nort
+// Energy (scripts/nort-energy-dashboard-operativo.js,
+// scripts/nort-energy-fase1-nav-dashboard.js) — nunca inventados — y nunca
+// se exponen como argumento del modelo (solo `limite`, igual que el resto
+// del catálogo). Todas exigen alcance de empresa, igual que
+// consultar_catalogo_tecnico/consultar_faq_solar.
+//
+// Auditoría de las funciones auxiliares que estas reglas importan
+// internamente (modules/cobranza.js::calcularEstadoCobranza,
+// modules/tramites-cfe.js::calcularDiasSinActualizacion/requiereAlerta):
+// ambas son funciones PURAS — no reciben `supabase`, no hacen ninguna
+// consulta propia — operan solo sobre filas que REGLA_TIPOS ya trajo
+// filtradas por company_id. Cero riesgo de fuga entre empresas por esta vía.
+const ESTADOS_CERRADOS_PIPELINE = ['Cerrado', 'Perdido']; // mismo valor real que ya usa el dashboard de Nort Energy
+
+async function clientesNecesitanSeguimientoTool(supabase, alcance, { limite = 10 } = {}) {
+  _exigirAlcanceEmpresa(alcance);
+  const resultados = await REGLA_TIPOS.oportunidad_seguimiento_vencido(
+    supabase, alcance.company_id, { estados_excluidos: ESTADOS_CERRADOS_PIPELINE, severidad: 'critica' }, new Date(),
+  );
+  return resultados.slice(0, limite);
+}
+
+async function instalacionesRequierenAtencionTool(supabase, alcance, { limite = 10 } = {}) {
+  _exigirAlcanceEmpresa(alcance);
+  return REGLA_TIPOS.instalacion_atrasada(supabase, alcance.company_id, { severidad: 'critica', limite }, new Date());
+}
+
+async function cobranzaPendienteTool(supabase, alcance, { limite = 10 } = {}) {
+  _exigirAlcanceEmpresa(alcance);
+  return REGLA_TIPOS.cobranza_con_saldo(supabase, alcance.company_id, { severidad: 'alta', limite });
+}
+
+async function tramitesCfePendientesTool(supabase, alcance, { limite = 10 } = {}) {
+  _exigirAlcanceEmpresa(alcance);
+  return REGLA_TIPOS.tramite_cfe_sin_actualizacion(supabase, alcance.company_id, { severidad: 'media', limite }, new Date());
+}
+
+async function garantiasAbiertasTool(supabase, alcance, { limite = 10 } = {}) {
+  _exigirAlcanceEmpresa(alcance);
+  return REGLA_TIPOS.garantia_reclamacion_abierta(supabase, alcance.company_id, { severidad: 'media', limite });
+}
+
+async function ticketsPendientesTool(supabase, alcance, { limite = 10 } = {}) {
+  _exigirAlcanceEmpresa(alcance);
+  return REGLA_TIPOS.ticket_pendiente(supabase, alcance.company_id, { severidad: 'media', limite });
 }
 
 // ── Business Memory Core (BMC, Fase 2) — primeras tools de escritura ────────
@@ -354,6 +407,54 @@ const CATALOGO_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'clientes_necesitan_seguimiento',
+      description: 'Lista oportunidades comerciales con fecha de seguimiento ya vencida (fuera de los estados cerrados del pipeline) — "qué clientes necesitan seguimiento hoy". Cada resultado es un registro real, nunca un estimado.',
+      parameters: { type: 'object', properties: { limite: { type: 'integer' } } },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'instalaciones_requieren_atencion',
+      description: 'Lista instalaciones con fecha programada vencida que todavía no llegaron a un estado terminal (entregada/terminada/cancelada).',
+      parameters: { type: 'object', properties: { limite: { type: 'integer' } } },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'cobranza_pendiente',
+      description: 'Lista proyectos con saldo de cobranza pendiente (> $0), con su monto real calculado contra los abonos ya registrados.',
+      parameters: { type: 'object', properties: { limite: { type: 'integer' } } },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'tramites_cfe_pendientes',
+      description: 'Lista trámites CFE sin actualización reciente (más allá del umbral de alerta configurado de esta empresa).',
+      parameters: { type: 'object', properties: { limite: { type: 'integer' } } },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'garantias_abiertas',
+      description: 'Lista reclamaciones de garantía todavía abiertas (no resueltas ni rechazadas).',
+      parameters: { type: 'object', properties: { limite: { type: 'integer' } } },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'tickets_pendientes',
+      description: 'Lista tickets de soporte abiertos/en proceso/esperando al cliente, priorizando los urgentes primero.',
+      parameters: { type: 'object', properties: { limite: { type: 'integer' } } },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'registrar_aprendizaje_negocio',
       description: 'Propone un aprendizaje de negocio para la memoria empresarial permanente (BMC). SIEMPRE nace como propuesta pendiente de revisión — nunca queda confirmado automáticamente. Nunca inventes evidencia ni confianza: si no tienes una base real, no llames a esta tool.',
       parameters: {
@@ -495,6 +596,12 @@ const IMPLEMENTACIONES = {
   buscar_cliente:       buscarCliente,
   consultar_catalogo_tecnico: consultarCatalogoTecnicoTool,
   consultar_faq_solar:        consultarFaqSolarTool,
+  clientes_necesitan_seguimiento:    clientesNecesitanSeguimientoTool,
+  instalaciones_requieren_atencion:  instalacionesRequierenAtencionTool,
+  cobranza_pendiente:                cobranzaPendienteTool,
+  tramites_cfe_pendientes:           tramitesCfePendientesTool,
+  garantias_abiertas:                garantiasAbiertasTool,
+  tickets_pendientes:                ticketsPendientesTool,
   registrar_aprendizaje_negocio:   registrarAprendizajeNegocio,
   listar_aprendizajes_pendientes:  listarAprendizajesPendientes,
   confirmar_aprendizaje:           confirmarAprendizajeTool,
@@ -535,6 +642,9 @@ const TOOLS_CONSULTA_EMPRESARIAL = [
   'tareas_abiertas', 'proyectos_en_riesgo', 'decisiones_recientes',
   'buscar_documentos', 'resumen_pipeline', 'buscar_cliente',
   'consultar_catalogo_tecnico', 'consultar_faq_solar',
+  // Fase 2 (2026-10-16) — REGLA_TIPOS de dashboard-engine.js, reusadas tal cual.
+  'clientes_necesitan_seguimiento', 'instalaciones_requieren_atencion',
+  'cobranza_pendiente', 'tramites_cfe_pendientes', 'garantias_abiertas', 'tickets_pendientes',
 ];
 
 /**
@@ -568,6 +678,12 @@ module.exports = {
   buscarCliente,
   consultarCatalogoTecnicoTool,
   consultarFaqSolarTool,
+  clientesNecesitanSeguimientoTool,
+  instalacionesRequierenAtencionTool,
+  cobranzaPendienteTool,
+  tramitesCfePendientesTool,
+  garantiasAbiertasTool,
+  ticketsPendientesTool,
   registrarAprendizajeNegocio,
   listarAprendizajesPendientes,
   confirmarAprendizajeTool,

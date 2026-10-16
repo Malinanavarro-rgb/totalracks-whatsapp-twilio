@@ -28,6 +28,24 @@ jest.mock('../modules/kce', () => ({
   resolverAlerta: (...args) => mockResolverAlertaKce(...args),
 }));
 
+const mockOportunidadSeguimientoVencido = jest.fn();
+const mockInstalacionAtrasada = jest.fn();
+const mockCobranzaConSaldo = jest.fn();
+const mockTramiteCfeSinActualizacion = jest.fn();
+const mockGarantiaReclamacionAbierta = jest.fn();
+const mockTicketPendiente = jest.fn();
+
+jest.mock('../modules/dashboard-engine', () => ({
+  REGLA_TIPOS: {
+    oportunidad_seguimiento_vencido: (...args) => mockOportunidadSeguimientoVencido(...args),
+    instalacion_atrasada:            (...args) => mockInstalacionAtrasada(...args),
+    cobranza_con_saldo:              (...args) => mockCobranzaConSaldo(...args),
+    tramite_cfe_sin_actualizacion:   (...args) => mockTramiteCfeSinActualizacion(...args),
+    garantia_reclamacion_abierta:    (...args) => mockGarantiaReclamacionAbierta(...args),
+    ticket_pendiente:                (...args) => mockTicketPendiente(...args),
+  },
+}));
+
 const {
   tareasAbiertas, proyectosEnRiesgo, decisionesRecientes, buscarDocumentos,
   resumenPipeline, buscarCliente, ejecutarTool, CATALOGO_TOOLS, IMPLEMENTACIONES, TOOLS_SOLO_GERENCIAL,
@@ -36,6 +54,8 @@ const {
   confirmarAprendizajeTool, rechazarAprendizajeTool, marcarAprendizajeObsoletoTool,
   ejecutarKceTool, listarAlertasKceTool, aplicarRefuerzoKceTool, fusionarAprendizajesTool, resolverAlertaKceTool,
   consultarCatalogoTecnicoTool, consultarFaqSolarTool,
+  clientesNecesitanSeguimientoTool, instalacionesRequierenAtencionTool, cobranzaPendienteTool,
+  tramitesCfePendientesTool, garantiasAbiertasTool, ticketsPendientesTool,
 } = require('../modules/operador-tools');
 
 // ─── Mock builder: registra cada llamada (.eq/.in/.or) para poder afirmar
@@ -445,7 +465,7 @@ describe('operador-tools', () => {
     });
   });
 
-  describe('TOOLS_CONSULTA_EMPRESARIAL — TARA AI Consulta Empresarial, Fase 1 (2026-10-16)', () => {
+  describe('TOOLS_CONSULTA_EMPRESARIAL — TARA AI Consulta Empresarial, Fase 1+2 (2026-10-16)', () => {
     test('todas las tools listadas existen en el catálogo real', () => {
       const nombresReales = new Set(CATALOGO_TOOLS.map(t => t.function.name));
       for (const nombre of TOOLS_CONSULTA_EMPRESARIAL) expect(nombresReales.has(nombre)).toBe(true);
@@ -455,11 +475,146 @@ describe('operador-tools', () => {
       for (const nombre of TOOLS_CONSULTA_EMPRESARIAL) expect(TOOLS_SOLO_GERENCIAL.has(nombre)).toBe(false);
     });
 
-    test('son exactamente las 8 tools de solo lectura ya auditadas, ni una más ni una menos', () => {
+    test('son exactamente las 14 tools de solo lectura ya auditadas (8 de Fase 1 + 6 de Fase 2), ni una más ni una menos', () => {
       expect([...TOOLS_CONSULTA_EMPRESARIAL].sort()).toEqual([
-        'buscar_cliente', 'buscar_documentos', 'consultar_catalogo_tecnico', 'consultar_faq_solar',
-        'decisiones_recientes', 'proyectos_en_riesgo', 'resumen_pipeline', 'tareas_abiertas',
+        'buscar_cliente', 'buscar_documentos', 'clientes_necesitan_seguimiento', 'cobranza_pendiente',
+        'consultar_catalogo_tecnico', 'consultar_faq_solar', 'decisiones_recientes', 'garantias_abiertas',
+        'instalaciones_requieren_atencion', 'proyectos_en_riesgo', 'resumen_pipeline', 'tareas_abiertas',
+        'tickets_pendientes', 'tramites_cfe_pendientes',
       ]);
+    });
+  });
+
+  describe('"Qué necesita mi atención" — TARA AI Consulta Empresarial, Fase 2 (2026-10-16)', () => {
+    const ALCANCE_NORT = { nivel: 'empresa', company_id: 'company-nort-energy' };
+    const ALCANCE_TOTAL_RACKS = { nivel: 'empresa', company_id: 'company-total-racks' };
+
+    beforeEach(() => jest.clearAllMocks());
+
+    describe('clientesNecesitanSeguimientoTool()', () => {
+      test('consulta individual para Nort Energy: pasa el company_id del alcance y los valores reales ya usados en producción', async () => {
+        mockOportunidadSeguimientoVencido.mockResolvedValue([{ texto: 'Seguimiento vencido: Roberto.' }]);
+        const resultado = await clientesNecesitanSeguimientoTool({}, ALCANCE_NORT, {});
+        expect(mockOportunidadSeguimientoVencido).toHaveBeenCalledWith(
+          {}, 'company-nort-energy', { estados_excluidos: ['Cerrado', 'Perdido'], severidad: 'critica' }, expect.any(Date),
+        );
+        expect(resultado).toEqual([{ texto: 'Seguimiento vencido: Roberto.' }]);
+      });
+
+      test('consulta individual para Total Racks: usa SU company_id, nunca el de otra empresa', async () => {
+        mockOportunidadSeguimientoVencido.mockResolvedValue([]);
+        await clientesNecesitanSeguimientoTool({}, ALCANCE_TOTAL_RACKS, {});
+        expect(mockOportunidadSeguimientoVencido).toHaveBeenCalledWith({}, 'company-total-racks', expect.anything(), expect.any(Date));
+      });
+
+      test('empresa sin información: devuelve arreglo vacío, nunca inventa resultados', async () => {
+        mockOportunidadSeguimientoVencido.mockResolvedValue([]);
+        await expect(clientesNecesitanSeguimientoTool({}, ALCANCE_NORT, {})).resolves.toEqual([]);
+      });
+
+      test('respeta `limite` recortando el resultado real (la regla no lo soporta internamente)', async () => {
+        mockOportunidadSeguimientoVencido.mockResolvedValue([{ id: 1 }, { id: 2 }, { id: 3 }]);
+        const resultado = await clientesNecesitanSeguimientoTool({}, ALCANCE_NORT, { limite: 2 });
+        expect(resultado).toHaveLength(2);
+      });
+
+      test('alcance no es "empresa": rechaza sin consultar nada (ej. intento de acceder a "toda la plataforma")', async () => {
+        await expect(clientesNecesitanSeguimientoTool({}, { nivel: 'plataforma' }, {})).rejects.toThrow(/alcance de una empresa específica/);
+        expect(mockOportunidadSeguimientoVencido).not.toHaveBeenCalled();
+      });
+
+      test('company_id nunca puede venir de los argumentos del modelo — solo existe en `alcance`', async () => {
+        mockOportunidadSeguimientoVencido.mockResolvedValue([]);
+        // Argumento malicioso/alucinado: la implementación ni siquiera lo lee.
+        await clientesNecesitanSeguimientoTool({}, ALCANCE_NORT, { limite: 5, company_id: 'otra-empresa-cualquiera' });
+        expect(mockOportunidadSeguimientoVencido).toHaveBeenCalledWith({}, 'company-nort-energy', expect.anything(), expect.any(Date));
+      });
+    });
+
+    describe('instalacionesRequierenAtencionTool() / cobranzaPendienteTool() / tramitesCfePendientesTool() / garantiasAbiertasTool() / ticketsPendientesTool()', () => {
+      test('instalacionesRequierenAtencionTool: pasa company_id + severidad real + fecha', async () => {
+        mockInstalacionAtrasada.mockResolvedValue([]);
+        await instalacionesRequierenAtencionTool({}, ALCANCE_NORT, { limite: 7 });
+        expect(mockInstalacionAtrasada).toHaveBeenCalledWith({}, 'company-nort-energy', { severidad: 'critica', limite: 7 }, expect.any(Date));
+      });
+
+      test('cobranzaPendienteTool: no requiere fecha (la regla real tampoco la usa)', async () => {
+        mockCobranzaConSaldo.mockResolvedValue([]);
+        await cobranzaPendienteTool({}, ALCANCE_NORT, {});
+        expect(mockCobranzaConSaldo).toHaveBeenCalledWith({}, 'company-nort-energy', { severidad: 'alta', limite: 10 });
+      });
+
+      test('tramitesCfePendientesTool: pasa fecha (la regla real sí la usa para calcular días sin actualización)', async () => {
+        mockTramiteCfeSinActualizacion.mockResolvedValue([]);
+        await tramitesCfePendientesTool({}, ALCANCE_NORT, {});
+        expect(mockTramiteCfeSinActualizacion).toHaveBeenCalledWith({}, 'company-nort-energy', { severidad: 'media', limite: 10 }, expect.any(Date));
+      });
+
+      test('garantiasAbiertasTool: datos incompletos (la regla real devuelve null) nunca lanza, se propaga tal cual', async () => {
+        mockGarantiaReclamacionAbierta.mockResolvedValue([]);
+        await expect(garantiasAbiertasTool({}, ALCANCE_NORT, {})).resolves.toEqual([]);
+      });
+
+      test('ticketsPendientesTool: alcance no es "empresa" → rechaza sin consultar', async () => {
+        await expect(ticketsPendientesTool({}, { nivel: 'organizacion', organization_id: 'org-1' }, {})).rejects.toThrow(/alcance de una empresa específica/);
+        expect(mockTicketPendiente).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('aislamiento y seguridad vía ejecutarTool() — el dispatcher real, no solo la función suelta', () => {
+      test('ejecutarTool() ejecuta correctamente una tool de Fase 2 sin usuario (no son gerencial-only)', async () => {
+        mockTicketPendiente.mockResolvedValue([{ texto: 'Ticket pendiente: revisar inversor.' }]);
+        const resultado = await ejecutarTool('tickets_pendientes', { limite: 5 }, {}, ALCANCE_NORT, undefined, undefined);
+        expect(resultado).toEqual([{ texto: 'Ticket pendiente: revisar inversor.' }]);
+      });
+
+      test('prompt injection: un argumento "company_id" dentro de argumentos del modelo se ignora por completo', async () => {
+        mockCobranzaConSaldo.mockResolvedValue([]);
+        await ejecutarTool('cobranza_pendiente', { company_id: 'empresa-ajena', limite: 3 }, {}, ALCANCE_NORT, undefined, undefined);
+        expect(mockCobranzaConSaldo).toHaveBeenCalledWith({}, 'company-nort-energy', { severidad: 'alta', limite: 3 });
+      });
+
+      test('consultas concurrentes de 2 empresas distintas vía ejecutarTool() no mezclan su company_id', async () => {
+        mockGarantiaReclamacionAbierta.mockImplementation((supabase, companyId) => Promise.resolve([{ companyId }]));
+        const [resultadoNort, resultadoRacks] = await Promise.all([
+          ejecutarTool('garantias_abiertas', {}, {}, ALCANCE_NORT, undefined, undefined),
+          ejecutarTool('garantias_abiertas', {}, {}, ALCANCE_TOTAL_RACKS, undefined, undefined),
+        ]);
+        expect(resultadoNort).toEqual([{ companyId: 'company-nort-energy' }]);
+        expect(resultadoRacks).toEqual([{ companyId: 'company-total-racks' }]);
+      });
+
+      test('ninguna tool de Fase 2 está en TOOLS_SOLO_GERENCIAL — todas corren para un usuario no gerencial/sin usuario', async () => {
+        mockInstalacionAtrasada.mockResolvedValue([]);
+        await expect(ejecutarTool('instalaciones_requieren_atencion', {}, {}, ALCANCE_NORT, { id: 'u1', rol: 'ventas' }, undefined))
+          .resolves.toEqual([]);
+      });
+    });
+
+    describe('ausencia de escritura — las 6 tools de Fase 2 son de solo lectura', () => {
+      test('ninguna de las 6 implementaciones llama a métodos de escritura de Supabase (insert/update/upsert/delete)', async () => {
+        const dbQueNuncaDebeEscribir = {
+          insert: jest.fn(), update: jest.fn(), upsert: jest.fn(), delete: jest.fn(),
+        };
+        mockOportunidadSeguimientoVencido.mockResolvedValue([]);
+        mockInstalacionAtrasada.mockResolvedValue([]);
+        mockCobranzaConSaldo.mockResolvedValue([]);
+        mockTramiteCfeSinActualizacion.mockResolvedValue([]);
+        mockGarantiaReclamacionAbierta.mockResolvedValue([]);
+        mockTicketPendiente.mockResolvedValue([]);
+
+        await clientesNecesitanSeguimientoTool(dbQueNuncaDebeEscribir, ALCANCE_NORT, {});
+        await instalacionesRequierenAtencionTool(dbQueNuncaDebeEscribir, ALCANCE_NORT, {});
+        await cobranzaPendienteTool(dbQueNuncaDebeEscribir, ALCANCE_NORT, {});
+        await tramitesCfePendientesTool(dbQueNuncaDebeEscribir, ALCANCE_NORT, {});
+        await garantiasAbiertasTool(dbQueNuncaDebeEscribir, ALCANCE_NORT, {});
+        await ticketsPendientesTool(dbQueNuncaDebeEscribir, ALCANCE_NORT, {});
+
+        expect(dbQueNuncaDebeEscribir.insert).not.toHaveBeenCalled();
+        expect(dbQueNuncaDebeEscribir.update).not.toHaveBeenCalled();
+        expect(dbQueNuncaDebeEscribir.upsert).not.toHaveBeenCalled();
+        expect(dbQueNuncaDebeEscribir.delete).not.toHaveBeenCalled();
+      });
     });
   });
 });

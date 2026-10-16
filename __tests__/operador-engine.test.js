@@ -274,6 +274,22 @@ describe('operador-engine', () => {
     });
   });
 
+  describe('instruccionesAdicionales — TARA AI Consulta Empresarial, Fase 2 (2026-10-16)', () => {
+    test('sin instruccionesAdicionales: system prompt idéntico a antes', async () => {
+      const openaiClient = { chat: { completions: { create: jest.fn().mockResolvedValue(respuestaTextoDirecta('ok')) } } };
+      await preguntar({ supabase: {}, openaiClient, pregunta: 'x', alcance: ALCANCE_EMPRESA });
+      expect(openaiClient.chat.completions.create.mock.calls[0][0].messages[0].content).toBe(SYSTEM_PROMPT);
+    });
+
+    test('con instruccionesAdicionales: se agrega al final del system prompt, nunca lo reemplaza', async () => {
+      const openaiClient = { chat: { completions: { create: jest.fn().mockResolvedValue(respuestaTextoDirecta('ok')) } } };
+      await preguntar({ supabase: {}, openaiClient, pregunta: 'x', alcance: ALCANCE_EMPRESA, instruccionesAdicionales: 'Distingue datos confirmados de interpretaciones.' });
+      const systemMsg = openaiClient.chat.completions.create.mock.calls[0][0].messages[0].content;
+      expect(systemMsg).toContain(SYSTEM_PROMPT);
+      expect(systemMsg).toContain('Distingue datos confirmados de interpretaciones.');
+    });
+  });
+
   describe('convertirParaCliente() — Centro de Conocimiento, Fase 3', () => {
     test('llama a OpenAI con el texto interno y devuelve el mensaje traducido', async () => {
       const openaiClient = { chat: { completions: { create: jest.fn().mockResolvedValue(

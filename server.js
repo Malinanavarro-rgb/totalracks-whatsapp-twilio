@@ -3921,9 +3921,9 @@ app.post('/api/admin/operador/preguntar', requireAdmin, async (req, res) => {
 // El company_id SIEMPRE se resuelve y valida aquí, server-side, antes de
 // llamar al motor — nunca se construye a partir del texto de `pregunta` ni
 // de nada que decida el modelo. Catálogo de herramientas restringido a
-// TOOLS_CONSULTA_EMPRESARIAL (8 tools de solo lectura ya auditadas) — las
-// 10 de BMC/KCE (crean/confirman/rechazan/modifican memoria) quedan
-// deshabilitadas para esta ruta, sin excepción, en esta fase.
+// TOOLS_CONSULTA_EMPRESARIAL (14 tools de solo lectura ya auditadas, Fase
+// 1 + Fase 2) — las 10 de BMC/KCE (crean/confirman/rechazan/modifican
+// memoria) quedan deshabilitadas para esta ruta, sin excepción.
 //
 // Deliberadamente SIN `usuario`: ninguna tool gerencial-only es alcanzable
 // desde este catálogo restringido, así que no hace falta simular un rol —
@@ -3936,6 +3936,16 @@ app.get('/api/admin/empresas-consultables', requireAdmin, async (req, res) => {
   }
 });
 
+// Fase 2 (2026-10-16): instrucción ADITIVA, exclusiva de esta ruta — nunca
+// toca SYSTEM_PROMPT compartido con /api/operador/preguntar del tenant.
+const INSTRUCCIONES_CONSULTA_EMPRESARIAL = [
+  'Cuando reportes resultados de las herramientas de análisis empresarial (seguimientos, instalaciones,',
+  'cobranza, trámites CFE, garantías, tickets), distingue siempre tres cosas: (1) datos confirmados —',
+  'exactamente lo que devolvió la herramienta, cita la referencia/recurso cuando la tengas; (2) tu',
+  'interpretación o prioridad sugerida — nunca la presentes como un hecho ya registrado en el sistema;',
+  '(3) si una herramienta no devolvió resultados, dilo explícitamente en vez de omitirlo o asumir que todo está bien.',
+].join(' ');
+
 app.post('/api/admin/operador/consultar-empresa', requireAdmin, async (req, res) => {
   try {
     const { companyId, pregunta } = req.body || {};
@@ -3947,6 +3957,7 @@ app.post('/api/admin/operador/consultar-empresa', requireAdmin, async (req, res)
     const resultado = await preguntarOperador({
       supabase: supabaseServicio, openaiClient: openai, pregunta: pregunta.trim(), alcance,
       herramientasPermitidas: TOOLS_CONSULTA_EMPRESARIAL,
+      instruccionesAdicionales: INSTRUCCIONES_CONSULTA_EMPRESARIAL,
       registrarConsumo: (datos) => registrarConsumoIA(supabaseServicio, datos),
     });
     res.json({ ...resultado, empresa: { id: empresa.id, nombre: empresa.nombre } });
