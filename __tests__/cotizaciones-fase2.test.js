@@ -73,8 +73,22 @@ function crearMockDbPorTabla(overrides = {}) {
     hilos: { data: null, error: null },
   };
   const resultados = { ...defaults, ...overrides };
+  // PRIORIDAD 5 (guarda de idempotencia, 2026-10-16): correrCotizacionDesdeWorkflow
+  // ahora consulta 'cotizaciones' DOS veces — primero el chequeo de
+  // duplicados (debe responder "sin match" por default, para no alterar el
+  // comportamiento de ningún test existente), y luego el INSERT real. Este
+  // mock por-tabla no distingue queries por sus filtros, así que la
+  // PRIMERA llamada a 'cotizaciones' siempre responde "sin match" — la
+  // segunda y siguientes usan los datos configurados, igual que antes.
+  let llamadasACotizaciones = 0;
   return {
-    from: jest.fn((tabla) => crearBuilder(resultados[tabla] ?? { data: null, error: null })),
+    from: jest.fn((tabla) => {
+      if (tabla === 'cotizaciones') {
+        llamadasACotizaciones++;
+        if (llamadasACotizaciones === 1) return crearBuilder({ data: null, error: null });
+      }
+      return crearBuilder(resultados[tabla] ?? { data: null, error: null });
+    }),
     rpc: jest.fn().mockResolvedValue({ data: 1, error: null }),
   };
 }
@@ -818,6 +832,57 @@ describe('correrCotizacionDesdeWorkflow() — cierre automático y envío de PDF
 
     expect(mockGenerarYEnviarCotizacion).not.toHaveBeenCalled();
     expect(enviarProactivo).toHaveBeenCalled(); // el seguimiento genérico sí se manda
+  });
+});
+
+// PRIORIDAD 5 (incidente cotización 83/COT-2026-0021, 2026-10-16): guarda
+// de idempotencia — los caminos B y C (orchestrator.js/server.js) podían
+// llamar a esta función 2 veces para el mismo evento (webhook repetido,
+// o B bloqueado-y-reabierto seguido de C evaluando el mismo turno).
+describe('correrCotizacionDesdeWorkflow() — idempotencia (Prioridad 5, 2026-10-16)', () => {
+  test('CRÍTICO: ya existe una cotización reciente con cálculo → devuelve ESE cálculo, NUNCA inserta una cotización nueva', async () => {
+    const calculoExistente = { id: 'calc-existente', estado_calculo: 'completo' };
+    let insertLlamado = false;
+    const db = crearMockDbPorTabla({
+      // La PRIMERA llamada a 'cotizaciones' (el chequeo de duplicado) normalmente
+      // la fuerza el helper a "sin match" — aquí la sobreescribimos para simular
+      // que SÍ hay una reciente con cálculo ya guardado.
+      cotizaciones: { data: { id: 83, calculo_ingenieria_id: 'calc-existente' }, error: null },
+      calculos_ingenieria: { data: calculoExistente, error: null },
+    });
+    // Forzar que la PRIMERA llamada a 'cotizaciones' (normalmente "sin match"
+    // por el helper) también devuelva el match — anulamos ese comportamiento
+    // especial del helper reemplazando from() para esta prueba puntual.
+    db.from = jest.fn((tabla) => {
+      if (tabla === 'cotizaciones') {
+        const builder = {
+          select: jest.fn().mockReturnThis(), insert: jest.fn((payload) => { insertLlamado = true; return builder; }),
+          eq: jest.fn().mockReturnThis(), gte: jest.fn().mockReturnThis(), order: jest.fn().mockReturnThis(), limit: jest.fn().mockReturnThis(),
+          maybeSingle: jest.fn().mockResolvedValue({ data: { id: 83, calculo_ingenieria_id: 'calc-existente' }, error: null }),
+          single: jest.fn().mockResolvedValue({ data: { id: 83, calculo_ingenieria_id: 'calc-existente' }, error: null }),
+          then: (resolve) => resolve({ data: { id: 83, calculo_ingenieria_id: 'calc-existente' }, error: null }),
+        };
+        return builder;
+      }
+      if (tabla === 'calculos_ingenieria') {
+        return { select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), maybeSingle: jest.fn().mockResolvedValue({ data: calculoExistente, error: null }) };
+      }
+      return { select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), maybeSingle: jest.fn().mockResolvedValue({ data: null, error: null }) };
+    });
+
+    const resultado = await correrCotizacionDesdeWorkflow(db, { companyId: COMPANY_A, clienteId: 7, capturedFields: {} });
+
+    expect(resultado).toEqual(calculoExistente);
+    expect(insertLlamado).toBe(false); // nunca se insertó una cotización nueva
+  });
+
+  test('sin cotización reciente (caso normal, default del helper): sí crea una cotización nueva', async () => {
+    const db = crearMockDbPorTabla(); // helper ya fuerza "sin match" en la 1ra llamada a cotizaciones
+    const resultado = await correrCotizacionDesdeWorkflow(db, { companyId: COMPANY_A, clienteId: 7, capturedFields: {} });
+    expect(resultado).toBeDefined();
+    // La 2da llamada a 'cotizaciones' SÍ fue el insert real — confirmado por
+    // los tests de "folio/oportunidad/hilo en el INSERT" ya existentes, que
+    // siguen pasando con este mismo helper.
   });
 });
 

@@ -16,6 +16,7 @@ const multer       = require('multer');
 const { supabase, supabaseServicio, crearClienteConSesion, twilioClient, stripe, openai } = require('./modules/clients');
 const { obtenerConfigEmpresa }          = require('./modules/config');
 const { crearOrchestrator, resolverIdentificacion } = require('./modules/orchestrator');
+const { puedeEjecutarseAccionComercial } = require('./modules/identificacion-contacto');
 const { TwilioWhatsAppAdapter }         = require('./adapters/channels/twilio-whatsapp');
 const { MetaCloudWhatsAppAdapter }      = require('./adapters/channels/meta-cloud-whatsapp');
 const { obtenerAdapterMetaParaEmpresa, conectarWhatsAppMeta } = require('./modules/meta-auth');
@@ -617,14 +618,20 @@ async function procesarMensajeEntrante(message, enviar, proveedor = 'desconocido
         // hallazgo real de la prueba de validación en WhatsApp: este atajo
         // disparó ejecutar_motor_ingenieria con el cliente todavía en
         // "Sin nombre"/sin motivo, porque vive fuera del Orchestrator y
-        // nunca pasaba por el gate de orchestrator.js). Mismo chequeo
-        // exacto (resolverIdentificacion, ya exportado) antes de disparar
-        // — si no está identificado, simplemente no se dispara aquí; el
-        // cliente sigue su turno normal por el camino del workflow (donde
-        // _finalizarWorkflow también lo bloquearía al llegar al nodo real).
+        // nunca pasaba por el gate de orchestrator.js). PRIORIDAD 3:
+        // puedeEjecutarseAccionComercial() es la MISMA función que usan los
+        // caminos A y B dentro del Orchestrator — nunca un criterio propio
+        // reimplementado aquí. Si no autoriza, simplemente no se dispara;
+        // el cliente sigue su turno normal por el camino del workflow
+        // (donde _finalizarWorkflow también lo bloquearía al llegar al
+        // nodo real).
         if (nodoAccion && sesionActiva.current_node !== nodoAccion.nombre) {
           const identificacion = resolverIdentificacion(cliente, resultado.ai_output?.datos_contacto);
-          if (identificacion.estado === 'identificado') {
+          const autorizacion = puedeEjecutarseAccionComercial({
+            tipoAccion: 'ejecutar_motor_ingenieria', companyId: message.company_id, clienteId: cliente.id,
+            nombre: identificacion.nombre, motivoConsulta: identificacion.motivo,
+          });
+          if (autorizacion.autorizada) {
             const capturedFields = {
               ...(sesionActiva.captured_fields || {}),
               ...Object.fromEntries(

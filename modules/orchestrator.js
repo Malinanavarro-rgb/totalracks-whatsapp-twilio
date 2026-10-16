@@ -38,7 +38,7 @@
 const { randomUUID }  = require('crypto');
 const { ActionRunner } = require('./action-runner');
 const { instruccionesDePersonalidad } = require('./personalidad-presets');
-const { resolverEstadoIdentificacion } = require('./identificacion-contacto');
+const { resolverEstadoIdentificacion, puedeEjecutarseAccionComercial, ACCIONES_REQUIEREN_IDENTIFICACION } = require('./identificacion-contacto');
 
 // ═════════════════════════════════════════════════════════════════════════════
 // CONSTANTES
@@ -62,7 +62,9 @@ const ACCIONES_SENSIBLES_DE_AGENDA = ['agendar_cita', 'agendar_cita_con_horario_
 // estas 4 acciones son las únicas que "requieren identificar al cliente"
 // (crean una oportunidad comercial real o comprometen un recurso) — nunca
 // se bloquea la respuesta conversacional normal, solo estas acciones.
-const ACCIONES_REQUIEREN_IDENTIFICACION = ['crear_oportunidad', 'agendar_cita', 'agendar_cita_con_horario_solicitado', 'ejecutar_motor_ingenieria'];
+// PRIORIDAD 3 (incidente cotización 83, 2026-10-16): la lista en sí y la
+// decisión de autorización ahora viven en modules/identificacion-contacto.js
+// (puedeEjecutarseAccionComercial) — reexportada aquí, nunca duplicada.
 
 /**
  * Backend nunca confía ciego en el modelo (pedido explícito): un valor de
@@ -424,18 +426,20 @@ class Orchestrator {
     // la respuesta conversacional (aiOutput.respuesta_texto) nunca se
     // bloquea por esto.
     const identificacion = _resolverIdentificacion(clienteRaw, aiOutput.datos_contacto);
+    // PRIORIDAD 3: una sola función decide, nunca un chequeo repetido aquí.
+    const autorizarAccion = (tipo) => puedeEjecutarseAccionComercial({
+      tipoAccion: tipo, companyId: company_id, clienteId: clienteRaw?.id,
+      nombre: identificacion.nombre, motivoConsulta: identificacion.motivo,
+    }).autorizada;
 
-    const accionesAutorizadas = propuestas.filter(a => {
-      if (!a?.tipo || !capacidadesResueltas.includes(a.tipo)) return false;
-      if (ACCIONES_REQUIEREN_IDENTIFICACION.includes(a.tipo) && identificacion.estado !== 'identificado') return false;
-      return true;
-    });
+    const accionesAutorizadas = propuestas.filter(a =>
+      a?.tipo && capacidadesResueltas.includes(a.tipo) && autorizarAccion(a.tipo)
+    );
     const huboAgendaBloqueada = propuestas.some(a =>
       a?.tipo && !capacidadesResueltas.includes(a.tipo) && ACCIONES_SENSIBLES_DE_AGENDA.includes(a.tipo)
     );
     const huboComercialBloqueadaPorIdentificacion = propuestas.some(a =>
-      a?.tipo && capacidadesResueltas.includes(a.tipo) &&
-      ACCIONES_REQUIEREN_IDENTIFICACION.includes(a.tipo) && identificacion.estado !== 'identificado'
+      a?.tipo && capacidadesResueltas.includes(a.tipo) && !autorizarAccion(a.tipo)
     );
 
     const accionesResult = await this._paso('acciones', timings, () =>
@@ -860,8 +864,13 @@ class Orchestrator {
     // agendar_cita_con_horario_solicitado — reusa el mecanismo de reabrir
     // sesión y la pregunta natural de abajo, sin duplicar esa lógica.
     const identificacion = _resolverIdentificacion(clienteRaw, aiOutput.datos_contacto);
+    // PRIORIDAD 3: misma función centralizada que el paso 9, nunca un
+    // criterio reimplementado aquí.
     const bloqueadoPorIdentificacion = nodo.acciones.some(a =>
-      ACCIONES_REQUIEREN_IDENTIFICACION.includes(a?.tipo) && identificacion.estado !== 'identificado'
+      !puedeEjecutarseAccionComercial({
+        tipoAccion: a?.tipo, companyId: company_id, clienteId: clienteRaw?.id,
+        nombre: identificacion.nombre, motivoConsulta: identificacion.motivo,
+      }).autorizada
     );
 
     const resultados = bloqueadoPorIdentificacion

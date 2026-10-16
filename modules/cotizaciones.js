@@ -685,8 +685,37 @@ async function obtenerCotizacion(supabase, companyId, cotizacionId) {
  * @param {Function} [datos.enviarProactivo] - inyectable para tests; default enviarProactivoWhatsApp
  * @returns {Promise<Object>} el cálculo guardado (calculos_ingenieria)
  */
+const DESCRIPCION_COTIZACION_WORKFLOW = 'Cotización generada desde conversación de WhatsApp — predimensionamiento de sistema solar.';
+const VENTANA_IDEMPOTENCIA_MS = 2 * 60 * 1000; // 2 minutos
+
 async function correrCotizacionDesdeWorkflow(supabase, { companyId, clienteId, capturedFields, destinatario, calculadoPor, enviarProactivo }) {
   const enviar = enviarProactivo || enviarProactivoWhatsApp;
+
+  // PRIORIDAD 5 (incidente cotización 83/COT-2026-0021, 2026-10-16): esta
+  // función no tenía ninguna protección contra ejecutarse 2 veces para el
+  // mismo cliente en una ventana corta — un webhook de Twilio reenviado, o
+  // los caminos B (_finalizarWorkflow) y C (disparo anticipado en
+  // server.js) evaluando casi al mismo tiempo, podían crear 2 cotizaciones
+  // reales del mismo evento. Guarda defensiva y acotada: si ya existe una
+  // cotización reciente (misma empresa+cliente+descripción, generada por
+  // este mismo camino) con cálculo ya guardado, se devuelve ESE cálculo en
+  // vez de crear uno nuevo — nunca inserta una segunda fila.
+  const desdeIso = new Date(Date.now() - VENTANA_IDEMPOTENCIA_MS).toISOString();
+  const { data: cotizacionReciente } = await supabase
+    .from('cotizaciones')
+    .select('id, calculo_ingenieria_id')
+    .eq('company_id', companyId).eq('cliente_id', clienteId)
+    .eq('descripcion', DESCRIPCION_COTIZACION_WORKFLOW)
+    .gte('created_at', desdeIso)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (cotizacionReciente?.calculo_ingenieria_id) {
+    const { data: calculoExistente } = await supabase
+      .from('calculos_ingenieria').select('*').eq('id', cotizacionReciente.calculo_ingenieria_id).maybeSingle();
+    if (calculoExistente) return calculoExistente;
+  }
 
   const [{ data: sesion }, folio, oportunidadId, hiloId] = await Promise.all([
     supabase
@@ -708,7 +737,7 @@ async function correrCotizacionDesdeWorkflow(supabase, { companyId, clienteId, c
     .insert([{
       company_id: companyId, cliente_id: clienteId, estado: 'borrador',
       folio, oportunidad_id: oportunidadId, hilo_id: hiloId,
-      descripcion: 'Cotización generada desde conversación de WhatsApp — predimensionamiento de sistema solar.',
+      descripcion: DESCRIPCION_COTIZACION_WORKFLOW,
     }])
     .select()
     .single();

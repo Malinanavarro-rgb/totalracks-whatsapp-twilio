@@ -2734,5 +2734,30 @@ describe('Orchestrator — identificación obligatoria de contacto (nombre + mot
 
       expect(actionRunner.ejecutar).toHaveBeenCalled();
     });
+
+    // PRIORIDAD 7 — reproducción exacta del incidente real (2026-10-16,
+    // Nort Energy, +5218142850036, cotización 83/COT-2026-0021).
+    test('REPRODUCCIÓN DEL INCIDENTE: "hola quiero cotizar paneles", cliente "Sin nombre"/motivo_consulta=null → ningún cálculo de ingeniería se ejecuta', async () => {
+      const nodoConMotorIngenieria = {
+        nombre: 'preguntar_voltaje', es_fin: true, campo: 'voltaje_sitio', pregunta: '¿110/127V o 220V?', modo_respuesta: 'replace_ai',
+        acciones: [{ tipo: 'ejecutar_motor_ingenieria', parametros: {} }],
+      };
+      const wfEngine = makeWorkflowEngine({
+        obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+        obtenerNodoActual:   jest.fn().mockResolvedValue(nodoConMotorIngenieria),
+        avanzar:             jest.fn().mockResolvedValue({ sesion: { ...sesionEnProceso, status: 'completado' }, completado: true, siguiente_nodo: null }),
+      });
+      const actionRunner = { ejecutar: jest.fn() }; // representa correrCotizacionDesdeWorkflow — nunca debe llamarse
+      const deps = makeDeps({
+        workflowEngine: wfEngine, actionRunner,
+        obtenerOCrearCliente: jest.fn().mockResolvedValue({ id: 177, telefono: '+5218142850036', nombre: 'Sin nombre', estado: 'Nuevo', score_interes: 0 }),
+      });
+      const orch = new Orchestrator(deps);
+
+      const resultado = await orch.procesarMensaje(makeMessage({ content: 'hola quiero cotizar paneles' }));
+
+      expect(actionRunner.ejecutar).not.toHaveBeenCalled(); // = nunca se creó cotización ni cálculo persistente
+      expect(resultado.respuesta_texto).toMatch(/con quién tengo el gusto|en qué te puedo ayudar/i);
+    });
   });
 });

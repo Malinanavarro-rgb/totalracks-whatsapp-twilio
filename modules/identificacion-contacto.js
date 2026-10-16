@@ -18,6 +18,13 @@
 
 'use strict';
 
+// PRIORIDAD 3 (incidente cotización 83/COT-2026-0021, 2026-10-16): única
+// lista de qué acciones comerciales requieren identificación — antes vivía
+// duplicada como ACCIONES_REQUIEREN_IDENTIFICACION dentro de
+// orchestrator.js; ahora un solo lugar, reexportado desde ahí para no
+// romper nada que ya la importaba.
+const ACCIONES_REQUIEREN_IDENTIFICACION = ['crear_oportunidad', 'agendar_cita', 'agendar_cita_con_horario_solicitado', 'ejecutar_motor_ingenieria'];
+
 const ORDEN_CONFIANZA = { manual: 3, cliente: 2, ia_inferido: 1 };
 
 function _debeActualizar(fuenteActual, fuenteNueva) {
@@ -88,4 +95,49 @@ async function actualizarIdentificacionAutomatica(supabase, clienteId, companyId
   }
 }
 
-module.exports = { actualizarIdentificacionAutomatica, resolverEstadoIdentificacion, ORDEN_CONFIANZA };
+/**
+ * ÚNICA función de autorización para las 4 acciones comerciales que
+ * requieren identificación — PRIORIDAD 3 (incidente cotización 83,
+ * 2026-10-16): antes de esto, cada camino (A, B, C) repetía su propio
+ * chequeo "ACCIONES_REQUIEREN_IDENTIFICACION.includes(...) && estado !==
+ * 'identificado'" por separado — el camino C directamente no lo tenía.
+ * Ahora los 3 caminos llaman a ESTA función, nunca reimplementan el
+ * criterio.
+ *
+ * Recibe exclusivamente datos ya resueltos por el backend
+ * (company_id/cliente_id de la sesión/webhook ya autenticados, nombre/
+ * motivoConsulta ya combinados y validados por el caller — nunca texto
+ * crudo del modelo sin pasar primero por _validarDatoContacto()/
+ * resolverIdentificacion() del caller). El modelo nunca llega hasta aquí
+ * con la capacidad de decidir el resultado — ni siquiera conoce que esta
+ * función existe.
+ *
+ * @param {Object} datos
+ * @param {string} datos.tipoAccion
+ * @param {string} [datos.companyId]
+ * @param {string|number} [datos.clienteId]
+ * @param {string|null} [datos.nombre]
+ * @param {string|null} [datos.motivoConsulta]
+ * @returns {{autorizada: boolean, motivo?: string, campoFaltante?: 'nombre'|'motivo'}}
+ */
+function puedeEjecutarseAccionComercial({ tipoAccion, companyId, clienteId, nombre, motivoConsulta } = {}) {
+  if (!ACCIONES_REQUIEREN_IDENTIFICACION.includes(tipoAccion)) {
+    return { autorizada: true };
+  }
+  if (!companyId || !clienteId) {
+    return { autorizada: false, motivo: 'sin_contexto_valido' };
+  }
+
+  const estado = resolverEstadoIdentificacion({ nombre, motivoConsulta });
+  if (estado !== 'identificado') {
+    const tieneNombre = !!nombre && nombre !== 'Sin nombre';
+    return { autorizada: false, motivo: 'identificacion_incompleta', campoFaltante: tieneNombre ? 'motivo' : 'nombre' };
+  }
+
+  return { autorizada: true };
+}
+
+module.exports = {
+  actualizarIdentificacionAutomatica, resolverEstadoIdentificacion, puedeEjecutarseAccionComercial,
+  ACCIONES_REQUIEREN_IDENTIFICACION, ORDEN_CONFIANZA,
+};

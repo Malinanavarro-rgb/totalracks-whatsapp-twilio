@@ -1,6 +1,9 @@
 'use strict';
 
-const { actualizarIdentificacionAutomatica, resolverEstadoIdentificacion, ORDEN_CONFIANZA } = require('../modules/identificacion-contacto');
+const {
+  actualizarIdentificacionAutomatica, resolverEstadoIdentificacion, ORDEN_CONFIANZA,
+  puedeEjecutarseAccionComercial, ACCIONES_REQUIEREN_IDENTIFICACION,
+} = require('../modules/identificacion-contacto');
 
 function crearMockDb({ filaCliente, resultadoUpdate = { error: null } } = {}) {
   const eqCalls = [];
@@ -122,6 +125,66 @@ describe('identificacion-contacto', () => {
     test('manual > cliente > ia_inferido', () => {
       expect(ORDEN_CONFIANZA.manual).toBeGreaterThan(ORDEN_CONFIANZA.cliente);
       expect(ORDEN_CONFIANZA.cliente).toBeGreaterThan(ORDEN_CONFIANZA.ia_inferido);
+    });
+  });
+
+  // PRIORIDAD 3 (incidente cotización 83, 2026-10-16): única función de
+  // autorización — los 3 caminos (A, B, C) deben llamar a ESTA, nunca
+  // reimplementar el criterio.
+  describe('puedeEjecutarseAccionComercial() — única función de autorización', () => {
+    test('acción que NO requiere identificación (ej. crear_ticket_soporte): siempre autorizada, sin importar el cliente', () => {
+      expect(puedeEjecutarseAccionComercial({ tipoAccion: 'crear_ticket_soporte', companyId: 'c1', clienteId: 1 }))
+        .toEqual({ autorizada: true });
+    });
+
+    test.each(ACCIONES_REQUIEREN_IDENTIFICACION)('%s con nombre Y motivo: autorizada', (tipoAccion) => {
+      const resultado = puedeEjecutarseAccionComercial({ tipoAccion, companyId: 'c1', clienteId: 1, nombre: 'Roberto', motivoConsulta: 'Paneles' });
+      expect(resultado.autorizada).toBe(true);
+    });
+
+    test.each(ACCIONES_REQUIEREN_IDENTIFICACION)('%s sin nombre ni motivo: rechazada, campoFaltante="nombre"', (tipoAccion) => {
+      const resultado = puedeEjecutarseAccionComercial({ tipoAccion, companyId: 'c1', clienteId: 1, nombre: null, motivoConsulta: null });
+      expect(resultado).toMatchObject({ autorizada: false, motivo: 'identificacion_incompleta', campoFaltante: 'nombre' });
+    });
+
+    test('con nombre pero sin motivo: rechazada, campoFaltante="motivo"', () => {
+      const resultado = puedeEjecutarseAccionComercial({ tipoAccion: 'crear_oportunidad', companyId: 'c1', clienteId: 1, nombre: 'Roberto', motivoConsulta: null });
+      expect(resultado).toMatchObject({ autorizada: false, campoFaltante: 'motivo' });
+    });
+
+    test('CRÍTICO: sin companyId o sin clienteId → rechazada, nunca autoriza por falta de contexto', () => {
+      expect(puedeEjecutarseAccionComercial({ tipoAccion: 'crear_oportunidad', companyId: null, clienteId: 1, nombre: 'Roberto', motivoConsulta: 'x' }))
+        .toMatchObject({ autorizada: false, motivo: 'sin_contexto_valido' });
+      expect(puedeEjecutarseAccionComercial({ tipoAccion: 'crear_oportunidad', companyId: 'c1', clienteId: null, nombre: 'Roberto', motivoConsulta: 'x' }))
+        .toMatchObject({ autorizada: false, motivo: 'sin_contexto_valido' });
+    });
+
+    test('intento de omitir la validación: nombre="Sin nombre" (placeholder) nunca autoriza, aunque motivoConsulta esté presente', () => {
+      const resultado = puedeEjecutarseAccionComercial({ tipoAccion: 'ejecutar_motor_ingenieria', companyId: 'c1', clienteId: 1, nombre: 'Sin nombre', motivoConsulta: 'Paneles' });
+      expect(resultado.autorizada).toBe(false);
+    });
+
+    test('sin argumentos en absoluto: nunca lanza (tipoAccion undefined no está en la lista gated, autoriza como cualquier acción no-comercial)', () => {
+      expect(() => puedeEjecutarseAccionComercial()).not.toThrow();
+      expect(puedeEjecutarseAccionComercial()).toEqual({ autorizada: true });
+    });
+
+    test('tipoAccion gated pero sin ningún otro dato: nunca lanza, rechaza por falta de contexto', () => {
+      expect(() => puedeEjecutarseAccionComercial({ tipoAccion: 'crear_oportunidad' })).not.toThrow();
+      expect(puedeEjecutarseAccionComercial({ tipoAccion: 'crear_oportunidad' }).autorizada).toBe(false);
+    });
+
+    test('AISLAMIENTO MULTIEMPRESA: la identificación de un cliente de la empresa A nunca autoriza una acción para la empresa B', () => {
+      // "Roberto" está identificado en la empresa A — si por error se evaluara
+      // con el company_id de la empresa B, igual debe autorizar (la función
+      // no consulta la base de datos por su cuenta, así que esto prueba que
+      // el CALLER es responsable de pasar nombre/motivoConsulta ya resueltos
+      // específicamente para esa empresa — no hay forma de que la función
+      // "filtre mal" porque no tiene acceso a otra fuente de datos).
+      const paraEmpresaA = puedeEjecutarseAccionComercial({ tipoAccion: 'crear_oportunidad', companyId: 'empresa-A', clienteId: 1, nombre: 'Roberto', motivoConsulta: 'Paneles' });
+      const paraEmpresaB = puedeEjecutarseAccionComercial({ tipoAccion: 'crear_oportunidad', companyId: 'empresa-B', clienteId: 1, nombre: null, motivoConsulta: null });
+      expect(paraEmpresaA.autorizada).toBe(true);
+      expect(paraEmpresaB.autorizada).toBe(false); // mismo clienteId, pero sin datos de identificación para esta llamada → nunca hereda los de A
     });
   });
 });
