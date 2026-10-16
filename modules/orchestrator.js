@@ -38,6 +38,7 @@
 const { randomUUID }  = require('crypto');
 const { ActionRunner } = require('./action-runner');
 const { instruccionesDePersonalidad } = require('./personalidad-presets');
+const { resolverEstadoIdentificacion } = require('./identificacion-contacto');
 
 // ═════════════════════════════════════════════════════════════════════════════
 // CONSTANTES
@@ -54,6 +55,43 @@ const CAPACIDADES_FASE2 = ['crear_oportunidad'];
 // capacidades de la empresa, el texto se reemplaza (ver
 // _textoDesdeResultadoDeAgenda), nunca se deja pasar la promesa sin respaldo.
 const ACCIONES_SENSIBLES_DE_AGENDA = ['agendar_cita', 'agendar_cita_con_horario_solicitado', 'reagendar_cita', 'cancelar_cita'];
+
+// Identificación obligatoria de contacto (Alina, 2026-10-16 — ver
+// TARA_IDENTIFICACION_CONTACTO_DIAGNOSTICO_V1.md). Excepción puntual
+// documentada a ADR-005, mismo criterio que ACCIONES_SENSIBLES_DE_AGENDA:
+// estas 4 acciones son las únicas que "requieren identificar al cliente"
+// (crean una oportunidad comercial real o comprometen un recurso) — nunca
+// se bloquea la respuesta conversacional normal, solo estas acciones.
+const ACCIONES_REQUIEREN_IDENTIFICACION = ['crear_oportunidad', 'agendar_cita', 'agendar_cita_con_horario_solicitado', 'ejecutar_motor_ingenieria'];
+
+/**
+ * Backend nunca confía ciego en el modelo (pedido explícito): un valor de
+ * datos_contacto solo cuenta si es texto real, no vacío, y no es el
+ * placeholder "Sin nombre" (que el modelo podría ecoar sin querer).
+ */
+function _validarDatoContacto(valor) {
+  if (typeof valor !== 'string') return null;
+  const limpio = valor.trim();
+  if (!limpio || limpio.toLowerCase() === 'sin nombre') return null;
+  return limpio;
+}
+
+/**
+ * Combina lo YA persistido (`clienteRaw` — la fuente de verdad) con lo que
+ * el modelo reportó haberse dicho EN ESTE turno (`datosContacto`,
+ * aiOutput.datos_contacto, ya pasado por _validarDatoContacto) — así una
+ * identificación dada en el mismo mensaje donde se pide cotizar/agendar no
+ * queda bloqueada hasta el siguiente turno. El estado final (sin_identificar/
+ * parcial/identificado) es SIEMPRE el que deriva resolverEstadoIdentificacion()
+ * desde modules/identificacion-contacto.js — una sola fuente de verdad, no
+ * una copia de esa lógica aquí.
+ */
+function _resolverIdentificacion(clienteRaw, datosContacto) {
+  const nombre = _validarDatoContacto(datosContacto?.nombre)
+    || (clienteRaw?.nombre && clienteRaw.nombre !== 'Sin nombre' ? clienteRaw.nombre : null);
+  const motivo = _validarDatoContacto(datosContacto?.motivo) || clienteRaw?.motivo_consulta || null;
+  return { nombre, motivo, estado: resolverEstadoIdentificacion({ nombre, motivoConsulta: motivo }) };
+}
 
 // ═════════════════════════════════════════════════════════════════════════════
 // ORCHESTRATOR
@@ -128,6 +166,11 @@ class Orchestrator {
     // _ejecutarAcciones y por lo tanto nunca corre en turnos sin acciones —
     // justo los turnos personales/spam que más importa clasificar).
     this._actualizarClasificacion = deps.actualizarClasificacion || null;
+
+    // Identificación obligatoria de contacto (Alina, 2026-10-16). Mismo
+    // patrón que _actualizarClasificacion: opcional, null-safe, incondicional
+    // por turno (corre tenga o no acciones el turno) — ver paso 11.5.
+    this._actualizarIdentificacion = deps.actualizarIdentificacion || null;
 
     // Fase 1 de TARA AI Engine (2026-10-16): mide el costo real de cada
     // llamada — hoy AIProvider.calcularCosto() existe pero nunca se invoca.
@@ -373,9 +416,26 @@ class Orchestrator {
     //    cual (esto es lo que le pasó a la clienta real del caso Nort
     //    Energy: "tu visita quedó agendada" sin ninguna fila en `citas`).
     const propuestas = aiOutput.acciones_propuestas || [];
-    const accionesAutorizadas = propuestas.filter(a => a?.tipo && capacidadesResueltas.includes(a.tipo));
+
+    // Identificación obligatoria de contacto (Alina, 2026-10-16). Combina lo
+    // ya persistido en `clienteRaw` con lo que el modelo reportó EN ESTE
+    // turno (aiOutput.datos_contacto, validado — nunca se confía ciego en
+    // el modelo). Filtra solo las 4 acciones que de verdad la requieren —
+    // la respuesta conversacional (aiOutput.respuesta_texto) nunca se
+    // bloquea por esto.
+    const identificacion = _resolverIdentificacion(clienteRaw, aiOutput.datos_contacto);
+
+    const accionesAutorizadas = propuestas.filter(a => {
+      if (!a?.tipo || !capacidadesResueltas.includes(a.tipo)) return false;
+      if (ACCIONES_REQUIEREN_IDENTIFICACION.includes(a.tipo) && identificacion.estado !== 'identificado') return false;
+      return true;
+    });
     const huboAgendaBloqueada = propuestas.some(a =>
       a?.tipo && !capacidadesResueltas.includes(a.tipo) && ACCIONES_SENSIBLES_DE_AGENDA.includes(a.tipo)
+    );
+    const huboComercialBloqueadaPorIdentificacion = propuestas.some(a =>
+      a?.tipo && capacidadesResueltas.includes(a.tipo) &&
+      ACCIONES_REQUIEREN_IDENTIFICACION.includes(a.tipo) && identificacion.estado !== 'identificado'
     );
 
     const accionesResult = await this._paso('acciones', timings, () =>
@@ -384,6 +444,15 @@ class Orchestrator {
     if (accionesResult.ok) {
       const textoReal = this._textoDesdeResultadoDeAgenda(accionesResult.value, huboAgendaBloqueada);
       if (textoReal) aiOutput = { ...aiOutput, respuesta_texto: textoReal };
+    }
+    // Prioridad sobre el texto de arriba: si la acción comercial propuesta
+    // ni siquiera se intentó por falta de identificación, la pregunta
+    // natural por el dato faltante es lo único honesto que se puede enviar
+    // (nunca el texto que el modelo ya había escrito, que podía sonar a
+    // cotización/confirmación sin que nada haya corrido).
+    if (huboComercialBloqueadaPorIdentificacion) {
+      const campoFaltante = identificacion.nombre ? 'motivo' : 'nombre';
+      aiOutput = { ...aiOutput, respuesta_texto: this._preguntaPorDatoFaltante([campoFaltante]) };
     }
 
     // ── 10. Guardar conversación ───────────────────────────────────────────
@@ -411,6 +480,22 @@ class Orchestrator {
         await this._actualizarClasificacion(clienteRaw.id, message.company_id, aiOutput.clasificacion_contexto);
       } catch (err) {
         this._log.logError(ctx, 'crm.actualizarClasificacion', err, { session_id: sessionId });
+      }
+    }
+
+    // ── 11.5 Identificación de contacto persistida (2026-10-16) ───────────
+    // Incondicional, mismo criterio que el paso 11 — corre en todo turno
+    // con cliente. `identificacion` ya combinó lo persistido con lo nuevo
+    // de este turno (ver paso 9); solo lo nuevo-y-validado llega aquí, el
+    // módulo decide si de verdad hay que escribir (nunca sobreescribe con
+    // menor confianza, ver modules/identificacion-contacto.js).
+    if (this._actualizarIdentificacion && clienteRaw?.id) {
+      try {
+        await this._actualizarIdentificacion(clienteRaw.id, message.company_id, {
+          nombre: identificacion.nombre, motivo: identificacion.motivo,
+        });
+      } catch (err) {
+        this._log.logError(ctx, 'crm.actualizarIdentificacion', err, { session_id: sessionId });
       }
     }
 
@@ -850,6 +935,7 @@ class Orchestrator {
       fecha:     '¿qué día te gustaría que fuera el técnico?',
       hora:      '¿en qué horario te queda bien?',
       nombre:    '¿con quién tengo el gusto?',
+      motivo:    '¿en qué te puedo ayudar?',
     };
     const primero = (campos || [])[0];
     return PREGUNTAS[primero] || 'me falta un dato para poder agendar tu visita técnica — ¿me lo compartes?';
@@ -1109,6 +1195,7 @@ function crearOrchestrator(overrides = {}) {
     actualizarScoreInteres,
   }                    = require('./crm');
   const { actualizarClasificacionAutomatica } = require('./clasificacion-cliente');
+  const { actualizarIdentificacionAutomatica } = require('./identificacion-contacto');
   const { registrarConsumoIA } = require('./ia-consumo');
 
   const mock   = new MockProvider({ latencia_ms: 0 });
@@ -1316,6 +1403,8 @@ function crearOrchestrator(overrides = {}) {
     actualizarScore:      overrides.actualizarScore      || actualizarScoreInteres,
     actualizarClasificacion: overrides.actualizarClasificacion
       || ((clienteId, companyId, clasificacion) => actualizarClasificacionAutomatica(supabase, clienteId, companyId, clasificacion)),
+    actualizarIdentificacion: overrides.actualizarIdentificacion
+      || ((clienteId, companyId, datos) => actualizarIdentificacionAutomatica(supabase, clienteId, companyId, datos)),
     registrarConsumoIA: overrides.registrarConsumoIA
       || ((datos) => registrarConsumoIA(supabase, datos)),
   });
@@ -1326,4 +1415,7 @@ module.exports = {
   parsearHoraPreferida: _parsearHoraPreferida,
   resolverServicioDesdeTexto: _resolverServicioDesdeTexto,
   esAcuseAmbiguo: _esAcuseAmbiguo,
+  resolverIdentificacion: _resolverIdentificacion,
+  validarDatoContacto: _validarDatoContacto,
+  ACCIONES_REQUIEREN_IDENTIFICACION,
 };

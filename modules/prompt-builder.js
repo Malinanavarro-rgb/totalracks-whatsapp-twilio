@@ -248,6 +248,7 @@ Genera los campos EN ESTE ORDEN — "clasificacion_contexto" primero, "respuesta
   "clasificacion_contexto": "${tiposClasificacion}",
   "categoria_principal": "categoría universal del producto o servicio detectado, o 'Sin clasificar'",
   "datos_extraidos":     ${datosSchema},
+  "datos_contacto":      {"nombre": "string o null — SOLO si el cliente lo dijo en ESTE turno", "motivo": "string o null — en sus propias palabras, SOLO si ya lo dijo en ESTE turno"},
   "intenciones":         ["interes_compra" | "solicitud_cotizacion" | "solicitud_visita_tecnica" | "soporte" | "seguimiento" | "cancelar_flujo" | "consulta_general"],
   "sentimiento":         "Positivo | Neutral | Negativo | Muy interesado",
   "etapa_sugerida":      "Nuevo | Calificacion | Negociacion | Cierre | Postventa",
@@ -255,7 +256,8 @@ Genera los campos EN ESTE ORDEN — "clasificacion_contexto" primero, "respuesta
   "respuesta_texto":     "tu respuesta al cliente, ya decidida según clasificacion_contexto (máximo 130 palabras, idioma: ${idioma})"
 }
 IMPORTANTE: el campo "intenciones" debe contener ÚNICAMENTE valores del catálogo anterior. Uno o más valores del arreglo, separados por coma. Ningún valor fuera de ese catálogo.
-IMPORTANTE: en "datos_extraidos" usa EXACTAMENTE las claves del schema. SOLO incluye el valor si el cliente lo mencionó EXPLÍCITAMENTE en su mensaje. Si no lo dijo con palabras claras, el valor DEBE ser null. No inferir, no asumir, no adivinar.`;
+IMPORTANTE: en "datos_extraidos" usa EXACTAMENTE las claves del schema. SOLO incluye el valor si el cliente lo mencionó EXPLÍCITAMENTE en su mensaje. Si no lo dijo con palabras claras, el valor DEBE ser null. No inferir, no asumir, no adivinar.
+IMPORTANTE: en "datos_contacto", "nombre" y "motivo" son null salvo que el cliente los haya dicho explícitamente EN ESTE turno — nunca inventes, nunca repitas un valor que ya dio en un turno anterior (el sistema ya lo recuerda, no hace falta que lo repitas tú).`;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

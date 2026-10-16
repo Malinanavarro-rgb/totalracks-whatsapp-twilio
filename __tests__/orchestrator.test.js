@@ -12,7 +12,7 @@
 
 'use strict';
 
-const { Orchestrator, RESPUESTA_EMERGENCIA, parsearHoraPreferida, resolverServicioDesdeTexto, esAcuseAmbiguo } = require('../modules/orchestrator');
+const { Orchestrator, RESPUESTA_EMERGENCIA, parsearHoraPreferida, resolverServicioDesdeTexto, esAcuseAmbiguo, resolverIdentificacion, validarDatoContacto } = require('../modules/orchestrator');
 const { ContextBuilder }  = require('../modules/context-builder');
 const { PromptBuilder }   = require('../modules/prompt-builder');
 const { AIEngine }        = require('../modules/ai-engine');
@@ -57,6 +57,13 @@ function makeCliente() {
     id:            42,
     telefono:      '+5218112345678',
     nombre:        'Carlos López',
+    // Identificación obligatoria de contacto (2026-10-16): el fixture por
+    // default representa un cliente YA identificado (nombre real + motivo
+    // ya capturado) para que los tests existentes, que prueban otras
+    // mecánicas (agenda, confirmaciones, etc.), no se vean bloqueados por
+    // el nuevo gate — las pruebas DEL gate usan sus propios fixtures sin
+    // motivo_consulta (ver describe "identificación obligatoria de contacto").
+    motivo_consulta: 'Cotización de rack selectivo',
     ciudad:        'Monterrey',
     fuente:        'WhatsApp',
     estado:        'Calificacion',
@@ -2397,5 +2404,275 @@ describe('Orchestrator + WorkflowEngine — auditoría Nort Energy: acuse ambigu
     await orch.procesarMensaje(makeMessage({ content: 'Jueves' }));
 
     expect(wfEngine.avanzar).toHaveBeenCalledWith(sesionSinDato, nodoConOpciones, 'Jueves');
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Identificación obligatoria de contacto (Alina, 2026-10-16 — autorizada tras
+// TARA_IDENTIFICACION_CONTACTO_DIAGNOSTICO_V1.md). Excepción puntual a
+// ADR-005, mismo criterio que el bloque de arriba (acciones_propuestas
+// filtradas por capacidades).
+// ═════════════════════════════════════════════════════════════════════════════
+describe('Orchestrator — identificación obligatoria de contacto (nombre + motivo)', () => {
+  function clienteSinIdentificar(overrides = {}) {
+    return { id: 99, telefono: '+5218199999999', nombre: 'Sin nombre', ciudad: 'Monterrey', fuente: 'WhatsApp', estado: 'Nuevo', score_interes: 0, ...overrides };
+  }
+
+  function mockAIConAccionYContacto(tipo, respuesta_texto, datos_contacto) {
+    return {
+      procesar: jest.fn().mockResolvedValue({
+        respuesta_texto,
+        categoria_principal: 'Rack Selectivo',
+        datos_extraidos:     {},
+        datos_contacto:      datos_contacto || { nombre: null, motivo: null },
+        intenciones:         ['solicitud_cotizacion'],
+        sentimiento:         'Neutral',
+        etapa_sugerida:      null,
+        acciones_propuestas: [{ tipo, parametros: {} }],
+        confianza:           0.8,
+        tokens_entrada:      80,
+        tokens_salida:       40,
+        modelo_utilizado:    'mock',
+        proveedor_utilizado: 'mock',
+        latencia_ms:         5,
+      }),
+    };
+  }
+
+  describe('crear_oportunidad (capacidad default, sin configurar nada extra)', () => {
+    it('cliente nuevo que da nombre Y motivo en el mismo mensaje: la acción SÍ se ejecuta ese mismo turno', async () => {
+      const mockAI = mockAIConAccionYContacto('crear_oportunidad', 'Perfecto, con gusto te cotizo.', { nombre: 'Roberto', motivo: 'Cotizar paneles solares' });
+      const deps = makeDeps({ aiEngine: mockAI, obtenerOCrearCliente: jest.fn().mockResolvedValue(clienteSinIdentificar()) });
+      const orch = new Orchestrator(deps);
+
+      await orch.procesarMensaje(makeMessage({ content: 'Hola soy Roberto, quiero cotizar paneles solares' }));
+
+      expect(deps.crearOportunidad).toHaveBeenCalled();
+    });
+
+    it('cliente da PRIMERO el nombre (motivo todavía no): la acción NO se ejecuta, pregunta el motivo', async () => {
+      const mockAI = mockAIConAccionYContacto('crear_oportunidad', 'Mucho gusto Roberto.', { nombre: 'Roberto', motivo: null });
+      const deps = makeDeps({ aiEngine: mockAI, obtenerOCrearCliente: jest.fn().mockResolvedValue(clienteSinIdentificar()) });
+      const orch = new Orchestrator(deps);
+
+      const resultado = await orch.procesarMensaje(makeMessage({ content: 'Me llamo Roberto' }));
+
+      expect(deps.crearOportunidad).not.toHaveBeenCalled();
+      expect(resultado.respuesta_texto).toMatch(/en qué te puedo ayudar/i);
+    });
+
+    it('cliente da PRIMERO el motivo (nombre todavía no): la acción NO se ejecuta, pregunta el nombre', async () => {
+      const mockAI = mockAIConAccionYContacto('crear_oportunidad', 'Claro, te ayudo con eso.', { nombre: null, motivo: 'Mantenimiento de paneles' });
+      const deps = makeDeps({ aiEngine: mockAI, obtenerOCrearCliente: jest.fn().mockResolvedValue(clienteSinIdentificar()) });
+      const orch = new Orchestrator(deps);
+
+      const resultado = await orch.procesarMensaje(makeMessage({ content: 'Necesito mantenimiento de mis paneles' }));
+
+      expect(deps.crearOportunidad).not.toHaveBeenCalled();
+      expect(resultado.respuesta_texto).toMatch(/con quién tengo el gusto/i);
+    });
+
+    it('cliente que YA tiene nombre real en CRM (pero sin motivo_consulta): bloquea hasta que dé el motivo', async () => {
+      const mockAI = mockAIConAccionYContacto('crear_oportunidad', 'Perfecto.', { nombre: null, motivo: null });
+      const deps = makeDeps({ aiEngine: mockAI, obtenerOCrearCliente: jest.fn().mockResolvedValue(clienteSinIdentificar({ nombre: 'Patricia' })) });
+      const orch = new Orchestrator(deps);
+
+      const resultado = await orch.procesarMensaje(makeMessage({ content: '¿Cuánto cuesta cotizar?' }));
+
+      expect(deps.crearOportunidad).not.toHaveBeenCalled();
+      expect(resultado.respuesta_texto).toMatch(/en qué te puedo ayudar/i); // ya tiene nombre, solo falta motivo
+    });
+
+    it('cliente que NO quiere dar su nombre: la acción sigue bloqueada, pero la conversación general continúa sin forzar la pregunta si el modelo no propuso ninguna acción', async () => {
+      const mockAI = {
+        procesar: jest.fn().mockResolvedValue({
+          respuesta_texto: 'Entiendo, igual te puedo platicar de nuestros servicios en general.',
+          categoria_principal: 'Sin clasificar', datos_extraidos: {}, datos_contacto: { nombre: null, motivo: null },
+          intenciones: ['consulta_general'], sentimiento: 'Neutral', etapa_sugerida: null,
+          acciones_propuestas: [], confianza: 0.6, tokens_entrada: 50, tokens_salida: 20,
+          modelo_utilizado: 'mock', proveedor_utilizado: 'mock', latencia_ms: 5,
+        }),
+      };
+      const deps = makeDeps({ aiEngine: mockAI, obtenerOCrearCliente: jest.fn().mockResolvedValue(clienteSinIdentificar()) });
+      const orch = new Orchestrator(deps);
+
+      const resultado = await orch.procesarMensaje(makeMessage({ content: 'Prefiero no dar mi nombre, pero cuéntame qué hacen' }));
+
+      expect(deps.crearOportunidad).not.toHaveBeenCalled();
+      expect(resultado.respuesta_texto).toBe('Entiendo, igual te puedo platicar de nuestros servicios en general.');
+    });
+
+    it('intento de omitir el gate: el modelo propone la acción Y manda datos_contacto con valores inválidos ("Sin nombre"/vacío) — sigue bloqueada', async () => {
+      const mockAI = mockAIConAccionYContacto('crear_oportunidad', 'Listo, ya quedó tu cotización.', { nombre: 'Sin nombre', motivo: '   ' });
+      const deps = makeDeps({ aiEngine: mockAI, obtenerOCrearCliente: jest.fn().mockResolvedValue(clienteSinIdentificar()) });
+      const orch = new Orchestrator(deps);
+
+      await orch.procesarMensaje(makeMessage());
+
+      expect(deps.crearOportunidad).not.toHaveBeenCalled();
+    });
+
+    it('mensajes consecutivos — prevención de preguntas repetidas: una vez persistido el nombre, el turno siguiente ya no vuelve a preguntarlo', async () => {
+      // Turno 1: da el nombre, falta motivo → bloqueado, pregunta motivo.
+      const mockAI1 = mockAIConAccionYContacto('crear_oportunidad', 'Mucho gusto.', { nombre: 'Roberto', motivo: null });
+      const deps1 = makeDeps({ aiEngine: mockAI1, obtenerOCrearCliente: jest.fn().mockResolvedValue(clienteSinIdentificar()) });
+      const orch1 = new Orchestrator(deps1);
+      const r1 = await orch1.procesarMensaje(makeMessage({ content: 'Soy Roberto' }));
+      expect(r1.respuesta_texto).toMatch(/en qué te puedo ayudar/i);
+
+      // Turno 2: el cliente YA tiene nombre='Roberto' persistido (simulado vía
+      // el cliente que devuelve obtenerOCrearCliente) y ahora da el motivo —
+      // nunca se le vuelve a preguntar el nombre.
+      const mockAI2 = mockAIConAccionYContacto('crear_oportunidad', 'Perfecto, te cotizo.', { nombre: null, motivo: 'Paneles solares' });
+      const deps2 = makeDeps({ aiEngine: mockAI2, obtenerOCrearCliente: jest.fn().mockResolvedValue(clienteSinIdentificar({ nombre: 'Roberto' })) });
+      const orch2 = new Orchestrator(deps2);
+      const r2 = await orch2.procesarMensaje(makeMessage({ content: 'Quiero paneles solares' }));
+
+      expect(r2.respuesta_texto).not.toMatch(/con quién tengo el gusto/i);
+      expect(deps2.crearOportunidad).toHaveBeenCalled();
+    });
+
+    it('no duplica oportunidades: en el turno bloqueado nunca se llama crearOportunidad; en el turno identificado se llama exactamente una vez', async () => {
+      const mockAIBloqueado = mockAIConAccionYContacto('crear_oportunidad', 'x', { nombre: null, motivo: null });
+      const depsBloqueado = makeDeps({ aiEngine: mockAIBloqueado, obtenerOCrearCliente: jest.fn().mockResolvedValue(clienteSinIdentificar()) });
+      await new Orchestrator(depsBloqueado).procesarMensaje(makeMessage());
+      expect(depsBloqueado.crearOportunidad).not.toHaveBeenCalled();
+
+      const mockAIIdentificado = mockAIConAccionYContacto('crear_oportunidad', 'y', { nombre: 'Roberto', motivo: 'Paneles' });
+      const depsIdentificado = makeDeps({ aiEngine: mockAIIdentificado, obtenerOCrearCliente: jest.fn().mockResolvedValue(clienteSinIdentificar()) });
+      await new Orchestrator(depsIdentificado).procesarMensaje(makeMessage());
+      expect(depsIdentificado.crearOportunidad).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('agendar_cita_con_horario_solicitado — compatibilidad con agenda (también exige identificación)', () => {
+    it('acción de agenda SIN identificación: no corre, pregunta el dato que falta en vez de confirmar', async () => {
+      const empresaConCap = makeEmpresaRaw();
+      empresaConCap.personality.capacidades = ['crear_oportunidad', 'agendar_cita_con_horario_solicitado'];
+      const mockAI = mockAIConAccionYContacto('agendar_cita_con_horario_solicitado', 'Tu visita quedó agendada.', { nombre: null, motivo: null });
+      const actionRunner = { ejecutar: jest.fn() };
+      const deps = makeDeps({
+        aiEngine: mockAI, actionRunner, obtenerConfigEmpresa: jest.fn().mockResolvedValue(empresaConCap),
+        obtenerOCrearCliente: jest.fn().mockResolvedValue(clienteSinIdentificar()),
+      });
+      const orch = new Orchestrator(deps);
+
+      const resultado = await orch.procesarMensaje(makeMessage());
+
+      expect(actionRunner.ejecutar).not.toHaveBeenCalled();
+      expect(resultado.respuesta_texto).not.toBe('Tu visita quedó agendada.');
+    });
+
+    it('acción de agenda CON identificación completa: corre normal, sin cambios de comportamiento (compatibilidad con WhatsApp/agenda existente)', async () => {
+      const empresaConCap = makeEmpresaRaw();
+      empresaConCap.personality.capacidades = ['crear_oportunidad', 'agendar_cita_con_horario_solicitado'];
+      const mockAI = mockAIConAccionYContacto('agendar_cita_con_horario_solicitado', 'Voy a checar disponibilidad.', { nombre: 'Roberto', motivo: 'Visita técnica' });
+      const actionRunner = { ejecutar: jest.fn().mockResolvedValue({ tipo: 'agendada', cita: { inicio: '2026-09-18T16:00:00.000Z' } }) };
+      const deps = makeDeps({
+        aiEngine: mockAI, actionRunner, obtenerConfigEmpresa: jest.fn().mockResolvedValue(empresaConCap),
+        obtenerOCrearCliente: jest.fn().mockResolvedValue(clienteSinIdentificar()),
+      });
+      const orch = new Orchestrator(deps);
+
+      const resultado = await orch.procesarMensaje(makeMessage());
+
+      expect(actionRunner.ejecutar).toHaveBeenCalled();
+      expect(resultado.respuesta_texto).toMatch(/quedó agendad/i);
+    });
+  });
+
+  describe('corrección de nombre / cambio de motivo', () => {
+    it('cliente corrige su nombre en el mismo turno en que ya estaba identificado: usa el valor NUEVO, no el persistido', async () => {
+      const mockAI = mockAIConAccionYContacto('crear_oportunidad', 'ok', { nombre: 'Roberto Pérez', motivo: null });
+      const deps = makeDeps({
+        aiEngine: mockAI,
+        obtenerOCrearCliente: jest.fn().mockResolvedValue(clienteSinIdentificar({ nombre: 'Roberto', motivo_consulta: 'Paneles solares' })),
+      });
+      const orch = new Orchestrator(deps);
+
+      await orch.procesarMensaje(makeMessage({ content: 'En realidad mi nombre completo es Roberto Pérez' }));
+
+      // Ya estaba identificado (nombre viejo + motivo persistido) y sigue
+      // identificado con el nombre corregido — la acción corre igual.
+      expect(deps.crearOportunidad).toHaveBeenCalled();
+    });
+
+    it('cliente cambia de necesidad a mitad de conversación: el nuevo motivo reemplaza al anterior para el gate de este turno', async () => {
+      const mockAI = mockAIConAccionYContacto('crear_oportunidad', 'ok', { nombre: null, motivo: 'Ahora quiero instalación nueva' });
+      const deps = makeDeps({
+        aiEngine: mockAI,
+        obtenerOCrearCliente: jest.fn().mockResolvedValue(clienteSinIdentificar({ nombre: 'Roberto', motivo_consulta: 'Mantenimiento' })),
+      });
+      const orch = new Orchestrator(deps);
+
+      await orch.procesarMensaje(makeMessage({ content: 'Mejor quiero instalación nueva, ya no mantenimiento' }));
+
+      expect(deps.crearOportunidad).toHaveBeenCalled(); // sigue identificado (nombre ya existía, motivo nuevo también cuenta)
+    });
+  });
+
+  describe('persistencia — actualizarIdentificacion (incondicional por turno, igual que actualizarClasificacion)', () => {
+    it('se llama con clienteId + company_id del mensaje + nombre/motivo ya combinados, cuando la dependencia está inyectada', async () => {
+      const mockAI = mockAIConAccionYContacto('crear_oportunidad', 'ok', { nombre: 'Roberto', motivo: 'Paneles solares' });
+      const actualizarIdentificacion = jest.fn().mockResolvedValue(undefined);
+      const deps = makeDeps({
+        aiEngine: mockAI, actualizarIdentificacion,
+        obtenerOCrearCliente: jest.fn().mockResolvedValue(clienteSinIdentificar()),
+      });
+      const orch = new Orchestrator(deps);
+
+      await orch.procesarMensaje(makeMessage({ company_id: 'company-aislamiento-test' }));
+
+      expect(actualizarIdentificacion).toHaveBeenCalledWith(99, 'company-aislamiento-test', { nombre: 'Roberto', motivo: 'Paneles solares' });
+    });
+
+    it('sin la dependencia inyectada, el flujo es idéntico a antes — nunca la requiere, nunca rompe', async () => {
+      const mockAI = mockAIConAccionYContacto('crear_oportunidad', 'ok', { nombre: 'Roberto', motivo: 'Paneles solares' });
+      const deps = makeDeps({ aiEngine: mockAI, obtenerOCrearCliente: jest.fn().mockResolvedValue(clienteSinIdentificar()) });
+      const orch = new Orchestrator(deps);
+
+      await expect(orch.procesarMensaje(makeMessage())).resolves.toBeDefined();
+    });
+
+    it('si actualizarIdentificacion lanza, el turno no se rompe (mismo criterio que actualizarClasificacion)', async () => {
+      const mockAI = mockAIConAccionYContacto('crear_oportunidad', 'ok', { nombre: 'Roberto', motivo: 'Paneles solares' });
+      const actualizarIdentificacion = jest.fn().mockRejectedValue(new Error('db caída'));
+      const deps = makeDeps({ aiEngine: mockAI, actualizarIdentificacion, obtenerOCrearCliente: jest.fn().mockResolvedValue(clienteSinIdentificar()) });
+      const orch = new Orchestrator(deps);
+
+      const resultado = await orch.procesarMensaje(makeMessage());
+      expect(resultado.respuesta_texto).toBeDefined();
+    });
+  });
+
+  describe('validarDatoContacto() / resolverIdentificacion() — helpers puros, exportados para prueba directa', () => {
+    test('validarDatoContacto: recorta espacios', () => expect(validarDatoContacto('  Roberto  ')).toBe('Roberto'));
+    test('validarDatoContacto: null/undefined/no-string → null', () => {
+      expect(validarDatoContacto(null)).toBeNull();
+      expect(validarDatoContacto(undefined)).toBeNull();
+      expect(validarDatoContacto(42)).toBeNull();
+    });
+    test('validarDatoContacto: string vacío o solo espacios → null', () => {
+      expect(validarDatoContacto('')).toBeNull();
+      expect(validarDatoContacto('   ')).toBeNull();
+    });
+    test('validarDatoContacto: "Sin nombre" (cualquier capitalización) → null, nunca lo acepta como real', () => {
+      expect(validarDatoContacto('Sin nombre')).toBeNull();
+      expect(validarDatoContacto('sin nombre')).toBeNull();
+    });
+
+    test('resolverIdentificacion: prioriza el dato de ESTE turno sobre el ya persistido (permite correcciones)', () => {
+      const resultado = resolverIdentificacion({ nombre: 'Roberto', motivo_consulta: 'Mantenimiento' }, { nombre: 'Roberto Pérez', motivo: null });
+      expect(resultado).toEqual({ nombre: 'Roberto Pérez', motivo: 'Mantenimiento', estado: 'identificado' });
+    });
+
+    test('resolverIdentificacion: sin datos_contacto en este turno, usa solo lo persistido', () => {
+      const resultado = resolverIdentificacion({ nombre: 'Sin nombre', motivo_consulta: null }, undefined);
+      expect(resultado).toEqual({ nombre: null, motivo: null, estado: 'sin_identificar' });
+    });
+
+    test('resolverIdentificacion: sin cliente (clienteRaw null) y sin datos_contacto → sin_identificar, nunca lanza', () => {
+      expect(resolverIdentificacion(null, undefined)).toEqual({ nombre: null, motivo: null, estado: 'sin_identificar' });
+    });
   });
 });
