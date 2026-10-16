@@ -51,11 +51,14 @@ Auditoría: la migración 131 también agrega `'aprobar_solicitud_ampliacion'`/`
 - `modulo-engine.js` (observación en Tickets) no se tocó.
 - Ninguna empresa real tiene hoy un módulo en `'inactivo'`, así que el botón "Activar" no tendría ningún caso real que mostrar todavía — consistente con lo ya anticipado en la propuesta de Fase 3 ("sería un no-op visible").
 
-## 6. Pendiente de tu autorización separada
+## 6. Actualización 2026-10-17 — Migración 131 corrida
 
-1. Correr la migración 131 contra producción (tabla nueva + ampliación del CHECK de auditoría).
-2. Push de estos commits.
+Confirmada en producción: la tabla `solicitudes_ampliacion` existe y el CHECK de `plataforma_audit_log` ya incluye `'aprobar_solicitud_ampliacion'`/`'rechazar_solicitud_ampliacion'` junto con el catálogo completo anterior (verificado con la definición real del constraint después de correrla).
+
+## 7. Pendiente de tu autorización separada
+
+1. Push de estos commits (`cabc7ac` y anteriores).
 
 ---
 
-Código y pruebas completos, cero producción tocada.
+Código, pruebas y migración completos — Fase 3.3/3.4 lista para usarse en cuanto hagas el push.
