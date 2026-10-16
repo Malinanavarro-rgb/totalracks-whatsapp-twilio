@@ -88,6 +88,7 @@ class MockProvider extends AIProvider {
       clasificacion_contexto: CLASIFICACION_POR_DEFECTO,
       categoria_principal: 'Sin clasificar',
       datos_extraidos:     {},
+      datos_contacto:      null,
       intenciones,
       sentimiento,
       etapa_sugerida:      quiereInteres ? 'Calificacion' : 'Nuevo',

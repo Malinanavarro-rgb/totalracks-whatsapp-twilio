@@ -12,7 +12,7 @@
 
 'use strict';
 
-const { Orchestrator, RESPUESTA_EMERGENCIA, parsearHoraPreferida, resolverServicioDesdeTexto, esAcuseAmbiguo, resolverIdentificacion, validarDatoContacto } = require('../modules/orchestrator');
+const { Orchestrator, RESPUESTA_EMERGENCIA, parsearHoraPreferida, resolverServicioDesdeTexto, esAcuseAmbiguo, resolverIdentificacion, validarDatoContacto, camposTecnicosFaltantes, CAMPOS_TECNICOS_REQUERIDOS_COTIZACION } = require('../modules/orchestrator');
 const { ContextBuilder }  = require('../modules/context-builder');
 const { PromptBuilder }   = require('../modules/prompt-builder');
 const { AIEngine }        = require('../modules/ai-engine');
@@ -2706,7 +2706,15 @@ describe('Orchestrator — identificación obligatoria de contacto (nombre + mot
       expect(resultado.respuesta_texto).toMatch(/con quién tengo el gusto|en qué te puedo ayudar/i);
     });
 
-    test('bloqueado por identificación: reabre la sesión de workflow (mismo mecanismo ya usado para faltan_datos/sin_disponibilidad)', async () => {
+    // CAMBIO DE COMPORTAMIENTO DELIBERADO (Alina, 2026-10-16, requisito #5 de
+    // la corrección del incidente "Carlos González" — "no reiniciar
+    // workflows"): antes, bloquear por identificación reabría la sesión
+    // (mismo mecanismo que sin_disponibilidad), lo que reiniciaba el
+    // workflow desde su nodo inicial y DESCARTABA todo el progreso técnico
+    // ya capturado. Ahora NO reabre — la sesión completada se deja tal cual
+    // (status 'completado', captured_fields intactos), solo se pide el dato
+    // de identificación que falta.
+    test('bloqueado por identificación: NO reabre la sesión — preserva el progreso ya capturado (ver requisito "no reiniciar", 2026-10-16)', async () => {
       const wfEngine = makeWorkflowEngine({
         obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
         obtenerNodoActual:   jest.fn().mockResolvedValue(nodoFinalConAccionComercial),
@@ -2717,7 +2725,7 @@ describe('Orchestrator — identificación obligatoria de contacto (nombre + mot
 
       await orch.procesarMensaje(makeMessage({ content: 'sí' }));
 
-      expect(wfEngine.iniciarSesion).toHaveBeenCalled();
+      expect(wfEngine.iniciarSesion).not.toHaveBeenCalled();
     });
 
     test('nodo final CON identificación completa: sigue funcionando exactamente igual que antes (sin regresión)', async () => {
@@ -2759,5 +2767,167 @@ describe('Orchestrator — identificación obligatoria de contacto (nombre + mot
       expect(actionRunner.ejecutar).not.toHaveBeenCalled(); // = nunca se creó cotización ni cálculo persistente
       expect(resultado.respuesta_texto).toMatch(/con quién tengo el gusto|en qué te puedo ayudar/i);
     });
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Corrección del incidente real "Carlos González" / Nort Energy (Alina,
+// 2026-10-16): Bug A (el paso 9 sobreescribía el texto del workflow),
+// fuente única de identificación (captured_fields de workflow + datos_contacto
+// de conversación libre), "no reiniciar workflows" y requisitos técnicos
+// completos como condición INDEPENDIENTE de la identificación comercial.
+// ═════════════════════════════════════════════════════════════════════════════
+
+describe('Orchestrator — Bug A (2026-10-16): el paso 9 nunca sobreescribe una respuesta ya resuelta por el workflow', () => {
+  function clienteSinIdentificar() {
+    return { id: 260, telefono: '+5218117796550', nombre: 'Sin nombre', motivo_consulta: null, estado: 'Nuevo', score_interes: 0 };
+  }
+
+  test('workflow activo responde con la pregunta del siguiente nodo; el modelo ADEMÁS propone crear_oportunidad sin identificación → la respuesta final es la del nodo, NUNCA la pregunta de identificación', async () => {
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoIntermedio),
+      avanzar:             jest.fn().mockResolvedValue({
+        sesion:         { ...sesionEnProceso, current_node: 'tipo_proyecto', total_turnos: 2 },
+        completado:     false,
+        siguiente_nodo: nodoSiguiente,
+      }),
+    });
+    const aiEngine = {
+      procesar: jest.fn().mockResolvedValue({
+        respuesta_texto: 'Ya quedó tu cotización lista.', // el modelo podía sonar a confirmación — no debe importar
+        categoria_principal: 'Test', datos_extraidos: {}, datos_contacto: { nombre: null, motivo: null },
+        intenciones: ['solicitud_cotizacion'], sentimiento: 'Neutral', etapa_sugerida: null,
+        acciones_propuestas: [{ tipo: 'crear_oportunidad', parametros: {} }],
+        confianza: 0.8, tokens_entrada: 50, tokens_salida: 20,
+        modelo_utilizado: 'mock', proveedor_utilizado: 'mock', latencia_ms: 5,
+      }),
+    };
+    const deps = makeDeps({ workflowEngine: wfEngine, aiEngine, obtenerOCrearCliente: jest.fn().mockResolvedValue(clienteSinIdentificar()) });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage({ content: 'ACME Construcciones' }));
+
+    // ANTES del fix: esto hubiera sido "¿con quién tengo el gusto?",
+    // desalineando lo que TARA mostró de lo que el workflow cree haber
+    // preguntado — exactamente el mecanismo que corrompió captured_fields
+    // en el incidente real.
+    expect(resultado.respuesta_texto).toBe('¿Qué tipo de proyecto tienes en mente?');
+    // Bloquear la acción comercial sigue activo, independiente del texto.
+    expect(deps.crearOportunidad).not.toHaveBeenCalled();
+  });
+});
+
+describe('Orchestrator — fuente única de identificación: captured_fields de workflow (2026-10-16)', () => {
+  test('resolverIdentificacion(): un nombre solo presente en capturedFields (nodo "preguntar_nombre" de un workflow) cuenta igual que datos_contacto', () => {
+    const resultado = resolverIdentificacion(
+      { nombre: 'Sin nombre', motivo_consulta: null },
+      { nombre: null, motivo: null },
+      { nombre: 'Carlos González' }
+    );
+    expect(resultado).toEqual({ nombre: 'Carlos González', motivo: null, estado: 'parcial' });
+  });
+
+  test('resolverIdentificacion(): datos_contacto de ESTE turno gana sobre capturedFields de un turno anterior de la misma sesión', () => {
+    const resultado = resolverIdentificacion(null, { nombre: 'Carlos Alberto González', motivo: null }, { nombre: 'Carlos' });
+    expect(resultado.nombre).toBe('Carlos Alberto González');
+  });
+
+  test('resolverIdentificacion(): capturedFields con el placeholder "Sin nombre" se descarta igual que cualquier otro dato inválido', () => {
+    const resultado = resolverIdentificacion(null, undefined, { nombre: 'Sin nombre' });
+    expect(resultado.nombre).toBeNull();
+  });
+
+  test('camino B — nombre capturado SOLO por el workflow (captured_fields), motivo aún ausente → reconoce el nombre, pregunta solo el motivo (no vuelve a preguntar "¿con quién tengo el gusto?")', async () => {
+    const nodoFinalConAccionComercial = {
+      nombre: 'confirmar_cita', es_fin: true, campo: 'confirmacion', pregunta: '¿Confirmas tu cita?', modo_respuesta: 'replace_ai',
+      acciones: [{ tipo: 'agendar_cita', parametros: {} }],
+    };
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoFinalConAccionComercial),
+      avanzar: jest.fn().mockResolvedValue({
+        sesion: { ...sesionEnProceso, status: 'completado', captured_fields: { nombre: 'Carlos González' } },
+        completado: true, siguiente_nodo: null,
+      }),
+    });
+    const actionRunner = { ejecutar: jest.fn() };
+    const actualizarIdentificacion = jest.fn().mockResolvedValue(undefined);
+    const deps = makeDeps({
+      workflowEngine: wfEngine, actionRunner, actualizarIdentificacion,
+      obtenerOCrearCliente: jest.fn().mockResolvedValue({ id: 260, telefono: '+5218117796550', nombre: 'Sin nombre', motivo_consulta: null, estado: 'Nuevo', score_interes: 0 }),
+    });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage({ content: 'sí' }));
+
+    expect(actionRunner.ejecutar).not.toHaveBeenCalled(); // sigue bloqueada — falta motivo
+    expect(resultado.respuesta_texto).toMatch(/en qué te puedo ayudar/i);
+    expect(resultado.respuesta_texto).not.toMatch(/con quién tengo el gusto/i); // ya NO vuelve a preguntar el nombre
+    expect(actualizarIdentificacion).toHaveBeenCalledWith(260, 'company-uuid-001', { nombre: 'Carlos González', motivo: null });
+  });
+});
+
+describe('Orchestrator — requisitos técnicos completos para ejecutar_motor_ingenieria (2026-10-16, auditado contra el motor real paneles-solares.js)', () => {
+  test('camposTecnicosFaltantes(): sin nada capturado, faltan ubicacion + pct_cobertura_deseado + consumo_mensual_kwh', () => {
+    expect(camposTecnicosFaltantes({})).toEqual([...CAMPOS_TECNICOS_REQUERIDOS_COTIZACION, 'consumo_mensual_kwh']);
+  });
+
+  test('camposTecnicosFaltantes(): con ubicacion + consumo_mensual_kwh + pct_cobertura_deseado, no falta nada', () => {
+    const faltantes = camposTecnicosFaltantes({ ubicacion: 'Monterrey', consumo_mensual_kwh: '450', pct_cobertura_deseado: '90' });
+    expect(faltantes).toEqual([]);
+  });
+
+  test('camposTecnicosFaltantes(): importe_promedio_recibo NO es obligatorio — el motor real (generarAlertas, paneles-solares.js) nunca lo exige para el cálculo base, solo consumo_mensual_kwh u historial_consumo_kwh (auditoría 2026-10-16, corrige un sobre-alcance de la primera versión)', () => {
+    const faltantes = camposTecnicosFaltantes({ ubicacion: 'Monterrey', consumo_mensual_kwh: '450', pct_cobertura_deseado: '90' }); // sin importe_promedio_recibo
+    expect(faltantes).toEqual([]);
+  });
+
+  test('camposTecnicosFaltantes(): historial_consumo_kwh con 12+ meses es alternativa válida a consumo_mensual_kwh (igual que el motor real)', () => {
+    const historial12Meses = Array.from({ length: 12 }, (_, i) => ({ mes: `2026-${i + 1}`, kwh: 400 }));
+    const faltantes = camposTecnicosFaltantes({ ubicacion: 'Monterrey', historial_consumo_kwh: historial12Meses, pct_cobertura_deseado: '90' });
+    expect(faltantes).toEqual([]);
+  });
+
+  test('camposTecnicosFaltantes(): historial_consumo_kwh con MENOS de 12 meses no cuenta como alternativa (mismo umbral que _historialConsumoOrNull)', () => {
+    const historialIncompleto = Array.from({ length: 5 }, (_, i) => ({ mes: `2026-${i + 1}`, kwh: 400 }));
+    const faltantes = camposTecnicosFaltantes({ ubicacion: 'Monterrey', historial_consumo_kwh: historialIncompleto, pct_cobertura_deseado: '90' });
+    expect(faltantes).toContain('consumo_mensual_kwh');
+  });
+
+  test('camposTecnicosFaltantes(): tipo_alimentacion/voltaje_sitio NO son obligatorios — su propio nodo ya acepta "no sé" (no es una regla nueva, se respeta la existente)', () => {
+    const faltantes = camposTecnicosFaltantes({ ubicacion: 'Monterrey', consumo_mensual_kwh: '450', pct_cobertura_deseado: '90' });
+    expect(faltantes).not.toContain('tipo_alimentacion');
+    expect(faltantes).not.toContain('voltaje_sitio');
+  });
+
+  test('camposTecnicosFaltantes(): un campo con solo espacios en blanco cuenta como ausente', () => {
+    const faltantes = camposTecnicosFaltantes({ ubicacion: '   ', consumo_mensual_kwh: '450', pct_cobertura_deseado: '90' });
+    expect(faltantes).toEqual(['ubicacion']);
+  });
+
+  // Simula el resultado real que produce el handler de ejecutar_motor_ingenieria
+  // (registrado en crearOrchestrator, fuera de la clase Orchestrator) cuando
+  // camposTecnicosFaltantes() encuentra huecos — mismo contrato {tipo:
+  // 'faltan_datos', motivo:'tecnico'} que _finalizarWorkflow ya sabe
+  // interpretar (no reabre, pregunta el campo correcto).
+  test('resultado {tipo:"faltan_datos", motivo:"tecnico"}: NO reabre el workflow y pregunta el campo técnico correcto (identificación válida no es suficiente)', async () => {
+    const nodoConMotorIngenieria = {
+      nombre: 'preguntar_voltaje', es_fin: true, campo: 'voltaje_sitio', pregunta: '¿110/127V o 220V?', modo_respuesta: 'replace_ai',
+      acciones: [{ tipo: 'ejecutar_motor_ingenieria', parametros: {} }],
+    };
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoConMotorIngenieria),
+      avanzar:             jest.fn().mockResolvedValue({ sesion: { ...sesionEnProceso, status: 'completado' }, completado: true, siguiente_nodo: null }),
+    });
+    const actionRunner = { ejecutar: jest.fn().mockResolvedValue({ tipo: 'faltan_datos', campos: ['ubicacion'], motivo: 'tecnico' }) };
+    const deps = makeDeps({ workflowEngine: wfEngine, actionRunner }); // makeCliente() default ya está identificado comercialmente
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage({ content: '220V' }));
+
+    expect(wfEngine.iniciarSesion).not.toHaveBeenCalled();
+    expect(resultado.respuesta_texto).toMatch(/ciudad o municipio/i);
   });
 });

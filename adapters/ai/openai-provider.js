@@ -24,6 +24,7 @@ const { VALORES_CLASIFICACION_CONTEXTO, CLASIFICACION_POR_DEFECTO } = require('.
 const INTENCIONES_VALIDAS = new Set([
   'interes_compra',
   'solicitud_cotizacion',
+  'solicitud_visita_tecnica',
   'soporte',
   'seguimiento',
   'cancelar_flujo',
@@ -117,6 +118,21 @@ function normalizarClasificacion(raw) {
 }
 
 /**
+ * Normaliza datos_contacto (identificación obligatoria — ver
+ * modules/identificacion-contacto.js). El modelo solo puede reportar
+ * nombre/motivo como string; cualquier otro tipo se descarta (nunca se
+ * confía en el modelo para campos que no sean estos dos, ni se reenvía
+ * el objeto crudo del modelo).
+ */
+function normalizarDatosContacto(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const nombre = typeof raw.nombre === 'string' ? raw.nombre : null;
+  const motivo = typeof raw.motivo === 'string' ? raw.motivo : null;
+  if (!nombre && !motivo) return null;
+  return { nombre, motivo };
+}
+
+/**
  * Normaliza el objeto JSON del modelo al tipo AIOutput del Core.
  * Permite que el modelo use nombres alternativos sin romper el sistema.
  */
@@ -130,6 +146,7 @@ function normalizarOutput(data, confianza, meta) {
     clasificacion_contexto: normalizarClasificacion(data.clasificacion_contexto),
     categoria_principal: data.categoria_principal || 'Sin clasificar',
     datos_extraidos:     data.datos_extraidos      || {},
+    datos_contacto:      normalizarDatosContacto(data.datos_contacto),
     intenciones:         normalizarIntenciones(data.intenciones),
     sentimiento:         data.sentimiento          || 'Neutral',
     etapa_sugerida:      data.etapa_sugerida       || null,

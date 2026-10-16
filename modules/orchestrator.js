@@ -87,12 +87,71 @@ function _validarDatoContacto(valor) {
  * parcial/identificado) es SIEMPRE el que deriva resolverEstadoIdentificacion()
  * desde modules/identificacion-contacto.js — una sola fuente de verdad, no
  * una copia de esa lógica aquí.
+ *
+ * `capturedFields` (opcional, Alina, 2026-10-16 — corrección del incidente
+ * "Carlos González"/Nort Energy): un workflow puede tener su propio nodo
+ * "preguntar_nombre" (campo `nombre`) — ese dato pasa por la MISMA validación
+ * (_validarDatoContacto) y cuenta como identificación igual que si hubiera
+ * llegado por conversación libre, para que no existan dos estados de
+ * identificación independientes que puedan contradecirse. Precedencia:
+ * datos_contacto (este turno, conversación libre) > capturedFields (dato de
+ * workflow, puede venir de un turno anterior de la MISMA sesión) >
+ * clienteRaw (ya persistido). `capturedFields` solo aporta nombre — ningún
+ * workflow tiene hoy un nodo dedicado a "motivo_consulta".
  */
-function _resolverIdentificacion(clienteRaw, datosContacto) {
+function _resolverIdentificacion(clienteRaw, datosContacto, capturedFields) {
   const nombre = _validarDatoContacto(datosContacto?.nombre)
+    || _validarDatoContacto(capturedFields?.nombre)
     || (clienteRaw?.nombre && clienteRaw.nombre !== 'Sin nombre' ? clienteRaw.nombre : null);
   const motivo = _validarDatoContacto(datosContacto?.motivo) || clienteRaw?.motivo_consulta || null;
   return { nombre, motivo, estado: resolverEstadoIdentificacion({ nombre, motivoConsulta: motivo }) };
+}
+
+/**
+ * Requisitos técnicos mínimos para ejecutar_motor_ingenieria — Alina,
+ * 2026-10-16 ("una observación adicional" de la autorización del incidente
+ * Carlos González, auditado y corregido 2026-10-16 tras tu pedido de
+ * validación final): identificación comercial válida NO equivale a tener
+ * los datos que el motor de ingeniería necesita para un predimensionamiento
+ * con sentido matemático. Estos campos son EXACTAMENTE los que
+ * generarAlertas() (modules/motores-ingenieria/paneles-solares.js) ya marca
+ * como bloqueo cuando el cálculo no puede ni siquiera correr (consumo_faltante,
+ * hsp_faltante, potencia_requerida_error) — no una lista inventada aquí.
+ *
+ * Auditoría (2026-10-16): la primera versión de este requisito exigía
+ * también `importe_promedio_recibo` como obligatorio — INCORRECTO. El motor
+ * real nunca lo exige para el cálculo base (línea 310-311 de
+ * paneles-solares.js: solo consumoMensualKwh U historialConsumo bloquean;
+ * importeRecibo solo alimenta calcularAhorro(), un dato complementario, no
+ * un bloqueo). Corregido para no bloquear cotizaciones legítimas donde el
+ * cliente dio su consumo en kWh pero no el importe de su recibo.
+ *
+ * tipo_alimentacion/voltaje_sitio quedan FUERA a propósito (igual que antes):
+ * aunque el motor SÍ genera una alerta de bloqueo si faltan (red_desconocida),
+ * el propio nodo del workflow invita explícitamente a responder "no sé" para
+ * estos dos ("nuestro técnico puede verificarlo durante la visita") — es una
+ * decisión de negocio ya existente de aceptar un cálculo con ese bloqueo
+ * puntual y resolverlo en la visita técnica, no una omisión; replicarla aquí
+ * como requisito duro introduciría una regla nueva que SÍ bloquearía
+ * cotizaciones legítimas, exactamente lo que se pidió evitar.
+ */
+const CAMPOS_TECNICOS_REQUERIDOS_COTIZACION = ['ubicacion', 'pct_cobertura_deseado'];
+
+/**
+ * @param {Object} capturedFields
+ * @returns {string[]} campos requeridos ausentes o vacíos. `consumo_mensual_kwh`
+ *   se evalúa como alternativa real a `historial_consumo_kwh` (>=12 meses,
+ *   mismo umbral que _historialConsumoOrNull en modules/cotizaciones.js) —
+ *   igual que el motor: basta con cualquiera de los dos.
+ */
+function _camposTecnicosFaltantes(capturedFields) {
+  const faltantes = CAMPOS_TECNICOS_REQUERIDOS_COTIZACION.filter(
+    campo => !String(capturedFields?.[campo] ?? '').trim()
+  );
+  const tieneConsumoMensual = !!String(capturedFields?.consumo_mensual_kwh ?? '').trim();
+  const tieneHistorial = Array.isArray(capturedFields?.historial_consumo_kwh) && capturedFields.historial_consumo_kwh.length >= 12;
+  if (!tieneConsumoMensual && !tieneHistorial) faltantes.push('consumo_mensual_kwh');
+  return faltantes;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -382,12 +441,24 @@ class Orchestrator {
     };
 
     // ── 8. WorkflowEngine M5 (FASE 4A) ────────────────────────────────────
+    // `respuestaYaResuelta` (Alina, 2026-10-16 — corrección del incidente
+    // "Carlos González"/Nort Energy, Bug A): si el workflow ya decidió qué
+    // responder este turno (una pregunta de nodo, una transición, o el
+    // cierre de _finalizarWorkflow), ese texto es la verdad de lo que TARA
+    // le mostró al cliente — el paso 9 (abajo) NUNCA debe pisarlo con la
+    // pregunta de identificación, porque eso es lo que descuadraba
+    // workflow.current_node (lo que el Core cree que preguntó) contra lo
+    // que el cliente de verdad vio y contestó. Bloquear la ACCIÓN comercial
+    // (accionesAutorizadas, abajo) sigue siendo incondicional — lo único
+    // que cambia es si además se reemplaza el TEXTO.
+    let respuestaYaResuelta = false;
     if (this._workflow && clienteRaw?.id) {
       const wfResult = await this._paso('workflow', timings, () =>
         this._manejarWorkflow(message.content, clienteRaw, aiOutput, company_id, ctx, sessionId)
       );
       if (wfResult.ok && wfResult.value !== null) {
         aiOutput = { ...aiOutput, respuesta_texto: wfResult.value };
+        respuestaYaResuelta = true;
       }
     }
 
@@ -447,14 +518,24 @@ class Orchestrator {
     );
     if (accionesResult.ok) {
       const textoReal = this._textoDesdeResultadoDeAgenda(accionesResult.value, huboAgendaBloqueada);
-      if (textoReal) aiOutput = { ...aiOutput, respuesta_texto: textoReal };
+      if (textoReal) {
+        aiOutput = { ...aiOutput, respuesta_texto: textoReal };
+        respuestaYaResuelta = true;
+      }
     }
     // Prioridad sobre el texto de arriba: si la acción comercial propuesta
     // ni siquiera se intentó por falta de identificación, la pregunta
     // natural por el dato faltante es lo único honesto que se puede enviar
     // (nunca el texto que el modelo ya había escrito, que podía sonar a
-    // cotización/confirmación sin que nada haya corrido).
-    if (huboComercialBloqueadaPorIdentificacion) {
+    // cotización/confirmación sin que nada haya corrido) — PERO (corrección
+    // Bug A, 2026-10-16) solo cuando todavía no hay una respuesta real ya
+    // resuelta este turno (workflow o resultado de acción): "bloquear una
+    // acción", "pedir el dato que falta" y "responder al cliente" son 3
+    // operaciones independientes que no deben pisarse entre sí — bloquear
+    // la acción YA ocurrió arriba (accionesAutorizadas la excluyó), eso no
+    // cambia; lo único condicionado aquí es si ADEMÁS hace falta pedir el
+    // dato, y solo aplica cuando nadie más ya le respondió al cliente.
+    if (huboComercialBloqueadaPorIdentificacion && !respuestaYaResuelta) {
       const campoFaltante = identificacion.nombre ? 'motivo' : 'nombre';
       aiOutput = { ...aiOutput, respuesta_texto: this._preguntaPorDatoFaltante([campoFaltante]) };
     }
@@ -863,7 +944,31 @@ class Orchestrator {
     // hay, se sintetiza el MISMO resultado 'faltan_datos' que ya usa
     // agendar_cita_con_horario_solicitado — reusa el mecanismo de reabrir
     // sesión y la pregunta natural de abajo, sin duplicar esa lógica.
-    const identificacion = _resolverIdentificacion(clienteRaw, aiOutput.datos_contacto);
+    // Fuente única de identificación (Alina, 2026-10-16 — corrección del
+    // incidente "Carlos González"): incluye lo que el propio workflow ya
+    // capturó en su nodo "preguntar_nombre" (sesionCompletada.captured_fields),
+    // no solo lo que el modelo reportó en el último turno — ver
+    // _resolverIdentificacion arriba.
+    const identificacion = _resolverIdentificacion(clienteRaw, aiOutput.datos_contacto, sesionCompletada?.captured_fields);
+
+    // Persiste de inmediato lo que ESTA resolución encontró (puede incluir
+    // un nombre que solo vivía en captured_fields y que el paso 11.5 de
+    // procesarMensaje — que no ve captured_fields — nunca habría visto).
+    // actualizarIdentificacionAutomatica es idempotente y nunca sobreescribe
+    // con menor confianza, así que la llamada posterior del paso 11.5 (con
+    // la identificación resuelta SIN captured_fields) es segura y redundante,
+    // no duplica estado: ambas escriben a través de la MISMA función, nunca
+    // hay dos fuentes de verdad de identificación.
+    if (this._actualizarIdentificacion && clienteRaw?.id) {
+      try {
+        await this._actualizarIdentificacion(clienteRaw.id, company_id, {
+          nombre: identificacion.nombre, motivo: identificacion.motivo,
+        });
+      } catch (err) {
+        console.warn(`⚠️  no se pudo persistir identificación capturada por workflow: ${err.message}`);
+      }
+    }
+
     // PRIORIDAD 3: misma función centralizada que el paso 9, nunca un
     // criterio reimplementado aquí.
     const bloqueadoPorIdentificacion = nodo.acciones.some(a =>
@@ -874,7 +979,7 @@ class Orchestrator {
     );
 
     const resultados = bloqueadoPorIdentificacion
-      ? [{ tipo: 'faltan_datos', campos: [identificacion.nombre ? 'motivo' : 'nombre'] }]
+      ? [{ tipo: 'faltan_datos', campos: [identificacion.nombre ? 'motivo' : 'nombre'], motivo: 'identificacion' }]
       : await this._ejecutarAcciones(
           nodo.acciones, ctx, clienteRaw, aiOutput, sessionId, sesionCompletada?.captured_fields
         );
@@ -889,7 +994,21 @@ class Orchestrator {
     // el agendamiento. Limitación conocida y ya aceptada en 'sin_disponibilidad':
     // reabrir reinicia el workflow desde su nodo de inicio, no desde donde
     // quedó — mismo trade-off, no uno nuevo.
-    const necesitaReabrir = resultados.some(r => r?.tipo === 'sin_disponibilidad' || r?.tipo === 'faltan_datos');
+    //
+    // EXCEPCIÓN (Alina, 2026-10-16, requisito #5 — "no reiniciar workflows"):
+    // 'faltan_datos' con motivo 'identificacion' o 'tecnico' (ver
+    // ejecutar_motor_ingenieria más abajo) NUNCA reabre — el cliente ya
+    // completó el workflow entero, sesionCompletada.captured_fields ya tiene
+    // todo su progreso técnico real y reabrir lo descartaría (current_node
+    // volvería al nodo inicial). Se deja la sesión tal cual (status
+    // 'completado', datos intactos) y solo se le pide el dato que falta; NO
+    // existe hoy un mecanismo para retomar automáticamente la acción
+    // bloqueada una vez resuelto el dato faltante sin tocar WorkflowEngine —
+    // limitación conocida, documentada en la entrega, no resuelta aquí.
+    const necesitaReabrir = resultados.some(r =>
+      r?.tipo === 'sin_disponibilidad' ||
+      (r?.tipo === 'faltan_datos' && r.motivo !== 'identificacion' && r.motivo !== 'tecnico')
+    );
     if (necesitaReabrir) {
       try {
         await this._workflow.iniciarSesion(company_id, clienteRaw.id, null, workflowId);
@@ -961,6 +1080,16 @@ class Orchestrator {
       hora:      '¿en qué horario te queda bien?',
       nombre:    '¿con quién tengo el gusto?',
       motivo:    '¿en qué te puedo ayudar?',
+      // Requisito #3 adicional (Alina, 2026-10-16, auditado el mismo día):
+      // identificación completa no equivale a tener los datos técnicos para
+      // cotizar — estas preguntas reusan el texto real de los nodos del
+      // workflow de ingeniería solar (workflow_nodes, "Cotización directa —
+      // ingeniería solar"), nunca texto inventado aquí. importe_promedio_recibo
+      // NO está aquí a propósito — el motor real nunca lo exige para el
+      // cálculo base (ver CAMPOS_TECNICOS_REQUERIDOS_COTIZACION arriba).
+      ubicacion:                '¿en qué ciudad o municipio está la instalación?',
+      consumo_mensual_kwh:      '¿cuántos kWh consumes en promedio al mes? Si no lo sabes exacto, dime el monto de tu recibo y lo puedo aproximar.',
+      pct_cobertura_deseado:    '¿qué porcentaje de tu consumo te gustaría cubrir con paneles solares? Si no estás seguro, puedo proponerte 90%.',
     };
     const primero = (campos || [])[0];
     return PREGUNTAS[primero] || 'me falta un dato para poder agendar tu visita técnica — ¿me lo compartes?';
@@ -1396,6 +1525,22 @@ function crearOrchestrator(overrides = {}) {
     // ver ADR-005 condición de reapertura) — el handler manda su propio
     // mensaje de seguimiento proactivo, fuera de _finalizarWorkflow.
     runner.registrar('ejecutar_motor_ingenieria', async (parametros, ctx) => {
+      // Requisitos técnicos completos (Alina, 2026-10-16 — ver
+      // CAMPOS_TECNICOS_REQUERIDOS_COTIZACION arriba): identificación válida
+      // y datos técnicos completos son 2 condiciones INDEPENDIENTES — un
+      // workflow que llegó a este nodo con captured_fields incompletos
+      // (ej. por el desajuste de texto corregido en Bug A, en sesiones ya
+      // viejas) no debe generar un cálculo/cotización persistente. Mismo
+      // formato de resultado que agendar_cita_con_horario_solicitado usa
+      // para su propio camposRequeridos (reutiliza _textoDesdeResultadoDeAgenda/
+      // _preguntaPorDatoFaltante, nunca un mensaje nuevo) — `motivo:
+      // 'tecnico'` es lo único que distingue este caso del de identificación
+      // para que _finalizarWorkflow sepa que tampoco debe reabrir el workflow.
+      const camposFaltantes = _camposTecnicosFaltantes(ctx.capturedFields);
+      if (camposFaltantes.length > 0) {
+        return { tipo: 'faltan_datos', campos: camposFaltantes, motivo: 'tecnico' };
+      }
+
       const { correrCotizacionDesdeWorkflow } = require('./cotizaciones');
       return correrCotizacionDesdeWorkflow(supabase, {
         companyId: ctx.company_id,
@@ -1442,5 +1587,7 @@ module.exports = {
   esAcuseAmbiguo: _esAcuseAmbiguo,
   resolverIdentificacion: _resolverIdentificacion,
   validarDatoContacto: _validarDatoContacto,
+  camposTecnicosFaltantes: _camposTecnicosFaltantes,
+  CAMPOS_TECNICOS_REQUERIDOS_COTIZACION,
   ACCIONES_REQUIEREN_IDENTIFICACION,
 };
