@@ -17,6 +17,24 @@
 'use strict';
 
 async function crearSolicitud(supabase, { companyId, organizationId, moduloCodigo, notas, solicitadoPor }) {
+  // No duplicar una solicitud pendiente del mismo módulo (pedido explícito) —
+  // solo aplica cuando hay un módulo específico; una ampliación general
+  // (moduloCodigo null) no tiene con qué compararse, se permite siempre.
+  if (moduloCodigo) {
+    const { data: existente } = await supabase
+      .from('solicitudes_ampliacion')
+      .select('id')
+      .eq('company_id', companyId)
+      .eq('modulo_codigo', moduloCodigo)
+      .eq('estado', 'pendiente')
+      .maybeSingle();
+    if (existente) {
+      const e = new Error('Ya tienes una solicitud pendiente para este módulo.');
+      e.status = 409;
+      throw e;
+    }
+  }
+
   const { data, error } = await supabase
     .from('solicitudes_ampliacion')
     .insert([{
@@ -31,12 +49,13 @@ async function crearSolicitud(supabase, { companyId, organizationId, moduloCodig
   return data;
 }
 
-async function listarSolicitudes(supabase, { estado } = {}) {
+async function listarSolicitudes(supabase, { estado, companyId } = {}) {
   let query = supabase
     .from('solicitudes_ampliacion')
     .select('*, companies(nombre), modulos_catalogo(nombre)')
     .order('created_at', { ascending: false });
   if (estado) query = query.eq('estado', estado);
+  if (companyId) query = query.eq('company_id', companyId);
 
   const { data, error } = await query;
   return error ? [] : (data || []);

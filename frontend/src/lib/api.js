@@ -404,4 +404,5 @@ export const api = {
   modulosEmpresa:          () => pedir('/api/config/modulos'),
   activarModulo:           (codigo) => pedir(`/api/config/modulos/${codigo}/activar`, { method: 'POST' }),
   solicitarAmpliacion:     (codigo, notas) => pedir(`/api/config/modulos/${codigo}/solicitar-ampliacion`, { method: 'POST', body: JSON.stringify({ notas }) }),
+  solicitudesAmpliacionEmpresa: () => pedir('/api/config/solicitudes-ampliacion'),
 };

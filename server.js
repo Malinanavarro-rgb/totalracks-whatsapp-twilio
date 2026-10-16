@@ -4376,6 +4376,17 @@ app.post('/api/config/modulos/:codigo/solicitar-ampliacion', requireAuth, soloGe
     });
     res.status(201).json(data);
   } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// "Mis solicitudes" (Fase 3.4, cierre): la empresa consulta únicamente SUS
+// propias solicitudes — filtrado por company_id del usuario en sesión,
+// nunca por un id que mande el cliente.
+app.get('/api/config/solicitudes-ampliacion', requireAuth, soloGerencial, async (req, res) => {
+  try {
+    res.json(await listarSolicitudes(supabaseServicio, { companyId: req.usuario.company_id }));
+  } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
