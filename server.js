@@ -15,7 +15,7 @@ const multer       = require('multer');
 
 const { supabase, supabaseServicio, crearClienteConSesion, twilioClient, stripe, openai } = require('./modules/clients');
 const { obtenerConfigEmpresa }          = require('./modules/config');
-const { crearOrchestrator, resolverIdentificacion } = require('./modules/orchestrator');
+const { crearOrchestrator, resolverIdentificacion, camposTecnicosFaltantes } = require('./modules/orchestrator');
 const { puedeEjecutarseAccionComercial } = require('./modules/identificacion-contacto');
 const { TwilioWhatsAppAdapter }         = require('./adapters/channels/twilio-whatsapp');
 const { MetaCloudWhatsAppAdapter }      = require('./adapters/channels/meta-cloud-whatsapp');
@@ -639,10 +639,22 @@ async function procesarMensajeEntrante(message, enviar, proveedor = 'desconocido
                   .filter(([, v]) => v != null && String(v).trim() !== '')
               ),
             };
-            const calculo = await correrCotizacionDesdeWorkflow(supabaseServicio, {
-              companyId: message.company_id, clienteId: cliente.id, capturedFields, destinatario: message.from,
-            });
-            if (calculo) yaRespondioIngenieria = true;
+            // Requisitos técnicos completos (Alina, 2026-10-17 — incidente
+            // real "Alberto Gzz"/Nort Energy): identificación válida no
+            // equivale a tener los datos que el motor necesita. Este camino
+            // vive fuera del ActionRunner (ver comentario arriba) y por eso
+            // nunca pasaba por camposTecnicosFaltantes(), que SÍ ya protege
+            // a los caminos A/B (acciones_propuestas / nodo final de
+            // workflow) desde modules/orchestrator.js::crearOrchestrator().
+            // Reutiliza tal cual esa misma función — nunca una copia de la
+            // validación — para no crear una cotización/cálculo persistente
+            // mientras el cliente sigue a medio llenar el workflow.
+            if (camposTecnicosFaltantes(capturedFields).length === 0) {
+              const calculo = await correrCotizacionDesdeWorkflow(supabaseServicio, {
+                companyId: message.company_id, clienteId: cliente.id, capturedFields, destinatario: message.from,
+              });
+              if (calculo) yaRespondioIngenieria = true;
+            }
           }
         }
       }
