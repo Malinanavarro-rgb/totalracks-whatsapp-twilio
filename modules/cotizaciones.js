@@ -316,6 +316,22 @@ const ABREVIATURAS_CIUDAD_CONOCIDAS = {
 };
 
 /**
+ * Patrones que requieren un calificador geográfico EXPLÍCITO en el mismo
+ * texto — a diferencia de ABREVIATURAS_CIUDAD_CONOCIDAS (palabras sueltas
+ * ya inequívocas), "Victoria" por sí sola NO lo es: es un nombre propio de
+ * uso común y no identifica una ciudad sin contexto (Alina, P8,
+ * 2026-10-17 — pedido explícito: "la palabra Victoria sin contexto
+ * geográfico suficiente no debe resolverse automáticamente"). Solo
+ * resuelve cuando el texto trae "Cd."/"Ciudad" ANTES, o "Tamaulipas"
+ * DESPUÉS — nunca la palabra sola. Mismo criterio de "solo si hay match
+ * real en el catálogo" que ABREVIATURAS_CIUDAD_CONOCIDAS.
+ */
+const PATRONES_CON_CONTEXTO_OBLIGATORIO = [
+  { patron: /\bc(?:d|iudad)\.?\s+victoria\b/i, ciudad: 'ciudad victoria' },
+  { patron: /\bvictoria\s*,?\s*tamaulipas\b/i, ciudad: 'ciudad victoria' },
+];
+
+/**
  * Bug real de piloto (Alina, 2026-08-10): el cliente escribe "estoy en
  * monterrey" y resolverHSP() busca coincidencia EXACTA contra
  * irradiacion_regional.nombre_ubicacion ("Monterrey, Nuevo León") — la
@@ -351,6 +367,14 @@ async function _normalizarUbicacion(supabase, textoLibre) {
       u.nombre_ubicacion.split(',')[0].trim().toLowerCase() === ciudadCompleta
     );
     if (matchAbreviatura) return matchAbreviatura.nombre_ubicacion;
+  }
+
+  for (const { patron, ciudad } of PATRONES_CON_CONTEXTO_OBLIGATORIO) {
+    if (!patron.test(texto)) continue;
+    const matchContexto = (ubicaciones || []).find(u =>
+      u.nombre_ubicacion.split(',')[0].trim().toLowerCase() === ciudad
+    );
+    if (matchContexto) return matchContexto.nombre_ubicacion;
   }
 
   return textoLibre;

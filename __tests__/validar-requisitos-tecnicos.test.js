@@ -190,3 +190,64 @@ describe('Prioridad 3 — normalización inteligente de ubicaciones (2026-10-17)
     expect(resultado.campos.ubicacion).toMatchObject({ resoluble: false, valorResuelto: null });
   });
 });
+
+describe('Prioridad 8 (2026-10-17) — resolución de Ciudad Victoria/Tampico con catálogo ampliado (simulado, sin insertar nada real)', () => {
+  // Catálogo simulado: Monterrey/Hermosillo (reales, ya en producción) +
+  // Ciudad Victoria/Tampico como si YA estuvieran insertados — para probar
+  // la resolución de nombres sin tocar el catálogo real todavía.
+  const CATALOGO_AMPLIADO_SIMULADO = [
+    { nombre_ubicacion: 'Monterrey, Nuevo León', hsp_promedio_anual: 5.5 },
+    { nombre_ubicacion: 'Hermosillo, Sonora', hsp_promedio_anual: 6.0 },
+    { nombre_ubicacion: 'Ciudad Victoria, Tamaulipas', hsp_promedio_anual: 5.51 },
+    { nombre_ubicacion: 'Tampico, Tamaulipas', hsp_promedio_anual: 5.23 },
+  ];
+
+  test.each([
+    ['Ciudad Victoria', 'Ciudad Victoria, Tamaulipas'],
+    ['Cd. Victoria', 'Ciudad Victoria, Tamaulipas'],
+    ['Cd Victoria', 'Ciudad Victoria, Tamaulipas'],
+    ['Victoria, Tamaulipas', 'Ciudad Victoria, Tamaulipas'],
+    ['victoria tamaulipas', 'Ciudad Victoria, Tamaulipas'],
+    ['Tampico', 'Tampico, Tamaulipas'],
+  ])('"%s" → resuelve a "%s"', async (texto, esperado) => {
+    const supabase = fakeSupabaseIrradiacion(CATALOGO_AMPLIADO_SIMULADO);
+    const resultado = await validarRequisitosTecnicos(supabase, { ubicacion: texto, consumo_mensual_kwh: '500', pct_cobertura_deseado: '90' });
+    expect(resultado.campos.ubicacion).toMatchObject({ resoluble: true, valorResuelto: esperado });
+  });
+
+  test.each([
+    ['Victoria'], ['vivo en Victoria'], ['soy de victoria'], ['Victoria es mi nombre'],
+  ])('"%s" (sin contexto geográfico) → NUNCA resuelve automáticamente, aunque Ciudad Victoria exista en el catálogo', async (texto) => {
+    const supabase = fakeSupabaseIrradiacion(CATALOGO_AMPLIADO_SIMULADO);
+    const resultado = await validarRequisitosTecnicos(supabase, { ubicacion: texto, consumo_mensual_kwh: '500', pct_cobertura_deseado: '90' });
+    expect(resultado.campos.ubicacion).toMatchObject({ resoluble: false, valorResuelto: null });
+  });
+
+  test('regresión: Monterrey y Hermosillo siguen resolviendo exactamente igual con el catálogo ampliado', async () => {
+    const supabase = fakeSupabaseIrradiacion(CATALOGO_AMPLIADO_SIMULADO);
+    const rMty = await validarRequisitosTecnicos(supabase, { ubicacion: 'estoy en mty', consumo_mensual_kwh: '500', pct_cobertura_deseado: '90' });
+    expect(rMty.campos.ubicacion.valorResuelto).toBe('Monterrey, Nuevo León');
+    const rHmo = await validarRequisitosTecnicos(supabase, { ubicacion: 'en hmo', consumo_mensual_kwh: '500', pct_cobertura_deseado: '90' });
+    expect(rHmo.campos.ubicacion.valorResuelto).toBe('Hermosillo, Sonora');
+  });
+
+  test('dimensionamiento con consumo real: con ubicación de Ciudad Victoria resuelta + consumo + cobertura → suficientePreliminar=true', async () => {
+    const supabase = fakeSupabaseIrradiacion(CATALOGO_AMPLIADO_SIMULADO);
+    const resultado = await validarRequisitosTecnicos(supabase, {
+      ubicacion: 'Ciudad Victoria, Tamaulipas', consumo_mensual_kwh: '600', pct_cobertura_deseado: '90',
+    });
+    expect(resultado.suficientePreliminar).toBe(true);
+  });
+
+  test('con el catálogo de PRODUCCIÓN real (solo Monterrey/Hermosillo, Ciudad Victoria/Tampico todavía NO insertados) → "Ciudad Victoria"/"Tampico" NO resuelven', async () => {
+    const CATALOGO_PRODUCCION_REAL_HOY = [
+      { nombre_ubicacion: 'Hermosillo, Sonora', hsp_promedio_anual: 6.2 },
+      { nombre_ubicacion: 'Monterrey, Nuevo León', hsp_promedio_anual: 5.5 },
+    ];
+    const supabase = fakeSupabaseIrradiacion(CATALOGO_PRODUCCION_REAL_HOY);
+    const rVictoria = await validarRequisitosTecnicos(supabase, { ubicacion: 'Ciudad Victoria', consumo_mensual_kwh: '500', pct_cobertura_deseado: '90' });
+    expect(rVictoria.campos.ubicacion).toMatchObject({ resoluble: false, valorResuelto: null });
+    const rTampico = await validarRequisitosTecnicos(supabase, { ubicacion: 'Tampico', consumo_mensual_kwh: '500', pct_cobertura_deseado: '90' });
+    expect(rTampico.campos.ubicacion).toMatchObject({ resoluble: false, valorResuelto: null });
+  });
+});
