@@ -589,10 +589,23 @@ async function procesarMensajeEntrante(message, enviar, proveedor = 'desconocido
   // seguimiento si falta algo). Capa de plataforma, mismo patrón que la
   // "cotización automática Motor Universal" arriba — sin tocar
   // Orchestrator/WorkflowEngine (ADR-005).
+  // CONTENCIÓN TEMPORAL (Alina, 2026-10-17 — hallazgo real: cotización
+  // 85/cálculo 192a6cfe, ver TARA_VALIDACION_DISPARO_ANTICIPADO_PRUEBA_REAL_V1.md).
+  // camposTecnicosFaltantes() valida PRESENCIA de campos, no si el motor
+  // puede de verdad resolverlos (ej. "en mty" nunca resuelve a un HSP real,
+  // aunque "ubicacion" no esté vacío) — el disparo anticipado puede crear
+  // una cotización/cálculo real y quedar "bloqueado" con datos técnicamente
+  // insuficientes aunque formalmente presentes. Mientras se diseña una
+  // validación de VALIDEZ (no solo presencia, ver Prioridad 2), este atajo
+  // queda desactivado — el flujo normal del workflow (camino B,
+  // _finalizarWorkflow) sigue intacto, así como WhatsApp/Orchestrator/
+  // cualquier otro workflow. Reversión: cambiar esta constante a `true`.
+  const DISPARO_ANTICIPADO_INGENIERIA_ACTIVO = false;
+
   let yaRespondioIngenieria = false;
   try {
     const intenciones = resultado.ai_output?.intenciones || [];
-    if (intenciones.includes('solicitud_cotizacion')) {
+    if (DISPARO_ANTICIPADO_INGENIERIA_ACTIVO && intenciones.includes('solicitud_cotizacion')) {
       const { data: sesionActiva } = await supabaseServicio
         .from('workflow_sessions')
         .select('id, workflow_id, current_node, captured_fields')
