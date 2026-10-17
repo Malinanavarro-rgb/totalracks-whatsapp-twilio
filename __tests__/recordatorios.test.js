@@ -12,6 +12,7 @@ function crearBuilder(resultado = { data: null, error: null }) {
     gte:         jest.fn().mockReturnThis(),
     lte:         jest.fn().mockReturnThis(),
     update:      jest.fn().mockReturnThis(),
+    insert:      jest.fn().mockReturnThis(), // Prioridad 6 (2026-10-17): AuditLogger.logMensajeProactivo() inserta en decision_logs
     maybeSingle: jest.fn().mockResolvedValue(resultado),
     then: (resolve) => resolve(resultado),
   };
@@ -42,6 +43,15 @@ function crearMockChannelAdapter() {
 
 function crearMockChannelRouter() {
   return { resolverEndpointDeEmpresa: jest.fn().mockResolvedValue('+5218100000000') };
+}
+
+// Prioridad 6, etapa 1 (2026-10-17): stub inyectable que NO toca `db` — las
+// pruebas que no verifican trazabilidad específicamente lo usan para que
+// la secuencia posicional de mocks de `db` (crearMockDb) no se desajuste
+// con la escritura extra de auditoría. Las pruebas dedicadas a P6 (abajo)
+// SÍ ejercitan el AuditLogger real contra un `db` propio.
+function crearAuditLoggerStub() {
+  return { logMensajeProactivo: jest.fn() };
 }
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -80,7 +90,7 @@ describe('recordatorios', () => {
       const channelAdapter = crearMockChannelAdapter();
       const channelRouter  = crearMockChannelRouter();
 
-      const resultado = await enviarRecordatoriosPendientes({ supabase: db, aiEngine, channelAdapter, channelRouter, ahora: AHORA });
+      const resultado = await enviarRecordatoriosPendientes({ supabase: db, aiEngine, channelAdapter, channelRouter, ahora: AHORA, auditLogger: crearAuditLoggerStub() });
 
       expect(aiEngine.procesar).not.toHaveBeenCalled();
       expect(channelAdapter.sendProactive).toHaveBeenCalledWith(
@@ -102,7 +112,7 @@ describe('recordatorios', () => {
       const channelAdapter = crearMockChannelAdapter();
       const channelRouter  = crearMockChannelRouter();
 
-      await enviarRecordatoriosPendientes({ supabase: db, aiEngine, channelAdapter, channelRouter, ahora: AHORA, timeoutIaMs: 200 });
+      await enviarRecordatoriosPendientes({ supabase: db, aiEngine, channelAdapter, channelRouter, ahora: AHORA, timeoutIaMs: 200, auditLogger: crearAuditLoggerStub() });
 
       expect(channelAdapter.sendProactive).toHaveBeenCalledWith(
         expect.stringMatching(/^¡Qué gusto saludarte! Hola Carlos/),
@@ -128,6 +138,7 @@ describe('recordatorios', () => {
 
       const resultado = await enviarRecordatoriosPendientes({
         supabase: db, aiEngine, channelAdapter, channelRouter, ahora: AHORA, timeoutIaMs: 10,
+        auditLogger: crearAuditLoggerStub(),
       });
 
       expect(channelAdapter.sendProactive).toHaveBeenCalledWith(
@@ -149,7 +160,7 @@ describe('recordatorios', () => {
       const channelAdapter = crearMockChannelAdapter();
       const channelRouter  = crearMockChannelRouter();
 
-      const resultado = await enviarRecordatoriosPendientes({ supabase: db, aiEngine, channelAdapter, channelRouter, ahora: AHORA });
+      const resultado = await enviarRecordatoriosPendientes({ supabase: db, aiEngine, channelAdapter, channelRouter, ahora: AHORA, auditLogger: crearAuditLoggerStub() });
 
       expect(channelAdapter.sendProactive).toHaveBeenCalledWith(
         expect.stringMatching(/^Hola Carlos/),
@@ -169,7 +180,7 @@ describe('recordatorios', () => {
       const channelAdapter = crearMockChannelAdapter();
       const channelRouter  = crearMockChannelRouter();
 
-      const resultado = await enviarRecordatoriosPendientes({ supabase: db, aiEngine, channelAdapter, channelRouter, ahora: AHORA });
+      const resultado = await enviarRecordatoriosPendientes({ supabase: db, aiEngine, channelAdapter, channelRouter, ahora: AHORA, auditLogger: crearAuditLoggerStub() });
 
       expect(channelAdapter.sendProactive).not.toHaveBeenCalled();
       expect(resultado).toEqual({ enviados: 0, fallidos: 0 });
@@ -192,7 +203,7 @@ describe('recordatorios', () => {
       };
       const channelRouter = crearMockChannelRouter();
 
-      const resultado = await enviarRecordatoriosPendientes({ supabase: db, aiEngine, channelAdapter, channelRouter, ahora: AHORA });
+      const resultado = await enviarRecordatoriosPendientes({ supabase: db, aiEngine, channelAdapter, channelRouter, ahora: AHORA, auditLogger: crearAuditLoggerStub() });
 
       expect(channelAdapter.sendProactive).toHaveBeenCalledTimes(2);
       expect(resultado).toEqual({ enviados: 1, fallidos: 1 });
@@ -219,11 +230,71 @@ describe('recordatorios', () => {
       const channelAdapter = crearMockChannelAdapter();
       const channelRouter  = crearMockChannelRouter();
 
-      const resultado = await enviarRecordatoriosPendientes({ supabase: db, aiEngine, channelAdapter, channelRouter, ahora: AHORA });
+      const resultado = await enviarRecordatoriosPendientes({ supabase: db, aiEngine, channelAdapter, channelRouter, ahora: AHORA, auditLogger: crearAuditLoggerStub() });
 
       expect(db.from).toHaveBeenCalledTimes(1);
       expect(channelAdapter.sendProactive).not.toHaveBeenCalled();
       expect(resultado).toEqual({ enviados: 0, fallidos: 0 });
+    });
+  });
+
+  // Prioridad 6, etapa 1 (2026-10-17) — trazabilidad real, con AuditLogger
+  // real (no el stub) contra decision_logs, confirmando que cliente_id
+  // viene de cita.cliente_id (el segundo origen real de mensajes
+  // proactivos, aparte de enviarProactivoWhatsApp en cotizaciones.js).
+  describe('trazabilidad de recordatorios (AuditLogger real)', () => {
+    test('recordatorio enviado correctamente → decision_logs recibe cliente_id de la cita y el message_id real del proveedor', async () => {
+      const { AuditLogger } = require('../modules/audit-logger');
+      const cita = makeCita({ cliente_id: 321 });
+      const db = crearMockDb(
+        { data: [cita], error: null },         // citas pendientes
+        { data: plantillaSinIA, error: null }, // plantilla
+        { error: null },                       // decision_logs insert (AuditLogger)
+        { data: null, error: null },           // update recordatorio_enviado
+      );
+      const auditLogger = new AuditLogger(db);
+      const channelAdapter = { sendProactive: jest.fn().mockResolvedValue({ proveedor: 'twilio', messageId: 'SM999' }) };
+
+      const resultado = await enviarRecordatoriosPendientes({
+        supabase: db, aiEngine: crearMockAIEngine({}), channelAdapter, channelRouter: crearMockChannelRouter(), ahora: AHORA, auditLogger,
+      });
+      await auditLogger.flush();
+
+      expect(resultado).toEqual({ enviados: 1, fallidos: 0 });
+      const builderAuditoria = db._builders[2];
+      expect(builderAuditoria.insert).toHaveBeenCalledTimes(1);
+      const [registro] = builderAuditoria.insert.mock.calls[0][0];
+      expect(registro.company_id).toBe(cita.company_id);
+      expect(registro.payload).toMatchObject({
+        subtipo: 'mensaje_proactivo', cliente_id: 321, tipo_accion: 'recordatorio_cita',
+        componente_origen: 'recordatorios._procesarRecordatorio', resultado: 'aceptado_por_proveedor',
+        proveedor: 'twilio', message_id: 'SM999',
+      });
+    });
+
+    test('error del proveedor en un recordatorio → decision_logs registra resultado="error_proveedor", nunca se marca recordatorio_enviado', async () => {
+      const { AuditLogger } = require('../modules/audit-logger');
+      const cita = makeCita({ cliente_id: 321 });
+      const db = crearMockDb(
+        { data: [cita], error: null },
+        { data: plantillaSinIA, error: null },
+        { error: null }, // decision_logs insert
+      );
+      const auditLogger = new AuditLogger(db);
+      const channelAdapter = { sendProactive: jest.fn().mockRejectedValue(new Error('Twilio 21211')) };
+
+      const resultado = await enviarRecordatoriosPendientes({
+        supabase: db, aiEngine: crearMockAIEngine({}), channelAdapter, channelRouter: crearMockChannelRouter(), ahora: AHORA, auditLogger,
+      });
+      await auditLogger.flush();
+
+      expect(resultado).toEqual({ enviados: 0, fallidos: 1 });
+      const builderAuditoria = db._builders[2];
+      const [registro] = builderAuditoria.insert.mock.calls[0][0];
+      expect(registro.payload.resultado).toBe('error_proveedor');
+      expect(registro.error).toBe('Twilio 21211');
+      // nunca llega al update de recordatorio_enviado — solo 3 .from() en total
+      expect(db.from).toHaveBeenCalledTimes(3);
     });
   });
 });

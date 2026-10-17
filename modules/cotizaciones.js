@@ -497,18 +497,52 @@ function textoSeguimientoIngenieria(estadoCalculo) {
  * expone por separado (no inline en correrCotizacionDesdeWorkflow) para
  * poder inyectar un mock en tests sin credenciales reales.
  *
+ * Prioridad 6, etapa 1 (Alina, 2026-10-17 — trazabilidad): registra cada
+ * intento en decision_logs vía AuditLogger.logMensajeProactivo() — nunca
+ * bloquea ni altera el resultado del envío (log() ya es fire-and-forget,
+ * un fallo de escritura de auditoría jamás puede provocar un reenvío,
+ * porque el envío real ya terminó antes de loguear). `meta` es opcional y
+ * retrocompatible: el único call site interno (correrCotizacionDesdeWorkflow)
+ * ya lo manda, pero omitirlo no rompe nada — los campos de trazabilidad
+ * simplemente quedan null (mismo criterio que "ausencia de identificadores
+ * opcionales" exige: nunca inventar un valor).
+ *
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} companyId
  * @param {string} destinatario
  * @param {string} texto
+ * @param {Object} [meta]
+ * @param {string|number|null} [meta.clienteId]
+ * @param {string|null} [meta.conversationId]
+ * @param {string} [meta.tipoAccion]
+ * @param {string} [meta.componenteOrigen]
  */
-async function enviarProactivoWhatsApp(supabase, companyId, destinatario, texto) {
-  const metaAdapterEmpresa = await obtenerAdapterMetaParaEmpresa(supabase, companyId);
-  if (metaAdapterEmpresa) {
-    return metaAdapterEmpresa.sendProactive(texto, destinatario);
+async function enviarProactivoWhatsApp(supabase, companyId, destinatario, texto, meta = {}) {
+  const { clienteId, conversationId, tipoAccion, componenteOrigen } = meta;
+  const { AuditLogger } = require('./audit-logger');
+  const auditLogger = new AuditLogger(supabase);
+  const datosBase = {
+    companyId, clienteId, conversationId,
+    tipoAccion: tipoAccion || 'proactivo_sin_clasificar',
+    componenteOrigen: componenteOrigen || 'cotizaciones.enviarProactivoWhatsApp',
+    identificador: destinatario, textoPreview: texto,
+  };
+
+  try {
+    const metaAdapterEmpresa = await obtenerAdapterMetaParaEmpresa(supabase, companyId);
+    const resultadoEnvio = metaAdapterEmpresa
+      ? await metaAdapterEmpresa.sendProactive(texto, destinatario)
+      : await _twilioAdapter.sendProactive(texto, destinatario, await _channelRouter.resolverEndpointDeEmpresa(companyId));
+
+    auditLogger.logMensajeProactivo({
+      ...datosBase, resultado: 'aceptado_por_proveedor',
+      proveedor: resultadoEnvio?.proveedor ?? null, messageId: resultadoEnvio?.messageId ?? null,
+    });
+    return resultadoEnvio;
+  } catch (e) {
+    auditLogger.logMensajeProactivo({ ...datosBase, resultado: 'error_proveedor', error: e.message });
+    throw e; // mismo contrato de siempre — el caller decide cómo manejar el fallo
   }
-  const numeroOrigen = await _channelRouter.resolverEndpointDeEmpresa(companyId);
-  return _twilioAdapter.sendProactive(texto, destinatario, numeroOrigen);
 }
 
 /**
@@ -899,7 +933,7 @@ async function correrCotizacionDesdeWorkflow(supabase, { companyId, clienteId, c
   let pdfEnviado = false;
   if (calculo.estado_calculo === 'completo' && paquete && destinatario) {
     try {
-      pdfEnviado = await _cerrarYEnviarCotizacionAutomaticamente(supabase, { cotizacion, companyId, destinatario, enviar });
+      pdfEnviado = await _cerrarYEnviarCotizacionAutomaticamente(supabase, { cotizacion, companyId, clienteId, destinatario, enviar });
     } catch (e) {
       console.error('cotizaciones.correrCotizacionDesdeWorkflow: error en cierre automático de cotización:', e.message);
     }
@@ -907,7 +941,10 @@ async function correrCotizacionDesdeWorkflow(supabase, { companyId, clienteId, c
 
   if (destinatario && !pdfEnviado) {
     try {
-      await enviar(supabase, companyId, destinatario, textoSeguimientoIngenieria(calculo.estado_calculo));
+      await enviar(supabase, companyId, destinatario, textoSeguimientoIngenieria(calculo.estado_calculo), {
+        clienteId, tipoAccion: `seguimiento_ingenieria_${calculo.estado_calculo}`,
+        componenteOrigen: 'cotizaciones.correrCotizacionDesdeWorkflow',
+      });
     } catch (e) {
       console.error('cotizaciones.correrCotizacionDesdeWorkflow: error en seguimiento proactivo:', e.message);
     }
@@ -925,7 +962,7 @@ async function correrCotizacionDesdeWorkflow(supabase, { companyId, clienteId, c
  *
  * @returns {Promise<boolean>} true si el PDF se envió con éxito
  */
-async function _cerrarYEnviarCotizacionAutomaticamente(supabase, { cotizacion, companyId, destinatario, enviar }) {
+async function _cerrarYEnviarCotizacionAutomaticamente(supabase, { cotizacion, companyId, clienteId, destinatario, enviar }) {
   // Requiere lazy require — cotizacion-pdf.js ya importa cosas de este
   // archivo (puedeEnviarCotizacion); un require a nivel de módulo aquí
   // crearía un ciclo. Mismo patrón ya usado en la zona de wiring del
@@ -936,7 +973,10 @@ async function _cerrarYEnviarCotizacionAutomaticamente(supabase, { cotizacion, c
   await aplicarCalculoALineas(supabase, { companyId, cotizacionId: cotizacion.id });
 
   try {
-    await enviar(supabase, companyId, destinatario, 'Con base en los datos de tu recibo, ya armé tu cotización preliminar — te la comparto en el PDF adjunto. Un asesor puede contactarte para afinar cualquier detalle.');
+    await enviar(supabase, companyId, destinatario, 'Con base en los datos de tu recibo, ya armé tu cotización preliminar — te la comparto en el PDF adjunto. Un asesor puede contactarte para afinar cualquier detalle.', {
+      clienteId, tipoAccion: 'cierre_automatico_cotizacion_pre_pdf',
+      componenteOrigen: 'cotizaciones._cerrarYEnviarCotizacionAutomaticamente',
+    });
   } catch (e) {
     console.error('cotizaciones._cerrarYEnviarCotizacionAutomaticamente: error en mensaje previo al PDF (se intenta enviar el PDF de todas formas):', e.message);
   }

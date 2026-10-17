@@ -567,3 +567,76 @@ describe('Resiliencia con contexto parcial', () => {
     expect(db._insert).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('logMensajeProactivo() — Prioridad 6, etapa 1 (2026-10-17)', () => {
+  let db, logger;
+
+  beforeEach(() => {
+    db = makeSupabaseClient();
+    logger = new AuditLogger(db);
+  });
+
+  test('registra tipo="channel_event" con payload.subtipo="mensaje_proactivo" — reutiliza la misma tabla/catálogo, no uno nuevo', async () => {
+    logger.logMensajeProactivo({
+      companyId: 'co-1', clienteId: 7, conversationId: 'conv-1', tipoAccion: 'recordatorio_cita',
+      componenteOrigen: 'recordatorios', identificador: '+5218100000000', resultado: 'aceptado_por_proveedor',
+      proveedor: 'twilio', messageId: 'SM123', textoPreview: 'Hola, tu cita es mañana',
+    });
+    await logger.flush();
+
+    expect(db._insert).toHaveBeenCalledTimes(1);
+    const [registro] = db._insert.mock.calls[0][0];
+    expect(registro.tipo).toBe('channel_event');
+    expect(registro.company_id).toBe('co-1');
+    expect(registro.payload).toMatchObject({
+      subtipo: 'mensaje_proactivo', cliente_id: 7, conversation_id: 'conv-1',
+      tipo_accion: 'recordatorio_cita', componente_origen: 'recordatorios',
+      resultado: 'aceptado_por_proveedor', proveedor: 'twilio', message_id: 'SM123',
+      preview: 'Hola, tu cita es mañana',
+    });
+  });
+
+  test('nunca registra el texto completo del mensaje — recorta el preview a 80 caracteres', async () => {
+    const textoLargo = 'A'.repeat(500);
+    logger.logMensajeProactivo({
+      companyId: 'co-1', tipoAccion: 'x', componenteOrigen: 'x', resultado: 'aceptado_por_proveedor', textoPreview: textoLargo,
+    });
+    await logger.flush();
+
+    const [registro] = db._insert.mock.calls[0][0];
+    expect(registro.payload.preview.length).toBe(80);
+  });
+
+  test('sin identificadores opcionales (clienteId/conversationId/messageId ausentes) → null, nunca lanza ni inventa un valor', async () => {
+    expect(() => logger.logMensajeProactivo({
+      companyId: 'co-1', tipoAccion: 'x', componenteOrigen: 'x', resultado: 'aceptado_por_proveedor',
+    })).not.toThrow();
+    await logger.flush();
+
+    const [registro] = db._insert.mock.calls[0][0];
+    expect(registro.payload.cliente_id).toBeNull();
+    expect(registro.payload.conversation_id).toBeNull();
+    expect(registro.payload.message_id).toBeNull();
+  });
+
+  test('resultado="error_proveedor" con mensaje de error → se guarda en el campo error de nivel superior, nunca se marca como entregado', async () => {
+    logger.logMensajeProactivo({
+      companyId: 'co-1', tipoAccion: 'x', componenteOrigen: 'x', resultado: 'error_proveedor', error: 'Twilio 21211',
+    });
+    await logger.flush();
+
+    const [registro] = db._insert.mock.calls[0][0];
+    expect(registro.payload.resultado).toBe('error_proveedor');
+    expect(registro.error).toBe('Twilio 21211');
+  });
+
+  test('un fallo al escribir en decision_logs nunca lanza — mismo silencio seguro que log()', async () => {
+    const dbQueFalla = makeSupabaseClient({ insertFn: jest.fn().mockRejectedValue(new Error('conexión perdida')) });
+    const loggerQueFalla = new AuditLogger(dbQueFalla);
+
+    expect(() => loggerQueFalla.logMensajeProactivo({
+      companyId: 'co-1', tipoAccion: 'x', componenteOrigen: 'x', resultado: 'aceptado_por_proveedor',
+    })).not.toThrow();
+    await expect(loggerQueFalla.flush()).resolves.toBeUndefined();
+  });
+});

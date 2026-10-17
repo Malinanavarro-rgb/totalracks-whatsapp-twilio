@@ -136,7 +136,7 @@ class TwilioWhatsAppAdapter extends ChannelAdapter {
    *                                 (channel_endpoints) — nunca asumir un único
    *                                 número global. Si se omite, cae a
    *                                 TWILIO_WHATSAPP_NUMBER (compatibilidad).
-   * @returns {Promise<void>}
+   * @returns {Promise<{proveedor: 'twilio', messageId: string|null}>}
    */
   async sendProactive(text, identificador, from) {
     // Bug real encontrado en producción: TWILIO_WHATSAPP_NUMBER puede venir
@@ -149,11 +149,18 @@ class TwilioWhatsAppAdapter extends ChannelAdapter {
     const numeroOrigen = (from || process.env.TWILIO_WHATSAPP_NUMBER || '').replace(/^whatsapp:/, '');
     if (!numeroOrigen) throw new Error('sendProactive: no hay número de origen (from) ni TWILIO_WHATSAPP_NUMBER definido');
 
-    await this._client.messages.create({
+    // Prioridad 6, etapa 1 (Alina, 2026-10-17 — trazabilidad): antes se
+    // descartaba el Message SID que Twilio devuelve — sin él, ningún log
+    // de auditoría podía conservar un identificador para conciliar después
+    // con el estado real de entrega (webhook de status callback, fuera de
+    // esta etapa). El SID confirma que Twilio ACEPTÓ la solicitud — nunca
+    // que el mensaje fue entregado al dispositivo del cliente.
+    const message = await this._client.messages.create({
       from: `whatsapp:${numeroOrigen}`,
       to:   `whatsapp:${identificador}`,
       body: text,
     });
+    return { proveedor: 'twilio', messageId: message?.sid || null };
   }
 
   /**
@@ -171,7 +178,7 @@ class TwilioWhatsAppAdapter extends ChannelAdapter {
    * @param {string} destinatario - Número de teléfono destino
    * @param {string} texto        - Respuesta de TARA
    * @param {string} [from]       - Número de origen (sin "whatsapp:")
-   * @returns {Promise<void>}
+   * @returns {Promise<{proveedor: 'twilio', messageId: string|null}>}
    */
   async enviarMensaje(destinatario, texto, from) {
     return this.sendProactive(texto, destinatario, from);

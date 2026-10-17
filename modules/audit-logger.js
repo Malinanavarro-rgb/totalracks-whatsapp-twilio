@@ -283,6 +283,57 @@ class AuditLogger {
     });
   }
 
+  /**
+   * Registra el intento de un mensaje PROACTIVO — originado por TARA, no en
+   * respuesta a un mensaje entrante (seguimiento de ingeniería, recordatorio
+   * de cita, etc.). Prioridad 6, etapa 1 (Alina, 2026-10-17): mismo tipo
+   * 'channel_event' que ya usa logChannelEvent (una sola tabla, un solo
+   * catálogo de tipos) — subtipo 'mensaje_proactivo' lo distingue.
+   *
+   * Distingue 'solicitado' / 'aceptado_por_proveedor' / 'error_proveedor' —
+   * NUNCA 'entregado' (confirmar entrega real requiere el webhook de status
+   * callback de Twilio/Meta, explícitamente fuera de esta etapa). Nunca
+   * registra el mensaje completo — solo una vista previa acotada, mismo
+   * criterio que `preview` en logChannelEvent.
+   *
+   * Hereda la garantía de log(): fire-and-forget, nunca lanza — un fallo de
+   * escritura de auditoría nunca puede provocar un reintento del envío real
+   * (el envío ya ocurrió antes de llamar a este método).
+   *
+   * @param {Object} datos
+   * @param {string} datos.companyId
+   * @param {string|number|null} [datos.clienteId]
+   * @param {string|null} [datos.conversationId]
+   * @param {string} datos.tipoAccion        - ej. 'seguimiento_ingenieria_bloqueado', 'recordatorio_cita'
+   * @param {string} datos.componenteOrigen  - ej. 'cotizaciones.enviarProactivoWhatsApp', 'recordatorios'
+   * @param {string} [datos.identificador]   - teléfono destino
+   * @param {'solicitado'|'aceptado_por_proveedor'|'error_proveedor'} datos.resultado
+   * @param {string|null} [datos.proveedor]  - 'twilio' | 'meta'
+   * @param {string|null} [datos.messageId]  - SID/message_id devuelto por el proveedor, si lo hay
+   * @param {string|null} [datos.error]
+   * @param {string|null} [datos.textoPreview] - primeros ~80 caracteres, nunca el mensaje completo
+   */
+  logMensajeProactivo({ companyId, clienteId, conversationId, tipoAccion, componenteOrigen, identificador, resultado, proveedor, messageId, error, textoPreview }) {
+    this.log({
+      company_id:    companyId,
+      tipo:          'channel_event',
+      canal:         'whatsapp',
+      identificador: identificador || null,
+      payload: {
+        subtipo:           'mensaje_proactivo',
+        cliente_id:        clienteId ?? null,
+        conversation_id:   conversationId ?? null,
+        tipo_accion:       tipoAccion,
+        componente_origen: componenteOrigen,
+        resultado,
+        proveedor:         proveedor ?? null,
+        message_id:        messageId ?? null,
+        preview:           textoPreview ? String(textoPreview).slice(0, 80) : null,
+      },
+      error: error ?? null,
+    });
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // CONTROL
   // ═══════════════════════════════════════════════════════════════════════════

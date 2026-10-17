@@ -63,7 +63,15 @@ function conTimeout(promesa, ms) {
 async function enviarRecordatoriosPendientes({
   supabase, aiEngine, channelAdapter, channelRouter,
   ahora = new Date(), ventanaHoras = 24, timeoutIaMs = 3000,
+  auditLogger,
 }) {
+  // Prioridad 6, etapa 1 (Alina, 2026-10-17 — trazabilidad): inyectable
+  // para pruebas (mismo patrón que el resto de dependencias de este
+  // módulo); por defecto, una instancia real sobre el mismo `supabase` ya
+  // inyectado — nunca una tabla ni un mecanismo de auditoría nuevo.
+  const { AuditLogger } = require('./audit-logger');
+  const logger = auditLogger || new AuditLogger(supabase);
+
   const hasta = new Date(ahora.getTime() + ventanaHoras * 3600 * 1000);
 
   const { data: citas, error } = await supabase
@@ -84,7 +92,7 @@ async function enviarRecordatoriosPendientes({
 
   for (const cita of citas || []) {
     try {
-      const seEnvio = await _procesarRecordatorio(cita, { supabase, aiEngine, channelAdapter, channelRouter, timeoutIaMs });
+      const seEnvio = await _procesarRecordatorio(cita, { supabase, aiEngine, channelAdapter, channelRouter, timeoutIaMs, auditLogger: logger });
       if (seEnvio) enviados++;
     } catch (err) {
       fallidos++;
@@ -95,7 +103,7 @@ async function enviarRecordatoriosPendientes({
   return { enviados, fallidos };
 }
 
-async function _procesarRecordatorio(cita, { supabase, aiEngine, channelAdapter, channelRouter, timeoutIaMs }) {
+async function _procesarRecordatorio(cita, { supabase, aiEngine, channelAdapter, channelRouter, timeoutIaMs, auditLogger }) {
   const { data: plantillaRow, error: errorPlantilla } = await supabase
     .from('mensajes_automaticos')
     .select('*')
@@ -140,7 +148,21 @@ async function _procesarRecordatorio(cita, { supabase, aiEngine, channelAdapter,
   }
 
   const numeroOrigen = await channelRouter.resolverEndpointDeEmpresa(cita.company_id);
-  await channelAdapter.sendProactive(mensaje, cita.clientes.telefono, numeroOrigen);
+  const datosAuditoria = {
+    companyId: cita.company_id, clienteId: cita.cliente_id, tipoAccion: 'recordatorio_cita',
+    componenteOrigen: 'recordatorios._procesarRecordatorio', identificador: cita.clientes?.telefono, textoPreview: mensaje,
+  };
+
+  try {
+    const resultadoEnvio = await channelAdapter.sendProactive(mensaje, cita.clientes.telefono, numeroOrigen);
+    auditLogger?.logMensajeProactivo({
+      ...datosAuditoria, resultado: 'aceptado_por_proveedor',
+      proveedor: resultadoEnvio?.proveedor ?? null, messageId: resultadoEnvio?.messageId ?? null,
+    });
+  } catch (e) {
+    auditLogger?.logMensajeProactivo({ ...datosAuditoria, resultado: 'error_proveedor', error: e.message });
+    throw e; // mismo contrato de siempre — el llamador (enviarRecordatoriosPendientes) ya cuenta esto como fallido
+  }
 
   await supabase
     .from('citas')

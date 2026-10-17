@@ -200,7 +200,7 @@ class MetaCloudWhatsAppAdapter extends ChannelAdapter {
    * @param {string} destinatario - Número de teléfono destino (formato interno
    *                                de TARA, con "+" — ver parseIncoming())
    * @param {string} texto        - Respuesta de TARA
-   * @returns {Promise<void>}
+   * @returns {Promise<{proveedor: 'meta', messageId: string|null}>}
    */
   async enviarMensaje(destinatario, texto) {
     if (!this._phoneNumberId || !this._accessToken) {
@@ -231,6 +231,16 @@ class MetaCloudWhatsAppAdapter extends ChannelAdapter {
       const detalle = await respuesta.text().catch(() => '');
       throw new Error(`MetaCloudWhatsAppAdapter.enviarMensaje: Graph API respondió ${respuesta.status} — ${detalle}`);
     }
+
+    // Prioridad 6, etapa 1 (Alina, 2026-10-17 — trazabilidad): antes se
+    // descartaba el body de la respuesta — Graph API devuelve
+    // {messages: [{id: 'wamid...'}]} cuando ACEPTA la solicitud, nunca una
+    // confirmación de entrega real (eso requiere el webhook de status
+    // callback, fuera de esta etapa). Si el body no trae el id esperado
+    // (formato inesperado de la API, o un `fetch` que no expone .json),
+    // se devuelve null — nunca se inventa uno.
+    const cuerpo = typeof respuesta.json === 'function' ? await respuesta.json().catch(() => null) : null;
+    return { proveedor: 'meta', messageId: cuerpo?.messages?.[0]?.id || null };
   }
 
   /**
