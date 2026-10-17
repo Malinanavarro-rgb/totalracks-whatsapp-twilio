@@ -1525,23 +1525,27 @@ function crearOrchestrator(overrides = {}) {
     // ver ADR-005 condición de reapertura) — el handler manda su propio
     // mensaje de seguimiento proactivo, fuera de _finalizarWorkflow.
     runner.registrar('ejecutar_motor_ingenieria', async (parametros, ctx) => {
-      // Requisitos técnicos completos (Alina, 2026-10-16 — ver
-      // CAMPOS_TECNICOS_REQUERIDOS_COTIZACION arriba): identificación válida
-      // y datos técnicos completos son 2 condiciones INDEPENDIENTES — un
-      // workflow que llegó a este nodo con captured_fields incompletos
-      // (ej. por el desajuste de texto corregido en Bug A, en sesiones ya
-      // viejas) no debe generar un cálculo/cotización persistente. Mismo
-      // formato de resultado que agendar_cita_con_horario_solicitado usa
-      // para su propio camposRequeridos (reutiliza _textoDesdeResultadoDeAgenda/
-      // _preguntaPorDatoFaltante, nunca un mensaje nuevo) — `motivo:
-      // 'tecnico'` es lo único que distingue este caso del de identificación
-      // para que _finalizarWorkflow sepa que tampoco debe reabrir el workflow.
-      const camposFaltantes = _camposTecnicosFaltantes(ctx.capturedFields);
-      if (camposFaltantes.length > 0) {
-        return { tipo: 'faltan_datos', campos: camposFaltantes, motivo: 'tecnico' };
+      // Requisitos técnicos — identificación válida y datos técnicos
+      // suficientes son 2 condiciones INDEPENDIENTES (Alina, 2026-10-16).
+      // PRIORIDAD 2 (2026-10-17, tras el hallazgo real de la cotización
+      // 85/cálculo 192a6cfe): "¿están presentes los campos?" no bastaba —
+      // una ubicación presente pero irresoluble ("en mty") igual producía
+      // un cálculo real y bloqueado. validarRequisitosTecnicos()
+      // (modules/cotizaciones.js) reutiliza los normalizadores/catálogos
+      // reales del motor (resolverHSP, mapearCapturedFieldsAInfoTecnica) —
+      // nunca una copia de sus reglas — para comprobar presencia, validez Y
+      // resolución antes de correr nada. Mismo formato de resultado que
+      // agendar_cita_con_horario_solicitado usa para su propio
+      // camposRequeridos (reutiliza _textoDesdeResultadoDeAgenda/
+      // _preguntaPorDatoFaltante) — `motivo: 'tecnico'` es lo único que
+      // distingue este caso del de identificación para que
+      // _finalizarWorkflow sepa que tampoco debe reabrir el workflow.
+      const { correrCotizacionDesdeWorkflow, validarRequisitosTecnicos } = require('./cotizaciones');
+      const requisitos = await validarRequisitosTecnicos(supabase, ctx.capturedFields);
+      if (!requisitos.suficientePreliminar) {
+        return { tipo: 'faltan_datos', campos: requisitos.camposFaltantes, motivo: 'tecnico' };
       }
 
-      const { correrCotizacionDesdeWorkflow } = require('./cotizaciones');
       return correrCotizacionDesdeWorkflow(supabase, {
         companyId: ctx.company_id,
         clienteId: ctx.clienteRaw.id,

@@ -15,7 +15,7 @@ const multer       = require('multer');
 
 const { supabase, supabaseServicio, crearClienteConSesion, twilioClient, stripe, openai } = require('./modules/clients');
 const { obtenerConfigEmpresa }          = require('./modules/config');
-const { crearOrchestrator, resolverIdentificacion, camposTecnicosFaltantes } = require('./modules/orchestrator');
+const { crearOrchestrator, resolverIdentificacion } = require('./modules/orchestrator');
 const { puedeEjecutarseAccionComercial } = require('./modules/identificacion-contacto');
 const { TwilioWhatsAppAdapter }         = require('./adapters/channels/twilio-whatsapp');
 const { MetaCloudWhatsAppAdapter }      = require('./adapters/channels/meta-cloud-whatsapp');
@@ -49,7 +49,7 @@ const { resolverOCrearHilo, registrarMensaje, listarHilos, obtenerHilo, listarMe
 const { analizarHilo, analizarConversacionPegada, analizarOportunidadParaCierre, programarAnalisis, obtenerAnalisisHilo } = require('./modules/inbox-analisis');
 const { tipoContenidoDeMime, subirAdjunto, generarUrlFirmada } = require('./modules/inbox-adjuntos');
 const { asociarSiHaySesionDeCotizacionActiva, listarAdjuntosDeCotizacion } = require('./modules/cotizacion-adjuntos');
-const { marcarPredimensionamientoRevisado, marcarIngenieriaValidada, puedeEnviarCotizacion, autorizarPrecioFinal, listarCotizaciones, obtenerCotizacion, correrCotizacionDesdeWorkflow, crearCotizacionBorrador, correrCalculoCotizacionManual, listarProductosPorTipo, listarProductosActivos } = require('./modules/cotizaciones');
+const { marcarPredimensionamientoRevisado, marcarIngenieriaValidada, puedeEnviarCotizacion, autorizarPrecioFinal, listarCotizaciones, obtenerCotizacion, correrCotizacionDesdeWorkflow, crearCotizacionBorrador, correrCalculoCotizacionManual, listarProductosPorTipo, listarProductosActivos, validarRequisitosTecnicos } = require('./modules/cotizaciones');
 const { listarSucursales } = require('./modules/sucursales');
 const { listarLineas, agregarLinea, actualizarLinea, eliminarLinea, aplicarCalculoALineas, aplicarBomALineas } = require('./modules/cotizacion-lineas');
 const { generarPdfCotizacion, generarYEnviarCotizacion, BUCKET_COTIZACIONES_PDF } = require('./modules/cotizacion-pdf');
@@ -652,17 +652,16 @@ async function procesarMensajeEntrante(message, enviar, proveedor = 'desconocido
                   .filter(([, v]) => v != null && String(v).trim() !== '')
               ),
             };
-            // Requisitos técnicos completos (Alina, 2026-10-17 — incidente
-            // real "Alberto Gzz"/Nort Energy): identificación válida no
-            // equivale a tener los datos que el motor necesita. Este camino
-            // vive fuera del ActionRunner (ver comentario arriba) y por eso
-            // nunca pasaba por camposTecnicosFaltantes(), que SÍ ya protege
-            // a los caminos A/B (acciones_propuestas / nodo final de
-            // workflow) desde modules/orchestrator.js::crearOrchestrator().
-            // Reutiliza tal cual esa misma función — nunca una copia de la
-            // validación — para no crear una cotización/cálculo persistente
-            // mientras el cliente sigue a medio llenar el workflow.
-            if (camposTecnicosFaltantes(capturedFields).length === 0) {
+            // Requisitos técnicos (Alina, 2026-10-17 — Prioridad 2, listo
+            // para cuando se reactive este camino, ver
+            // DISPARO_ANTICIPADO_INGENIERIA_ACTIVO arriba): identificación
+            // válida no equivale a tener los datos que el motor necesita, Y
+            // "presente" no equivale a "resoluble" (hallazgo real: "en mty"
+            // nunca resuelve a un HSP). Reutiliza validarRequisitosTecnicos()
+            // — misma función que ya usan los caminos A/B — nunca una copia
+            // de la validación.
+            const requisitos = await validarRequisitosTecnicos(supabaseServicio, capturedFields);
+            if (requisitos.suficientePreliminar) {
               const calculo = await correrCotizacionDesdeWorkflow(supabaseServicio, {
                 companyId: message.company_id, clienteId: cliente.id, capturedFields, destinatario: message.from,
               });

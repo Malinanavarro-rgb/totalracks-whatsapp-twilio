@@ -361,6 +361,84 @@ function mapearCapturedFieldsAInfoTecnica(capturedFields = {}) {
 }
 
 /**
+ * Requisitos técnicos INDISPENSABLES para intentar un predimensionamiento
+ * preliminar — Alina, 2026-10-17 (Prioridad 2 de la estabilización de
+ * ingeniería solar, tras el hallazgo real de la cotización 85/cálculo
+ * 192a6cfe): "¿el cliente dio ubicación/consumo/cobertura?" (presencia,
+ * camposTecnicosFaltantes() en modules/orchestrator.js) NO es lo mismo que
+ * "¿esta información permite calcular algo real?" (validez + resolución).
+ *
+ * Los 3 campos de abajo son EXACTAMENTE los 3 que generarAlertas()
+ * (modules/motores-ingenieria/paneles-solares.js) trata como bloqueo
+ * MATEMÁTICO — sin ellos el motor literalmente no puede producir ningún
+ * número (consumo_faltante, hsp_faltante, potencia_requerida_error). No
+ * son una lista nueva inventada aquí — reutiliza las MISMAS condiciones
+ * que ya usa el motor, solo las comprueba ANTES de correrlo.
+ *
+ * tipo_alimentacion/voltaje_sitio quedan FUERA a propósito — el motor sí
+ * puede generar una alerta si faltan (red_desconocida), pero es una alerta
+ * de severidad 'bloqueo' que el propio diseño del workflow ya acepta como
+ * resultado válido de un predimensionamiento PRELIMINAR (el nodo invita a
+ * responder "no sé", confiando en que el técnico lo verifique en la
+ * visita) — no son indispensables para un cálculo preliminar, solo para
+ * una propuesta técnica DEFINITIVA, que ya está gobernada aparte por
+ * marcarIngenieriaValidada()/puedeEnviarCotizacion() (rechazan CUALQUIER
+ * alerta de bloqueo, incluida red_desconocida) — esta función nunca
+ * duplica ese criterio, solo decide si vale la pena intentar el cálculo.
+ *
+ * Período/unidades de consumo (ej. "6000 bimestral" → ¿se dividió bien
+ * entre 2?): HOY no existe ningún campo ni normalizador determinista para
+ * esto en todo el código — la conversión depende enteramente de que el
+ * modelo la haga bien al extraer datos_extraidos.consumo_mensual_kwh, sin
+ * ninguna verificación posterior. Documentado como vacío conocido, no
+ * resuelto aquí — inventar una validación de unidades sin un campo
+ * estructurado real (frecuencia_recibo no se usa en ningún lado) sería
+ * crear una regla nueva sin catálogo que la respalde.
+ *
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {Object} capturedFields
+ * @returns {Promise<{
+ *   suficientePreliminar: boolean,
+ *   camposFaltantes: string[],
+ *   campos: {
+ *     ubicacion:  {presente: boolean, resoluble: boolean, valorResuelto: string|null},
+ *     consumo:    {presente: boolean, valido: boolean, fuente: 'mensual'|'historial'|null},
+ *     cobertura:  {presente: boolean, valido: boolean},
+ *   },
+ * }>}
+ */
+async function validarRequisitosTecnicos(supabase, capturedFields = {}) {
+  const { infoTecnica } = mapearCapturedFieldsAInfoTecnica(capturedFields);
+
+  const ubicacionPresente = !!String(capturedFields.ubicacion || '').trim();
+  const ubicacionNormalizada = ubicacionPresente ? await _normalizarUbicacion(supabase, infoTecnica.ubicacion) : null;
+  const hsp = ubicacionNormalizada ? await resolverHSP(supabase, { nombreUbicacion: ubicacionNormalizada }) : null;
+
+  const consumoPresente = !!String(capturedFields.consumo_mensual_kwh || '').trim() || !!capturedFields.historial_consumo_kwh;
+  const consumoValido = infoTecnica.consumoMensualKwh != null || !!infoTecnica.historialConsumo;
+
+  const coberturaPresente = !!String(capturedFields.pct_cobertura_deseado || '').trim();
+  const coberturaValida = infoTecnica.pctCoberturaDeseado != null;
+
+  const campos = {
+    ubicacion: { presente: ubicacionPresente, resoluble: !!hsp, valorResuelto: hsp ? hsp.ubicacion : null },
+    consumo:   { presente: consumoPresente, valido: consumoValido, fuente: infoTecnica.historialConsumo ? 'historial' : (infoTecnica.consumoMensualKwh != null ? 'mensual' : null) },
+    cobertura: { presente: coberturaPresente, valido: coberturaValida },
+  };
+
+  const camposFaltantes = [];
+  // "resoluble", no solo "presente" — una ubicación que no resuelve a HSP
+  // real se trata igual que si faltara (requisito explícito: "si la
+  // ubicación no puede resolverse, pedir aclaración, no crear una
+  // cotización bloqueada").
+  if (!campos.ubicacion.resoluble) camposFaltantes.push('ubicacion');
+  if (!campos.consumo.valido) camposFaltantes.push('consumo_mensual_kwh');
+  if (!campos.cobertura.valido) camposFaltantes.push('pct_cobertura_deseado');
+
+  return { suficientePreliminar: camposFaltantes.length === 0, camposFaltantes, campos };
+}
+
+/**
  * Texto de seguimiento que el cliente recibe DESPUÉS del cierre genérico
  * del workflow (aiOutput.respuesta_texto) — nunca reemplaza ese cierre, es
  * un segundo mensaje proactivo. Vive fuera de _finalizarWorkflow (congelado,
@@ -911,7 +989,7 @@ module.exports = {
   resolverHSP, resolverParametro, resolverParametrosPanelesSolares, listarProductosPorTipo, listarProductosActivos,
   autorizarPrecioFinal,
   correrYGuardarCalculo, marcarIngenieriaValidada, marcarPredimensionamientoRevisado,
-  mapearCapturedFieldsAInfoTecnica, correrCotizacionDesdeWorkflow, enviarProactivoWhatsApp,
+  mapearCapturedFieldsAInfoTecnica, validarRequisitosTecnicos, correrCotizacionDesdeWorkflow, enviarProactivoWhatsApp,
   puedeEnviarCotizacion,
   generarFolio, listarCotizaciones, obtenerCotizacion,
   crearCotizacionBorrador, correrCalculoCotizacionManual,
