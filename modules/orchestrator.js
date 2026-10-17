@@ -1036,10 +1036,37 @@ class Orchestrator {
    * intentado).
    *
    * @returns {string|null} null si ningún resultado amerita reemplazar
-   *   aiOutput.respuesta_texto (ej. ejecutar_motor_ingenieria,
-   *   crear_oportunidad, crear_ticket_soporte — sin cambio).
+   *   aiOutput.respuesta_texto (ej. crear_oportunidad, crear_ticket_soporte
+   *   — sin cambio).
    */
   _textoDesdeResultadoDeAgenda(resultados, huboAgendaBloqueada = false) {
+    // Prioridad 5 (Alina, 2026-10-17 — incidente real: Lucía le dijo a un
+    // cliente "~10 kWp" que el modelo inventó en texto libre, sin relación
+    // con el cálculo real, que de hecho quedó bloqueado sin ningún
+    // resultado). Cuando ejecutar_motor_ingenieria corrió este turno, su
+    // resultado (una fila real de calculos_ingenieria — se distingue por
+    // tener estado_calculo+motor, ninguna otra acción produce esa forma)
+    // SIEMPRE gobierna la respuesta — el texto libre del modelo nunca se
+    // deja pasar cuando el motor ya corrió, mismo criterio que ya existía
+    // para agendar_cita. 'completo' → cifras reales de calculo.resultados
+    // (nunca una estimación del modelo); cualquier otro estado → el mismo
+    // texto honesto que ya usa el seguimiento proactivo (textoSeguimientoIngenieria,
+    // modules/cotizaciones.js) — una sola fuente, nunca duplicado.
+    const calculo = resultados.find(r => r?.estado_calculo != null && r?.motor != null);
+    if (calculo) {
+      const { textoSeguimientoIngenieria } = require('./cotizaciones');
+      if (calculo.estado_calculo === 'completo') {
+        const paneles = calculo.resultados?.numero_paneles?.valor;
+        const kwp = calculo.resultados?.potencia_instalada_kwp;
+        const coberturaPct = calculo.resultados?.cobertura_pct;
+        if (paneles != null && kwp != null) {
+          const coberturaTexto = coberturaPct != null ? ` cubriendo aproximadamente ${Math.round(coberturaPct)}% de tu consumo` : '';
+          return `Con los datos que me diste, el predimensionamiento preliminar sugiere un sistema de ${paneles} panel${paneles === 1 ? '' : 'es'} solar${paneles === 1 ? '' : 'es'} (~${kwp.toFixed(1)} kWp)${coberturaTexto}. Es un cálculo preliminar, sujeto a validación técnica por nuestro equipo.`;
+        }
+      }
+      return textoSeguimientoIngenieria(calculo.estado_calculo);
+    }
+
     const faltanDatos = resultados.find(r => r?.tipo === 'faltan_datos');
     if (faltanDatos) return this._preguntaPorDatoFaltante(faltanDatos.campos);
 

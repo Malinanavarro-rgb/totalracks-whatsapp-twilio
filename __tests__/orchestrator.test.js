@@ -2931,3 +2931,138 @@ describe('Orchestrator — requisitos técnicos completos para ejecutar_motor_in
     expect(resultado.respuesta_texto).toMatch(/ciudad o municipio/i);
   });
 });
+
+describe('Orchestrator — Prioridad 5 (2026-10-17): Lucía nunca comunica cifras técnicas no validadas', () => {
+  const nodoConMotorIngenieria = {
+    nombre: 'preguntar_voltaje', es_fin: true, campo: 'voltaje_sitio', pregunta: '¿110/127V o 220V?', modo_respuesta: 'replace_ai',
+    acciones: [{ tipo: 'ejecutar_motor_ingenieria', parametros: {} }],
+  };
+
+  function mockAIConRespuestaInventada(respuestaTexto) {
+    return {
+      procesar: jest.fn().mockResolvedValue({
+        respuesta_texto: respuestaTexto, categoria_principal: 'Test', datos_extraidos: {}, datos_contacto: null,
+        intenciones: ['solicitud_cotizacion'], sentimiento: 'Positivo', etapa_sugerida: null,
+        acciones_propuestas: [], confianza: 0.9, tokens_entrada: 10, tokens_salida: 10,
+        modelo_utilizado: 'mock', proveedor_utilizado: 'mock', latencia_ms: 1,
+      }),
+    };
+  }
+
+  // PRIORIDAD 7 (reproducción exacta del incidente real, 2026-10-17, Nort
+  // Energy, Roberto Gzz): el cálculo real quedó bloqueado (ubicación "en
+  // mty" sin resolver en ese momento), pero el modelo igual le dijo al
+  // cliente "~10 kWp" en texto libre, sin relación con el cálculo real.
+  test('REPRODUCCIÓN DEL INCIDENTE: cálculo bloqueado → nunca se muestra la cifra inventada por el modelo, se muestra el mensaje honesto real', async () => {
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoConMotorIngenieria),
+      avanzar:             jest.fn().mockResolvedValue({ sesion: { ...sesionEnProceso, status: 'completado' }, completado: true, siguiente_nodo: null }),
+    });
+    const calculoBloqueado = {
+      id: 'calc-1', motor: 'paneles_solares', estado_calculo: 'bloqueado',
+      resultados: { numero_paneles: { valor: null, incompleto: true }, potencia_instalada_kwp: null, cobertura_pct: null },
+      alertas: [{ tipo: 'hsp_faltante', severidad: 'bloqueo', mensaje: 'No se pudo resolver la ubicación o el HSP del sitio.' }],
+    };
+    const actionRunner = { ejecutar: jest.fn().mockResolvedValue(calculoBloqueado) };
+    const aiEngine = mockAIConRespuestaInventada(
+      'Con el consumo de 3000 kWh al mes y el deseo de cubrir el 90% de tu consumo, estimamos que necesitarías un sistema de aproximadamente 10 kWp.'
+    );
+    const deps = makeDeps({ workflowEngine: wfEngine, actionRunner, aiEngine }); // makeCliente() default ya identificado
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage({ content: '220v' }));
+
+    expect(resultado.respuesta_texto).not.toMatch(/10 kWp/i);
+    expect(resultado.respuesta_texto).toMatch(/revisión de un especialista/i);
+  });
+
+  test('cálculo completo con resultado real → la respuesta usa las cifras REALES del cálculo (paneles/kWp/cobertura), nunca el texto del modelo', async () => {
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoConMotorIngenieria),
+      avanzar:             jest.fn().mockResolvedValue({ sesion: { ...sesionEnProceso, status: 'completado' }, completado: true, siguiente_nodo: null }),
+    });
+    const calculoCompleto = {
+      id: 'calc-2', motor: 'paneles_solares', estado_calculo: 'completo',
+      resultados: { numero_paneles: { valor: 18, incompleto: false }, potencia_instalada_kwp: 9.9, cobertura_pct: 87.3 },
+      alertas: [],
+    };
+    const actionRunner = { ejecutar: jest.fn().mockResolvedValue(calculoCompleto) };
+    const aiEngine = mockAIConRespuestaInventada('Yo diría que necesitas unos 25 paneles, más o menos.'); // número INCORRECTO inventado por el modelo
+    const deps = makeDeps({ workflowEngine: wfEngine, actionRunner, aiEngine });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage({ content: '220v' }));
+
+    expect(resultado.respuesta_texto).toContain('18');
+    expect(resultado.respuesta_texto).toContain('9.9');
+    expect(resultado.respuesta_texto).not.toMatch(/25 paneles/i);
+  });
+
+  test('conversación educativa general (sin ejecutar_motor_ingenieria este turno) no se toca — sigue siendo la respuesta normal del modelo', async () => {
+    const wfEngine = makeWorkflowEngine({ obtenerSesionActiva: jest.fn().mockResolvedValue(null), evaluar: jest.fn().mockResolvedValue(null) });
+    const respuestaEducativa = 'Los paneles solares funcionan convirtiendo la luz solar en electricidad mediante celdas fotovoltaicas.';
+    const aiEngine = makeAIConIntenciones(['consulta_general'], respuestaEducativa);
+    const deps = makeDeps({ workflowEngine: wfEngine, aiEngine });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage({ content: '¿cómo funcionan los paneles solares?' }));
+
+    expect(resultado.respuesta_texto).toBe(respuestaEducativa);
+  });
+
+  test('cálculo con estado_calculo="incompleto_faltan_datos" → usa el mismo texto honesto de seguimiento, nunca cifras parciales inventadas', async () => {
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoConMotorIngenieria),
+      avanzar:             jest.fn().mockResolvedValue({ sesion: { ...sesionEnProceso, status: 'completado' }, completado: true, siguiente_nodo: null }),
+    });
+    const calculoIncompleto = {
+      id: 'calc-3', motor: 'paneles_solares', estado_calculo: 'incompleto_faltan_datos',
+      resultados: { numero_paneles: { valor: null, incompleto: true }, potencia_instalada_kwp: null, cobertura_pct: null },
+      alertas: [],
+    };
+    const actionRunner = { ejecutar: jest.fn().mockResolvedValue(calculoIncompleto) };
+    const aiEngine = mockAIConRespuestaInventada('Calculo que serían unos 8 kWp aproximadamente.');
+    const deps = makeDeps({ workflowEngine: wfEngine, actionRunner, aiEngine });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage({ content: '220v' }));
+
+    expect(resultado.respuesta_texto).not.toMatch(/8 kWp/i);
+    expect(resultado.respuesta_texto).toMatch(/predimensionamiento inicial/i);
+  });
+
+  // Condición #5 de la autorización: proteger tanto conversaciones libres
+  // (camino A) como workflows (camino B) — mismo mecanismo compartido
+  // (_textoDesdeResultadoDeAgenda), ya probado arriba para camino B; este
+  // caso confirma camino A (acción propuesta en conversación libre, sin
+  // workflow activo).
+  test('camino A (conversación libre, sin workflow): cálculo bloqueado propuesto directamente también usa el texto honesto, no el del modelo', async () => {
+    const wfEngine = makeWorkflowEngine({ obtenerSesionActiva: jest.fn().mockResolvedValue(null), evaluar: jest.fn().mockResolvedValue(null) });
+    const calculoBloqueado = {
+      id: 'calc-4', motor: 'paneles_solares', estado_calculo: 'bloqueado',
+      resultados: { numero_paneles: { valor: null, incompleto: true }, potencia_instalada_kwp: null, cobertura_pct: null },
+      alertas: [{ tipo: 'hsp_faltante', severidad: 'bloqueo', mensaje: 'x' }],
+    };
+    const actionRunner = { ejecutar: jest.fn().mockResolvedValue(calculoBloqueado) };
+    const aiEngine = {
+      procesar: jest.fn().mockResolvedValue({
+        respuesta_texto: 'Tu sistema necesitaría aproximadamente 12 kWp.', categoria_principal: 'Test', datos_extraidos: {}, datos_contacto: null,
+        intenciones: ['solicitud_cotizacion'], sentimiento: 'Positivo', etapa_sugerida: null,
+        acciones_propuestas: [{ tipo: 'ejecutar_motor_ingenieria', parametros: {} }],
+        confianza: 0.9, tokens_entrada: 10, tokens_salida: 10, modelo_utilizado: 'mock', proveedor_utilizado: 'mock', latencia_ms: 1,
+      }),
+    };
+    const empresaConCap = makeEmpresaRaw();
+    empresaConCap.personality.capacidades = ['crear_oportunidad', 'ejecutar_motor_ingenieria'];
+    const deps = makeDeps({ workflowEngine: wfEngine, actionRunner, aiEngine, obtenerConfigEmpresa: jest.fn().mockResolvedValue(empresaConCap) });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage({ content: 'mándame el predimensionamiento' }));
+
+    expect(resultado.respuesta_texto).not.toMatch(/12 kWp/i);
+    expect(resultado.respuesta_texto).toMatch(/revisión de un especialista/i);
+  });
+});

@@ -475,10 +475,15 @@ async function validarRequisitosTecnicos(supabase, capturedFields = {}) {
  * la acción, no en el Core. Nunca menciona una cotización lista para
  * enviar — eso requiere ingenieria_validada_para_cotizar (Fase 3).
  *
+ * Exportada (sin guion bajo — Prioridad 5, 2026-10-17): reutilizada por
+ * modules/orchestrator.js::_textoDesdeResultadoDeAgenda() para la
+ * respuesta PRINCIPAL del turno cuando el cálculo no quedó 'completo' —
+ * mismo texto honesto, una sola fuente, nunca duplicado.
+ *
  * @param {'completo'|'incompleto_faltan_datos'|'bloqueado'} estadoCalculo
  * @returns {string}
  */
-function _textoSeguimientoIngenieria(estadoCalculo) {
+function textoSeguimientoIngenieria(estadoCalculo) {
   if (estadoCalculo === 'bloqueado') {
     return 'Con los datos que me diste, tu proyecto necesita revisión de un especialista antes de poder predimensionarlo con seguridad — puede deberse al espacio disponible, al tipo de instalación eléctrica, o a otro factor técnico. Un asesor te va a contactar en breve, y si hace falta podemos agendar una visita técnica gratuita para revisar el sitio a detalle.';
   }
@@ -902,7 +907,7 @@ async function correrCotizacionDesdeWorkflow(supabase, { companyId, clienteId, c
 
   if (destinatario && !pdfEnviado) {
     try {
-      await enviar(supabase, companyId, destinatario, _textoSeguimientoIngenieria(calculo.estado_calculo));
+      await enviar(supabase, companyId, destinatario, textoSeguimientoIngenieria(calculo.estado_calculo));
     } catch (e) {
       console.error('cotizaciones.correrCotizacionDesdeWorkflow: error en seguimiento proactivo:', e.message);
     }
@@ -1019,6 +1024,7 @@ module.exports = {
   autorizarPrecioFinal,
   correrYGuardarCalculo, marcarIngenieriaValidada, marcarPredimensionamientoRevisado,
   mapearCapturedFieldsAInfoTecnica, validarRequisitosTecnicos, correrCotizacionDesdeWorkflow, enviarProactivoWhatsApp,
+  textoSeguimientoIngenieria,
   puedeEnviarCotizacion,
   generarFolio, listarCotizaciones, obtenerCotizacion,
   crearCotizacionBorrador, correrCalculoCotizacionManual,
