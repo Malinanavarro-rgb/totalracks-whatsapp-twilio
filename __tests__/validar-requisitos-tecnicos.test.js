@@ -52,18 +52,20 @@ const CATALOGO_REAL = [
 ];
 
 describe('validarRequisitosTecnicos() — Prioridad 2 (2026-10-17)', () => {
-  test('REPRODUCCIÓN DEL CASO REAL: ubicación presente ("en mty") pero irresoluble → suficientePreliminar=false, pide ubicación', async () => {
+  // ACTUALIZADO (P3, 2026-10-17): antes de P3, "en mty" NO resolvía — era
+  // justo el caso real del incidente. P3 agrega el reconocimiento de
+  // abreviaturas inequívocas conocidas (ABREVIATURAS_CIUDAD_CONOCIDAS,
+  // modules/cotizaciones.js) — "mty" ahora sí resuelve a "Monterrey,
+  // Nuevo León" cuando esa ciudad está en el catálogo real, como aquí.
+  // Este es el comportamiento NUEVO deseado, no una regresión.
+  test('CASO REAL (post-P3): ubicación "en mty" ahora SÍ resuelve a Monterrey vía abreviatura conocida → suficientePreliminar=true', async () => {
     const supabase = fakeSupabaseIrradiacion(CATALOGO_REAL);
     const resultado = await validarRequisitosTecnicos(supabase, {
       ubicacion: 'en mty', consumo_mensual_kwh: '3000', pct_cobertura_deseado: '90',
     });
 
-    expect(resultado.suficientePreliminar).toBe(false);
-    expect(resultado.camposFaltantes).toContain('ubicacion');
-    expect(resultado.campos.ubicacion).toEqual({ presente: true, resoluble: false, valorResuelto: null });
-    // consumo y cobertura SÍ eran válidos — no deben aparecer como faltantes
-    expect(resultado.camposFaltantes).not.toContain('consumo_mensual_kwh');
-    expect(resultado.camposFaltantes).not.toContain('pct_cobertura_deseado');
+    expect(resultado.suficientePreliminar).toBe(true);
+    expect(resultado.campos.ubicacion).toEqual({ presente: true, resoluble: true, valorResuelto: 'Monterrey, Nuevo León' });
   });
 
   test('ubicación que SÍ resuelve ("Monterrey, Nuevo León" exacto) + consumo + cobertura → suficientePreliminar=true', async () => {
@@ -129,5 +131,62 @@ describe('validarRequisitosTecnicos() — Prioridad 2 (2026-10-17)', () => {
 
     expect(resultado.suficientePreliminar).toBe(false);
     expect(resultado.camposFaltantes.sort()).toEqual(['consumo_mensual_kwh', 'pct_cobertura_deseado', 'ubicacion']);
+  });
+});
+
+describe('Prioridad 3 — normalización inteligente de ubicaciones (2026-10-17)', () => {
+  // Catálogo REAL de producción auditado el 2026-10-17 — solo 2 ciudades.
+  // Usar el catálogo real (no uno de prueba más grande) para que estas
+  // pruebas reflejen exactamente lo que Lucía puede/no puede resolver HOY.
+  const CATALOGO_PRODUCCION_REAL = [
+    { nombre_ubicacion: 'Hermosillo, Sonora', hsp_promedio_anual: 6.2 },
+    { nombre_ubicacion: 'Monterrey, Nuevo León', hsp_promedio_anual: 5.5 },
+  ];
+
+  test('"Estoy en Mty" → resuelve a Monterrey, Nuevo León (abreviatura inequívoca)', async () => {
+    const supabase = fakeSupabaseIrradiacion(CATALOGO_PRODUCCION_REAL);
+    const resultado = await validarRequisitosTecnicos(supabase, { ubicacion: 'Estoy en Mty', consumo_mensual_kwh: '500', pct_cobertura_deseado: '90' });
+    expect(resultado.campos.ubicacion).toMatchObject({ resoluble: true, valorResuelto: 'Monterrey, Nuevo León' });
+  });
+
+  test('"Es para Monterrey" → resuelve directo (ya funcionaba antes de P3, sin regresión)', async () => {
+    const supabase = fakeSupabaseIrradiacion(CATALOGO_PRODUCCION_REAL);
+    const resultado = await validarRequisitosTecnicos(supabase, { ubicacion: 'Es para Monterrey', consumo_mensual_kwh: '500', pct_cobertura_deseado: '90' });
+    expect(resultado.campos.ubicacion).toMatchObject({ resoluble: true, valorResuelto: 'Monterrey, Nuevo León' });
+  });
+
+  test('"En Hmo" → resuelve a Hermosillo, Sonora (abreviatura inequívoca, segunda ciudad real del catálogo)', async () => {
+    const supabase = fakeSupabaseIrradiacion(CATALOGO_PRODUCCION_REAL);
+    const resultado = await validarRequisitosTecnicos(supabase, { ubicacion: 'En Hmo', consumo_mensual_kwh: '500', pct_cobertura_deseado: '90' });
+    expect(resultado.campos.ubicacion).toMatchObject({ resoluble: true, valorResuelto: 'Hermosillo, Sonora' });
+  });
+
+  // Hallazgo de la auditoría (no un defecto de esta corrección): el
+  // catálogo real HOY no tiene San Pedro ni Ciudad Victoria — ninguna
+  // normalización de texto puede resolverlos sin inventar un HSP para una
+  // ciudad que no está en los datos. Comportamiento correcto: no resuelve.
+  test('"En San Pedro, NL" → NO resuelve (la ciudad no está en el catálogo real — vacío de datos, no de normalización)', async () => {
+    const supabase = fakeSupabaseIrradiacion(CATALOGO_PRODUCCION_REAL);
+    const resultado = await validarRequisitosTecnicos(supabase, { ubicacion: 'En San Pedro, NL', consumo_mensual_kwh: '500', pct_cobertura_deseado: '90' });
+    expect(resultado.campos.ubicacion).toMatchObject({ resoluble: false, valorResuelto: null });
+  });
+
+  test('"En Ciudad Victoria" → NO resuelve (la ciudad no está en el catálogo real)', async () => {
+    const supabase = fakeSupabaseIrradiacion(CATALOGO_PRODUCCION_REAL);
+    const resultado = await validarRequisitosTecnicos(supabase, { ubicacion: 'En Ciudad Victoria', consumo_mensual_kwh: '500', pct_cobertura_deseado: '90' });
+    expect(resultado.campos.ubicacion).toMatchObject({ resoluble: false, valorResuelto: null });
+  });
+
+  test('una abreviatura NO debe matchear como substring de otra palabra (límite de palabra completa)', async () => {
+    const supabase = fakeSupabaseIrradiacion(CATALOGO_PRODUCCION_REAL);
+    // "administy" contiene la letras "mty" pero no es la abreviatura "mty" como palabra — no debe resolver.
+    const resultado = await validarRequisitosTecnicos(supabase, { ubicacion: 'vivo en administy', consumo_mensual_kwh: '500', pct_cobertura_deseado: '90' });
+    expect(resultado.campos.ubicacion).toMatchObject({ resoluble: false });
+  });
+
+  test('abreviatura de una ciudad que NO está en el catálogo (ej. "gdl") → no resuelve, nunca inventa el dato', async () => {
+    const supabase = fakeSupabaseIrradiacion(CATALOGO_PRODUCCION_REAL); // Guadalajara no está en el catálogo real
+    const resultado = await validarRequisitosTecnicos(supabase, { ubicacion: 'estoy en gdl', consumo_mensual_kwh: '500', pct_cobertura_deseado: '90' });
+    expect(resultado.campos.ubicacion).toMatchObject({ resoluble: false, valorResuelto: null });
   });
 });

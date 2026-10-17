@@ -298,6 +298,24 @@ function _normalizarTipoAlimentacion(texto) {
 const VOLTAJE_DEFAULT_MONOFASICA = 220;
 
 /**
+ * Abreviaturas comunes e inequívocas de ciudades mexicanas (Alina, P3,
+ * 2026-10-17 — "Estoy en Mty" debe reconocerse igual que "Es para
+ * Monterrey"). Lista deliberadamente pequeña y conservadora — solo
+ * abreviaturas de uso extendido y sin ambigüedad real (nunca una que
+ * pueda referirse a más de una ciudad). SOLO se usan si, tras expandirlas,
+ * encuentran una coincidencia real en el catálogo — si la ciudad no está
+ * en irradiacion_regional (hoy: Monterrey y Hermosillo, ver auditoría
+ * 2026-10-17), esta lista no cambia nada: sigue sin resolver, igual que
+ * antes. Nunca inventa una ciudad ni un HSP para una que no esté en los
+ * datos reales.
+ */
+const ABREVIATURAS_CIUDAD_CONOCIDAS = {
+  mty: 'monterrey', gdl: 'guadalajara', cdmx: 'ciudad de méxico', df: 'ciudad de méxico',
+  hmo: 'hermosillo', slp: 'san luis potosí', qro: 'querétaro', pue: 'puebla',
+  tj: 'tijuana', mid: 'mérida', leon: 'león', mxli: 'mexicali',
+};
+
+/**
  * Bug real de piloto (Alina, 2026-08-10): el cliente escribe "estoy en
  * monterrey" y resolverHSP() busca coincidencia EXACTA contra
  * irradiacion_regional.nombre_ubicacion ("Monterrey, Nuevo León") — la
@@ -307,8 +325,10 @@ const VOLTAJE_DEFAULT_MONOFASICA = 220;
  * Compara contra el catálogo REAL (nunca una lista de ciudades hardcodeada
  * que se desincroniza) — si el nombre de la ciudad (la palabra antes de la
  * coma en nombre_ubicacion) aparece en el texto libre, usa el nombre exacto
- * del catálogo. Sin match, devuelve el texto tal cual — resolverHSP() ya
- * maneja "ubicación no encontrada" sin inventar un HSP.
+ * del catálogo. Sin match directo, intenta una abreviatura conocida
+ * (ABREVIATURAS_CIUDAD_CONOCIDAS, P3 2026-10-17 — hallazgo real: "en mty"
+ * nunca resolvía). Sin ningún match, devuelve el texto tal cual —
+ * resolverHSP() ya maneja "ubicación no encontrada" sin inventar un HSP.
  *
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string|null} textoLibre
@@ -320,11 +340,20 @@ async function _normalizarUbicacion(supabase, textoLibre) {
   const { data: ubicaciones } = await supabase.from('irradiacion_regional').select('nombre_ubicacion');
   const texto = textoLibre.toLowerCase();
 
-  const match = (ubicaciones || []).find(u =>
+  const matchDirecto = (ubicaciones || []).find(u =>
     texto.includes(u.nombre_ubicacion.split(',')[0].trim().toLowerCase())
   );
+  if (matchDirecto) return matchDirecto.nombre_ubicacion;
 
-  return match ? match.nombre_ubicacion : textoLibre;
+  for (const [abreviatura, ciudadCompleta] of Object.entries(ABREVIATURAS_CIUDAD_CONOCIDAS)) {
+    if (!new RegExp(`\\b${abreviatura}\\b`, 'i').test(texto)) continue;
+    const matchAbreviatura = (ubicaciones || []).find(u =>
+      u.nombre_ubicacion.split(',')[0].trim().toLowerCase() === ciudadCompleta
+    );
+    if (matchAbreviatura) return matchAbreviatura.nombre_ubicacion;
+  }
+
+  return textoLibre;
 }
 
 /**
