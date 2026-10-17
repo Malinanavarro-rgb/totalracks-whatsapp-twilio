@@ -213,6 +213,24 @@ describe('procesarReciboCFE()', () => {
     }));
   });
 
+  // Prioridad 7 (Alina, 2026-10-17, verificación complementaria #2):
+  // distingue consumo confirmado desde foto de recibo de uno estimado por
+  // texto — mismo campo "<campo>_fuente" que usa modules/orchestrator.js
+  // para la conversación libre.
+  test('marca la fuente como "recibo_cfe" en ambos campos — distinguible de un consumo declarado por texto', async () => {
+    const db = crearMockDb();
+    const openai = crearMockOpenAI({
+      es_recibo_cfe: true, importe_total: 3850, consumo_kwh: 1120,
+      periodo_inicio: '2026-06-05', periodo_fin: '2026-08-04', tarifa: '1', consumo_historico_kwh: null,
+    });
+
+    await procesarReciboCFE(openai, db, DATOS_BASE);
+
+    expect(mockPreSalvarDatosExtraidos).toHaveBeenCalledWith('sesion-1', expect.objectContaining({
+      consumo_mensual_kwh_fuente: 'recibo_cfe', importe_promedio_recibo_fuente: 'recibo_cfe',
+    }));
+  });
+
   test('el documento no es un recibo de CFE → no guarda nada', async () => {
     const db = crearMockDb();
     const openai = crearMockOpenAI({ es_recibo_cfe: false });

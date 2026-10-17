@@ -3066,3 +3066,239 @@ describe('Orchestrator — Prioridad 5 (2026-10-17): Lucía nunca comunica cifra
     expect(resultado.respuesta_texto).toMatch(/revisión de un especialista/i);
   });
 });
+
+describe('Orchestrator — Prioridad 7 (2026-10-17): interpretación determinista del consumo eléctrico', () => {
+  const nodoConsumoKwh = {
+    nombre: 'preguntar_consumo_kwh', es_fin: false, campo: 'consumo_mensual_kwh',
+    pregunta: '¿Cuántos kWh consumes en promedio al mes?', siguiente_nodo: 'preguntar_importe_recibo', modo_respuesta: 'replace_ai',
+  };
+  const nodoSiguienteImporte = {
+    nombre: 'preguntar_importe_recibo', es_fin: false, campo: 'importe_promedio_recibo',
+    pregunta: '¿Cuál es el importe promedio de tu recibo de CFE?', modo_respuesta: 'replace_ai',
+  };
+
+  function mockAIConDatosConsumo(datosConsumoDeclarado, datosExtraidos = {}) {
+    return {
+      procesar: jest.fn().mockResolvedValue({
+        respuesta_texto: 'Entendido.', categoria_principal: 'Test', datos_extraidos: datosExtraidos,
+        datos_contacto: null, datos_consumo_declarado: datosConsumoDeclarado,
+        intenciones: ['solicitud_cotizacion'], sentimiento: 'Neutral', etapa_sugerida: null,
+        acciones_propuestas: [], confianza: 0.9, tokens_entrada: 10, tokens_salida: 10,
+        modelo_utilizado: 'mock', proveedor_utilizado: 'mock', latencia_ms: 1,
+      }),
+    };
+  }
+
+  test('REPRODUCCIÓN DEL INCIDENTE: "6000 bimestral" en el nodo de consumo → avanza con 3000 (÷2 determinista), nunca confía en una conversión silenciosa del modelo', async () => {
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoConsumoKwh),
+      avanzar:             jest.fn().mockResolvedValue({ sesion: { ...sesionEnProceso, current_node: 'preguntar_importe_recibo' }, completado: false, siguiente_nodo: nodoSiguienteImporte }),
+    });
+    // El modelo reporta la cifra CRUDA tal cual la dijo el cliente — nunca
+    // pre-convertida — y por separado, su propio datos_extraidos podría
+    // (como en el incidente real) llevar ya un "3000" adivinado; no debe
+    // importar, el valor determinista debe ganar siempre.
+    const aiEngine = mockAIConDatosConsumo(
+      { valor: 6000, unidad: 'kwh', periodo: 'bimestral', aproximado: false },
+      { consumo_mensual_kwh: '9999' } // valor del modelo, deliberadamente distinto — nunca debe usarse
+    );
+    const deps = makeDeps({ workflowEngine: wfEngine, aiEngine });
+    const orch = new Orchestrator(deps);
+
+    await orch.procesarMensaje(makeMessage({ content: 'pago 6000 kWh cada dos meses' }));
+
+    expect(wfEngine.avanzar).toHaveBeenCalledWith(sesionEnProceso, nodoConsumoKwh, '3000');
+  });
+
+  test('«Consumo 3,000 kWh mensuales» → avanza con 3000 directo, sin conversión', async () => {
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoConsumoKwh),
+      avanzar:             jest.fn().mockResolvedValue({ sesion: { ...sesionEnProceso, current_node: 'preguntar_importe_recibo' }, completado: false, siguiente_nodo: nodoSiguienteImporte }),
+    });
+    const aiEngine = mockAIConDatosConsumo({ valor: 3000, unidad: 'kwh', periodo: 'mensual', aproximado: false });
+    const deps = makeDeps({ workflowEngine: wfEngine, aiEngine });
+    const orch = new Orchestrator(deps);
+
+    await orch.procesarMensaje(makeMessage({ content: 'consumo 3000 kWh mensuales' }));
+
+    expect(wfEngine.avanzar).toHaveBeenCalledWith(sesionEnProceso, nodoConsumoKwh, '3000');
+  });
+
+  test('persiste "consumo_mensual_kwh_fuente" distinguiendo directo_mensual de estimado_bimestral (verificación complementaria #2)', async () => {
+    const wfEngineMensual = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoConsumoKwh),
+      avanzar:             jest.fn().mockResolvedValue({ sesion: { ...sesionEnProceso, current_node: 'preguntar_importe_recibo' }, completado: false, siguiente_nodo: nodoSiguienteImporte }),
+    });
+    await new Orchestrator(makeDeps({ workflowEngine: wfEngineMensual, aiEngine: mockAIConDatosConsumo({ valor: 3000, unidad: 'kwh', periodo: 'mensual' }) }))
+      .procesarMensaje(makeMessage({ content: 'consumo 3000 kWh mensuales' }));
+    expect(wfEngineMensual.preSalvarDatosExtraidos).toHaveBeenCalledWith(sesionEnProceso.id, { consumo_mensual_kwh_fuente: 'directo_mensual' });
+
+    const wfEngineBimestral = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoConsumoKwh),
+      avanzar:             jest.fn().mockResolvedValue({ sesion: { ...sesionEnProceso, current_node: 'preguntar_importe_recibo' }, completado: false, siguiente_nodo: nodoSiguienteImporte }),
+    });
+    await new Orchestrator(makeDeps({ workflowEngine: wfEngineBimestral, aiEngine: mockAIConDatosConsumo({ valor: 6000, unidad: 'kwh', periodo: 'bimestral' }) }))
+      .procesarMensaje(makeMessage({ content: 'pago 6000 kWh cada dos meses' }));
+    expect(wfEngineBimestral.preSalvarDatosExtraidos).toHaveBeenCalledWith(sesionEnProceso.id, { consumo_mensual_kwh_fuente: 'estimado_bimestral' });
+  });
+
+  test('«Mi recibo dice 1,500 kWh» (sin periodo) → pide aclaración del periodo, NUNCA avanza con un valor sin confirmar', async () => {
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoConsumoKwh),
+    });
+    const aiEngine = mockAIConDatosConsumo({ valor: 1500, unidad: 'kwh', periodo: null, aproximado: false });
+    const deps = makeDeps({ workflowEngine: wfEngine, aiEngine });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage({ content: 'mi recibo dice 1500 kWh' }));
+
+    expect(wfEngine.avanzar).not.toHaveBeenCalled();
+    expect(resultado.respuesta_texto).toMatch(/mensual o de los últimos 2 meses/i);
+  });
+
+  test('Cliente contesta con el importe en pesos mientras el nodo pide kWh → se pre-guarda para el nodo de importe, se vuelve a pedir el kWh (nunca convierte pesos→kWh)', async () => {
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoConsumoKwh),
+    });
+    const aiEngine = mockAIConDatosConsumo({ valor: 1800, unidad: 'mxn', periodo: 'mensual', aproximado: false });
+    const deps = makeDeps({ workflowEngine: wfEngine, aiEngine });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage({ content: 'pago 1800 pesos al mes' }));
+
+    expect(wfEngine.avanzar).not.toHaveBeenCalled(); // el nodo de kWh sigue sin contestar
+    expect(wfEngine.preSalvarDatosExtraidos).toHaveBeenCalledWith(sesionEnProceso.id, { importe_promedio_recibo: '1800' });
+    expect(resultado.respuesta_texto).toBe(nodoConsumoKwh.pregunta); // vuelve a pedir el dato de ESTE nodo
+  });
+
+  // Verificación complementaria (Alina, 2026-10-17): _avanzarSaltandoRespondidos
+  // (el auto-avance cuando el cliente ya dio varios datos en un solo
+  // mensaje) usaba datos_extraidos directamente para CUALQUIER campo,
+  // incluidos consumo_mensual_kwh/importe_promedio_recibo — la misma ruta
+  // sin validar que ya se cerró en el turno normal. Estas pruebas confirman
+  // que ya no puede introducir un consumo ambiguo al motor por esta vía.
+  describe('autoavance de nodos (_avanzarSaltandoRespondidos) — misma protección, segunda ruta', () => {
+    const nodoNombreAuto = {
+      nombre: 'preguntar_nombre', es_inicio: true, es_fin: false, campo: 'nombre',
+      pregunta: '¿Con quién tengo el gusto?', siguiente_nodo: 'preguntar_consumo_kwh', modo_respuesta: 'prepend_ai',
+    };
+
+    test('mensaje inicial con nombre Y consumo SIN periodo (ambiguo) → el autoavance se DETIENE en el nodo de consumo, nunca lo salta con datos_extraidos sin validar', async () => {
+      const wfEngine = makeWorkflowEngine({
+        obtenerSesionActiva: jest.fn().mockResolvedValue(null),
+        evaluar:             jest.fn().mockResolvedValue(workflowDescubrimiento),
+        iniciarSesion:       jest.fn().mockResolvedValue({ ...sesionEnProceso, current_node: 'preguntar_nombre', captured_fields: {} }),
+        obtenerNodoActual:   jest.fn().mockResolvedValue(nodoNombreAuto),
+        avanzar: jest.fn().mockResolvedValueOnce({ // avanza nombre → consumo_kwh; nunca se llama una segunda vez
+          sesion: { ...sesionEnProceso, current_node: 'preguntar_consumo_kwh', captured_fields: { nombre: 'Carlos' } },
+          completado: false, siguiente_nodo: nodoConsumoKwh,
+        }),
+      });
+      // El modelo reporta la cifra cruda sin periodo (ambigua) en
+      // datos_consumo_declarado, pero por separado también llena
+      // datos_extraidos.consumo_mensual_kwh con un valor propio — ese valor
+      // nunca debe usarse para saltar el nodo.
+      const aiEngine = mockAIConDatosConsumo(
+        { valor: 1500, unidad: 'kwh', periodo: null, aproximado: false },
+        { nombre: 'Carlos', consumo_mensual_kwh: '750' },
+      );
+      const deps = makeDeps({ workflowEngine: wfEngine, aiEngine });
+      const orch = new Orchestrator(deps);
+
+      const resultado = await orch.procesarMensaje(makeMessage({ content: 'Soy Carlos, mi recibo es de 1500 kWh' }));
+
+      // avanzar() solo se llamó para el nombre — el nodo de consumo NUNCA
+      // se saltó con el "750" sin validar.
+      expect(wfEngine.avanzar).toHaveBeenCalledTimes(1);
+      expect(resultado.respuesta_texto).toContain(nodoConsumoKwh.pregunta);
+    });
+
+    test('mensaje inicial con nombre Y consumo INEQUÍVOCO (kWh + mensual) → el autoavance SÍ salta el nodo, con el valor determinista', async () => {
+      const wfEngine = makeWorkflowEngine({
+        obtenerSesionActiva: jest.fn().mockResolvedValue(null),
+        evaluar:             jest.fn().mockResolvedValue(workflowDescubrimiento),
+        iniciarSesion:       jest.fn().mockResolvedValue({ ...sesionEnProceso, current_node: 'preguntar_nombre', captured_fields: {} }),
+        obtenerNodoActual:   jest.fn().mockResolvedValue(nodoNombreAuto),
+        avanzar: jest.fn()
+          .mockResolvedValueOnce({ // nombre → consumo_kwh
+            sesion: { ...sesionEnProceso, current_node: 'preguntar_consumo_kwh', captured_fields: { nombre: 'Carlos' } },
+            completado: false, siguiente_nodo: nodoConsumoKwh,
+          })
+          .mockResolvedValueOnce({ // consumo_kwh → importe_recibo (se detiene aquí, sin más datos)
+            sesion: { ...sesionEnProceso, current_node: 'preguntar_importe_recibo', captured_fields: { nombre: 'Carlos', consumo_mensual_kwh: '500' } },
+            completado: false, siguiente_nodo: nodoSiguienteImporte,
+          }),
+      });
+      const aiEngine = mockAIConDatosConsumo(
+        { valor: 500, unidad: 'kwh', periodo: 'mensual', aproximado: false },
+        { nombre: 'Carlos' },
+      );
+      const deps = makeDeps({ workflowEngine: wfEngine, aiEngine });
+      const orch = new Orchestrator(deps);
+
+      await orch.procesarMensaje(makeMessage({ content: 'Soy Carlos, consumo 500 kWh al mes' }));
+
+      expect(wfEngine.avanzar).toHaveBeenCalledTimes(2);
+      expect(wfEngine.avanzar).toHaveBeenNthCalledWith(2, expect.objectContaining({ current_node: 'preguntar_consumo_kwh' }), nodoConsumoKwh, '500');
+    });
+  });
+
+  test('Importe sin periodo claro → pide aclaración específica del importe, no la genérica de kWh', async () => {
+    const nodoImporte = { ...nodoSiguienteImporte }; // sesión ya en el nodo de importe
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue({ ...sesionEnProceso, current_node: 'preguntar_importe_recibo' }),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoImporte),
+    });
+    const aiEngine = mockAIConDatosConsumo({ valor: 2000, unidad: 'mxn', periodo: null, aproximado: true });
+    const deps = makeDeps({ workflowEngine: wfEngine, aiEngine });
+    const orch = new Orchestrator(deps);
+
+    const resultado = await orch.procesarMensaje(makeMessage({ content: 'pago aproximadamente $2000' }));
+
+    expect(wfEngine.avanzar).not.toHaveBeenCalled();
+    expect(resultado.respuesta_texto).toMatch(/importe es de un mes o de 2 meses/i);
+  });
+
+  test('Sin datos_consumo_declarado (modelo no lo reportó — compatibilidad con respuestas antiguas) → sigue el flujo previo (datos_extraidos), nunca lanza', async () => {
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoConsumoKwh),
+      avanzar:             jest.fn().mockResolvedValue({ sesion: { ...sesionEnProceso, current_node: 'preguntar_importe_recibo' }, completado: false, siguiente_nodo: nodoSiguienteImporte }),
+    });
+    const aiEngine = {
+      procesar: jest.fn().mockResolvedValue({
+        respuesta_texto: 'Ok.', categoria_principal: 'Test', datos_extraidos: { consumo_mensual_kwh: '450' },
+        datos_contacto: null, // sin datos_consumo_declarado en absoluto
+        intenciones: ['solicitud_cotizacion'], sentimiento: 'Neutral', etapa_sugerida: null,
+        acciones_propuestas: [], confianza: 0.9, tokens_entrada: 10, tokens_salida: 10,
+        modelo_utilizado: 'mock', proveedor_utilizado: 'mock', latencia_ms: 1,
+      }),
+    };
+    const deps = makeDeps({ workflowEngine: wfEngine, aiEngine });
+    const orch = new Orchestrator(deps);
+
+    await expect(orch.procesarMensaje(makeMessage({ content: '450' }))).resolves.toBeDefined();
+    expect(wfEngine.avanzar).toHaveBeenCalledWith(sesionEnProceso, nodoConsumoKwh, '450');
+  });
+
+  test('Valores contradictorios con un turno previo: un cliente que primero dio 500 kWh mensual y luego dice "en realidad son 3000 bimestrales" — el turno NUEVO gana, interpretado de forma determinista', async () => {
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue({ ...sesionEnProceso, captured_fields: { consumo_mensual_kwh: '500' } }),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoConsumoKwh),
+      avanzar:             jest.fn().mockResolvedValue({ sesion: { ...sesionEnProceso, current_node: 'preguntar_importe_recibo' }, completado: false, siguiente_nodo: nodoSiguienteImporte }),
+    });
+    const aiEngine = mockAIConDatosConsumo({ valor: 3000, unidad: 'kwh', periodo: 'bimestral', aproximado: false });
+    const deps = makeDeps({ workflowEngine: wfEngine, aiEngine });
+    const orch = new Orchestrator(deps);
+
+    await orch.procesarMensaje(makeMessage({ content: 'en realidad son 3000 kWh bimestrales' }));
+
+    expect(wfEngine.avanzar).toHaveBeenCalledWith(expect.anything(), nodoConsumoKwh, '1500');
+  });
+});

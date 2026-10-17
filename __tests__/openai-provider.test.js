@@ -117,6 +117,77 @@ describe('OpenAIProvider.procesar() — datos_contacto (Bug B, 2026-10-16)', () 
   });
 });
 
+describe('OpenAIProvider.procesar() — datos_consumo_declarado (Prioridad 7, 2026-10-17)', () => {
+  test('reporta la cifra cruda con unidad y periodo válidos tal cual el modelo los mandó', async () => {
+    const client = makeOpenAIClientConRespuesta({
+      respuesta_texto: 'Ok.',
+      datos_consumo_declarado: { valor: 3000, unidad: 'mxn', periodo: 'bimestral', aproximado: false },
+    });
+    const provider = new OpenAIProvider(client);
+
+    const output = await provider.procesar(makeInput());
+
+    expect(output.datos_consumo_declarado).toEqual({ valor: 3000, unidad: 'mxn', periodo: 'bimestral', aproximado: false });
+  });
+
+  test('ausente este turno → null, nunca undefined', async () => {
+    const client = makeOpenAIClientConRespuesta({ respuesta_texto: 'Ok.' });
+    const provider = new OpenAIProvider(client);
+
+    const output = await provider.procesar(makeInput());
+
+    expect(output.datos_consumo_declarado).toBeNull();
+  });
+
+  test('unidad fuera del catálogo controlado (ej. "litros") se descarta — nunca se confía en que el modelo invente una unidad', async () => {
+    const client = makeOpenAIClientConRespuesta({
+      respuesta_texto: 'Ok.',
+      datos_consumo_declarado: { valor: 500, unidad: 'litros', periodo: 'mensual', aproximado: false },
+    });
+    const provider = new OpenAIProvider(client);
+
+    const output = await provider.procesar(makeInput());
+
+    expect(output.datos_consumo_declarado.unidad).toBeNull();
+  });
+
+  test('periodo fuera del catálogo controlado se descarta (queda null, nunca se inventa "mensual" por defecto)', async () => {
+    const client = makeOpenAIClientConRespuesta({
+      respuesta_texto: 'Ok.',
+      datos_consumo_declarado: { valor: 500, unidad: 'kwh', periodo: 'trimestral', aproximado: false },
+    });
+    const provider = new OpenAIProvider(client);
+
+    const output = await provider.procesar(makeInput());
+
+    expect(output.datos_consumo_declarado.periodo).toBeNull();
+  });
+
+  test('valor no numérico → se descarta el objeto completo (null), nunca se reenvía un valor crudo no confiable', async () => {
+    const client = makeOpenAIClientConRespuesta({
+      respuesta_texto: 'Ok.',
+      datos_consumo_declarado: { valor: 'mucho', unidad: 'kwh', periodo: 'mensual' },
+    });
+    const provider = new OpenAIProvider(client);
+
+    const output = await provider.procesar(makeInput());
+
+    expect(output.datos_consumo_declarado).toBeNull();
+  });
+
+  test('"aproximado" ausente se normaliza a false, nunca a un valor truthy inesperado', async () => {
+    const client = makeOpenAIClientConRespuesta({
+      respuesta_texto: 'Ok.',
+      datos_consumo_declarado: { valor: 500, unidad: 'kwh', periodo: 'mensual' },
+    });
+    const provider = new OpenAIProvider(client);
+
+    const output = await provider.procesar(makeInput());
+
+    expect(output.datos_consumo_declarado.aproximado).toBe(false);
+  });
+});
+
 describe('INTENCIONES_VALIDAS — sincronización con prompt-builder.js (2026-10-16)', () => {
   test('incluye solicitud_visita_tecnica (antes faltaba, desincronizado del schema real que ve el modelo)', () => {
     expect(INTENCIONES_VALIDAS.has('solicitud_visita_tecnica')).toBe(true);
@@ -162,7 +233,7 @@ describe('Contrato schema del modelo ↔ normalizarOutput() — detecta pérdida
   // en vez de descubrirse meses después con un conteo de Supabase en 0,
   // como pasó con datos_contacto.
   const CAMPOS_ESTRUCTURADOS_ESPERADOS = [
-    'datos_extraidos', 'datos_contacto', 'acciones_propuestas',
+    'datos_extraidos', 'datos_contacto', 'datos_consumo_declarado', 'acciones_propuestas',
     'clasificacion_contexto', 'intenciones', 'categoria_principal',
   ];
 

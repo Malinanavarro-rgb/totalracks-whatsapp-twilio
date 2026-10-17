@@ -252,8 +252,20 @@ async function procesarReciboCFE(openaiClient, supabase, { buffer, mimeType, com
   const normalizado = normalizarDatosRecibo(datosCrudos);
 
   const paraGuardar = {};
-  if (normalizado.consumoMensualKwh != null) paraGuardar.consumo_mensual_kwh = normalizado.consumoMensualKwh;
-  if (normalizado.importePromedioRecibo != null) paraGuardar.importe_promedio_recibo = normalizado.importePromedioRecibo;
+  // Prioridad 7 (Alina, 2026-10-17, verificación complementaria): mismo
+  // campo "<campo>_fuente" que ahora usa la interpretación de texto libre
+  // (modules/orchestrator.js, ver modules/consumo-electrico.js) — permite
+  // distinguir, para cualquier cotización, si el consumo vino de un recibo
+  // real, de una declaración mensual directa, o de una estimación ÷2 desde
+  // un periodo bimestral declarado.
+  if (normalizado.consumoMensualKwh != null) {
+    paraGuardar.consumo_mensual_kwh = normalizado.consumoMensualKwh;
+    paraGuardar.consumo_mensual_kwh_fuente = 'recibo_cfe';
+  }
+  if (normalizado.importePromedioRecibo != null) {
+    paraGuardar.importe_promedio_recibo = normalizado.importePromedioRecibo;
+    paraGuardar.importe_promedio_recibo_fuente = 'recibo_cfe';
+  }
   if (normalizado.historialConsumoKwh != null) paraGuardar.historial_consumo_kwh = normalizado.historialConsumoKwh;
 
   if (Object.keys(paraGuardar).length === 0) {

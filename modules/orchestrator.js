@@ -754,6 +754,52 @@ class Orchestrator {
         return nodo.pregunta;
       }
 
+      // Prioridad 7 (Alina, 2026-10-17 — incidente real: "6000 bimestral"
+      // convertido a "3000" por el modelo sin ninguna verificación). Para
+      // los 2 campos de consumo eléctrico, nunca se confía en que el
+      // modelo ya haya hecho la conversión de unidad/periodo — se
+      // interpreta de forma determinista (modules/consumo-electrico.js)
+      // el reporte CRUDO del modelo (datos_consumo_declarado). Si es
+      // ambiguo, se pide aclaración y el nodo CONSERVA su estado (mismo
+      // criterio que el acuse ambiguo de arriba — nunca avanza con un
+      // valor sin confirmar). Si el cliente contestó con el OTRO campo de
+      // consumo (ej. dio el importe mientras el nodo pedía kWh), se
+      // pre-guarda para cuando se necesite y se vuelve a pedir el dato de
+      // ESTE nodo — nunca se convierte pesos→kWh sin datos tarifarios
+      // (Fase B, explícito).
+      let valorConsumoInterpretado = null;
+      if (nodo.campo === 'consumo_mensual_kwh' || nodo.campo === 'importe_promedio_recibo') {
+        const { interpretarConsumoDeclarado } = require('./consumo-electrico');
+        const interpretado = interpretarConsumoDeclarado(aiOutput.datos_consumo_declarado, {
+          frecuenciaReciboRespaldo: (aiOutput.datos_extraidos || {}).frecuencia_recibo,
+        });
+        if (interpretado.requiereAclaracion) {
+          return interpretado.preguntaAclaracion;
+        }
+        if (interpretado.campo && interpretado.valorMensualizado != null) {
+          // Verificación complementaria (Alina, 2026-10-17, pregunta #2):
+          // "¿se distingue consumo mensual confirmado de uno estimado desde
+          // bimestral?" — antes esta distinción se calculaba y se
+          // descartaba de inmediato. Ahora se persiste junto al valor
+          // (campos "<campo>_fuente", jsonb existente, sin migración) —
+          // 'directo_mensual' si el cliente dio el periodo mensual
+          // explícito, 'estimado_bimestral' si se derivó con la regla ÷2.
+          // recibo-cfe.js (fuente independiente) se marca aparte como
+          // 'recibo_cfe' — ver ese módulo.
+          const fuenteConsumo = interpretado.periodoUsado === 'bimestral' ? 'estimado_bimestral' : 'directo_mensual';
+          await this._workflow.preSalvarDatosExtraidos(sesion.id, { [`${interpretado.campo}_fuente`]: fuenteConsumo })
+            .catch(e => console.warn(`⚠️  preSalvarDatosExtraidos (consumo, fuente): ${e.message}`));
+
+          if (interpretado.campo === nodo.campo) {
+            valorConsumoInterpretado = String(interpretado.valorMensualizado);
+          } else {
+            await this._workflow.preSalvarDatosExtraidos(sesion.id, { [interpretado.campo]: String(interpretado.valorMensualizado) })
+              .catch(e => console.warn(`⚠️  preSalvarDatosExtraidos (consumo): ${e.message}`));
+            return nodo.pregunta;
+          }
+        }
+      }
+
       // Punto 2: usar el valor extraído por la IA cuando el campo fue capturado explícitamente;
       // si no, el dato pre-guardado en esta misma sesión (ver abajo); si
       // tampoco, fallback al mensaje crudo.
@@ -773,11 +819,13 @@ class Orchestrator {
       // cualquier preSalvarDatosExtraidos que acabe de correr.
       const valorExtraido    = nodo.campo ? (aiOutput.datos_extraidos || {})[nodo.campo] : undefined;
       const valorPreGuardado = nodo.campo ? sesion.captured_fields?.[nodo.campo] : undefined;
-      const valorParaNodo = (valorExtraido != null && String(valorExtraido).trim() !== '')
-        ? String(valorExtraido).trim()
-        : (valorPreGuardado != null && String(valorPreGuardado).trim() !== '')
-          ? String(valorPreGuardado).trim()
-          : mensajeCliente.trim();
+      const valorParaNodo = valorConsumoInterpretado != null
+        ? valorConsumoInterpretado
+        : (valorExtraido != null && String(valorExtraido).trim() !== '')
+          ? String(valorExtraido).trim()
+          : (valorPreGuardado != null && String(valorPreGuardado).trim() !== '')
+            ? String(valorPreGuardado).trim()
+            : mensajeCliente.trim();
 
       const resultado = await this._workflow.avanzar(sesion, nodo, valorParaNodo);
 
@@ -798,7 +846,7 @@ class Orchestrator {
         .catch(e => console.warn(`⚠️  preSalvarDatosExtraidos: ${e.message}`));
 
       const { completado: autoCompletadoA, siguiente_nodo: nextNode, nodo_completado: nodoCompletadoA, sesion: sesionCompletadaA } =
-        await this._avanzarSaltandoRespondidos(resultado.sesion, resultado.siguiente_nodo, datosMergeados);
+        await this._avanzarSaltandoRespondidos(resultado.sesion, resultado.siguiente_nodo, datosMergeados, aiOutput.datos_consumo_declarado);
 
       if (autoCompletadoA) {
         console.log(`✅ [workflow] sesión ${sesion.id.slice(0, 8)} completada (auto-advance)`);
@@ -836,7 +884,7 @@ class Orchestrator {
 
     // Auto-advance past nodes whose campo the client already provided in this message
     const { completado: autoCompletadoB, sesion: sesionFinalB, siguiente_nodo: nodoReal, nodo_completado: nodoCompletadoB } =
-      await this._avanzarSaltandoRespondidos(nuevaSesion, nodoInicio, aiOutput.datos_extraidos || {});
+      await this._avanzarSaltandoRespondidos(nuevaSesion, nodoInicio, aiOutput.datos_extraidos || {}, aiOutput.datos_consumo_declarado);
 
     if (autoCompletadoB) {
       return this._finalizarWorkflow(nodoCompletadoB, sesionFinalB, workflow.id, ctx, clienteRaw, aiOutput, company_id, sessionId);
@@ -875,17 +923,40 @@ class Orchestrator {
    * @param {Object} sesion   - sesión workflow actual
    * @param {Object|null} nodo - nodo a evaluar
    * @param {Object} datos    - aiOutput.datos_extraidos
+   * @param {Object} [datosConsumoDeclarado] - aiOutput.datos_consumo_declarado
+   *   (Prioridad 7, 2026-10-17 — verificación complementaria: este auto-avance
+   *   también podía saltar los nodos de consumo/importe usando
+   *   datos_extraidos sin pasar por interpretarConsumoDeclarado(), la misma
+   *   ruta sin validar que ya se cerró en el turno normal. Nunca se usa
+   *   datos[campo] a ciegas para estos 2 campos — si no hay un valor
+   *   determinista e inequívoco, el auto-avance se detiene AQUÍ (no avanza
+   *   con nada ambiguo) y el nodo queda pendiente para el turno normal, que
+   *   sí pedirá la aclaración correspondiente.
    * @returns {Promise<{completado: boolean, sesion: Object, siguiente_nodo: Object|null, nodo_completado: Object|null}>}
    */
-  async _avanzarSaltandoRespondidos(sesion, nodo, datos) {
+  async _avanzarSaltandoRespondidos(sesion, nodo, datos, datosConsumoDeclarado) {
     let currentSesion = sesion;
     let currentNodo   = nodo;
 
     while (currentNodo) {
       const { campo } = currentNodo;
       if (!campo) break;
-      const valor = datos[campo] != null ? String(datos[campo]).trim() : '';
-      if (!valor) break;
+
+      let valor;
+      if (campo === 'consumo_mensual_kwh' || campo === 'importe_promedio_recibo') {
+        const { interpretarConsumoDeclarado } = require('./consumo-electrico');
+        const interpretado = interpretarConsumoDeclarado(datosConsumoDeclarado, {
+          frecuenciaReciboRespaldo: datos.frecuencia_recibo,
+        });
+        if (interpretado.campo === campo && interpretado.valorMensualizado != null) {
+          valor = String(interpretado.valorMensualizado);
+        } else {
+          break; // ambiguo, para el otro campo, o nada declarado — nunca se avanza a ciegas
+        }
+      } else {
+        valor = datos[campo] != null ? String(datos[campo]).trim() : '';
+        if (!valor) break;
+      }
 
       const resultado = await this._workflow.avanzar(currentSesion, currentNodo, valor);
       console.log(`⏭️  [workflow] auto-avanzó "${currentNodo.nombre}" → "${valor}"`);

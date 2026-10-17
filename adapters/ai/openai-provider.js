@@ -132,6 +132,27 @@ function normalizarDatosContacto(raw) {
   return { nombre, motivo };
 }
 
+const UNIDADES_CONSUMO_VALIDAS = new Set(['kwh', 'mxn']);
+const PERIODOS_CONSUMO_VALIDOS = new Set(['mensual', 'bimestral', 'desconocido']);
+
+/**
+ * Normaliza datos_consumo_declarado (Prioridad 7, 2026-10-17 —
+ * modules/consumo-electrico.js). El modelo SOLO reporta la cifra cruda que
+ * el cliente dijo — nunca una ya convertida — y únicamente con unidad/
+ * periodo del catálogo controlado; cualquier otro valor se descarta (nunca
+ * se confía en el modelo para inventar una unidad o periodo fuera de este
+ * catálogo, mismo criterio que normalizarIntenciones/normalizarClasificacion).
+ */
+function normalizarDatosConsumoDeclarado(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const valor = typeof raw.valor === 'number' && Number.isFinite(raw.valor) ? raw.valor : null;
+  const unidad = UNIDADES_CONSUMO_VALIDAS.has(raw.unidad) ? raw.unidad : null;
+  const periodo = PERIODOS_CONSUMO_VALIDOS.has(raw.periodo) ? raw.periodo : null;
+  const aproximado = raw.aproximado === true;
+  if (valor == null) return null;
+  return { valor, unidad, periodo, aproximado };
+}
+
 /**
  * Normaliza el objeto JSON del modelo al tipo AIOutput del Core.
  * Permite que el modelo use nombres alternativos sin romper el sistema.
@@ -147,6 +168,7 @@ function normalizarOutput(data, confianza, meta) {
     categoria_principal: data.categoria_principal || 'Sin clasificar',
     datos_extraidos:     data.datos_extraidos      || {},
     datos_contacto:      normalizarDatosContacto(data.datos_contacto),
+    datos_consumo_declarado: normalizarDatosConsumoDeclarado(data.datos_consumo_declarado),
     intenciones:         normalizarIntenciones(data.intenciones),
     sentimiento:         data.sentimiento          || 'Neutral',
     etapa_sugerida:      data.etapa_sugerida       || null,

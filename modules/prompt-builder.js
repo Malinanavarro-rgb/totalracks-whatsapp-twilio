@@ -249,6 +249,7 @@ Genera los campos EN ESTE ORDEN — "clasificacion_contexto" primero, "respuesta
   "categoria_principal": "categoría universal del producto o servicio detectado, o 'Sin clasificar'",
   "datos_extraidos":     ${datosSchema},
   "datos_contacto":      {"nombre": "string o null — SOLO si el cliente lo dijo en ESTE turno", "motivo": "string o null — en sus propias palabras, SOLO si ya lo dijo en ESTE turno"},
+  "datos_consumo_declarado": {"valor": "número o null — SOLO si el cliente dio una cifra de consumo eléctrico o de pago EN ESTE turno", "unidad": "'kwh' | 'mxn' | null — la unidad que el cliente usó, nunca inferida", "periodo": "'mensual' | 'bimestral' | 'desconocido' | null — el periodo que el cliente mencionó explícitamente", "aproximado": "true si el cliente usó una palabra como 'aproximadamente'/'como'/'más o menos', si no false"},
   "intenciones":         ["interes_compra" | "solicitud_cotizacion" | "solicitud_visita_tecnica" | "soporte" | "seguimiento" | "cancelar_flujo" | "consulta_general"],
   "sentimiento":         "Positivo | Neutral | Negativo | Muy interesado",
   "etapa_sugerida":      "Nuevo | Calificacion | Negociacion | Cierre | Postventa",
@@ -257,7 +258,8 @@ Genera los campos EN ESTE ORDEN — "clasificacion_contexto" primero, "respuesta
 }
 IMPORTANTE: el campo "intenciones" debe contener ÚNICAMENTE valores del catálogo anterior. Uno o más valores del arreglo, separados por coma. Ningún valor fuera de ese catálogo.
 IMPORTANTE: en "datos_extraidos" usa EXACTAMENTE las claves del schema. SOLO incluye el valor si el cliente lo mencionó EXPLÍCITAMENTE en su mensaje. Si no lo dijo con palabras claras, el valor DEBE ser null. No inferir, no asumir, no adivinar.
-IMPORTANTE: en "datos_contacto", "nombre" y "motivo" son null salvo que el cliente los haya dicho explícitamente EN ESTE turno — nunca inventes, nunca repitas un valor que ya dio en un turno anterior (el sistema ya lo recuerda, no hace falta que lo repitas tú).`;
+IMPORTANTE: en "datos_contacto", "nombre" y "motivo" son null salvo que el cliente los haya dicho explícitamente EN ESTE turno — nunca inventes, nunca repitas un valor que ya dio en un turno anterior (el sistema ya lo recuerda, no hace falta que lo repitas tú).
+IMPORTANTE: en "datos_consumo_declarado", reporta la cifra TAL CUAL el cliente la dijo — NUNCA la conviertas tú (nunca dividas entre 2, nunca multipliques, nunca adivines un periodo que el cliente no mencionó). Si dijo "pago $3,000 bimestrales": {"valor": 3000, "unidad": "mxn", "periodo": "bimestral"}. Si dijo "consumo 500 kWh al mes": {"valor": 500, "unidad": "kwh", "periodo": "mensual"}. Si dijo "mi recibo es de 1,500 kWh" sin aclarar el periodo: {"valor": 1500, "unidad": "kwh", "periodo": "desconocido"} — el sistema decide si hace falta preguntar el periodo, tú nunca lo asumas.`;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
