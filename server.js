@@ -302,16 +302,26 @@ function _programarAnalisisSiHayHilo(hilo, cliente_id, company_id) {
 // tocar) y ANTES de Modo Demo, que siempre debe poder ganar la última
 // palabra si está activo. Nunca debe tumbar el turno si falla — cae al
 // company_id ya resuelto por ChannelRouter.
+//
+// AISLAMIENTO MULTIEMPRESA (Alina, 2026-10-17): esta jerarquía solo debe
+// evaluarse para el/los número(s) explícitamente marcados como compartidos
+// (channel_endpoints.permite_atribucion_cruzada = true, default false). Un
+// canal dedicado y exclusivo (el caso normal de cualquier empresa real)
+// nunca debe poder perder su company_id por el historial de otra empresa
+// con ese mismo teléfono — ver TARA_AUDITORIA_AISLAMIENTO_MULTIEMPRESA_V1.md.
+// `permiteAtribucionCruzada` se pasa explícitamente desde cada webhook
+// (routeResult.permite_atribucion_cruzada, ya resuelto por ChannelRouter) —
+// resolverContextoDeLead() lo exige en true para evaluar cualquier nivel.
 // Devuelve el id de la fila de atribucion_leads recién creada (o null si no
 // hubo decisión nueva, o si algo falló) — el caller lo usa para completar
 // hilo_id/cliente_id (_completarAtribucionConHilo) una vez que existan,
 // cosa que en este punto todavía no pasa (procesarMensajeEntrante() es
 // quien los crea).
-async function _aplicarAtribucionDeLead(message, reqBody, proveedor) {
+async function _aplicarAtribucionDeLead(message, reqBody, proveedor, permiteAtribucionCruzada) {
   try {
     const resultado = await resolverContextoDeLead(supabaseServicio, {
       telefono: message.from, reqBody, proveedor, mensajeTexto: message.content,
-      companyIdFallback: message.company_id,
+      companyIdFallback: message.company_id, permiteAtribucionCruzada,
     });
 
     message.company_id = resultado.companyId;
@@ -751,7 +761,7 @@ app.post('/webhook/twilio', async (req, res) => {
     const numeroOrigen = await channelRouter.resolverEndpointDeEmpresa(message.company_id);
 
     // Enrutamiento por atribución de leads — ver _aplicarAtribucionDeLead().
-    const atribucionId = await _aplicarAtribucionDeLead(message, req.body, 'twilio');
+    const atribucionId = await _aplicarAtribucionDeLead(message, req.body, 'twilio', routeResult.permite_atribucion_cruzada);
 
     // Modo Demo en Tiempo Real (Alina, 2026-07-30): si quien escribe es un
     // teléfono con sesión demo vigente, esta conversación se atiende como
@@ -832,7 +842,7 @@ app.post('/webhook/meta', async (req, res) => {
 
     // Enrutamiento por atribución de leads — ver _aplicarAtribucionDeLead().
     // Después de resolver credenciales reales de envío, nunca antes.
-    const atribucionId = await _aplicarAtribucionDeLead(message, req.body, 'meta');
+    const atribucionId = await _aplicarAtribucionDeLead(message, req.body, 'meta', routeResult.permite_atribucion_cruzada);
 
     // Modo Demo en Tiempo Real — ver nota equivalente en el webhook de
     // Twilio: el override ocurre después de resolver las credenciales

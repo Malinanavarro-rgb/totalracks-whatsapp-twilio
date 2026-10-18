@@ -29,20 +29,23 @@ class ChannelRouter {
    *
    * @param {string|null} endpoint - ej: "whatsapp:+14155238886" (Twilio) o un
    *                                 phone_number_id de Meta (sin prefijo)
-   * @returns {Promise<{ company_id: string, company_slug: string, proveedor: string }|null>}
+   * @returns {Promise<{ company_id: string, company_slug: string, proveedor: string, permite_atribucion_cruzada: boolean }|null>}
    */
   async enrutar(endpoint) {
     if (!endpoint) return null;
 
     const cached = this._cache.get(endpoint);
     if (cached && (Date.now() - cached.cachedAt) < CACHE_TTL) {
-      return { company_id: cached.company_id, company_slug: cached.company_slug, proveedor: cached.proveedor };
+      return {
+        company_id: cached.company_id, company_slug: cached.company_slug,
+        proveedor: cached.proveedor, permite_atribucion_cruzada: cached.permite_atribucion_cruzada,
+      };
     }
 
     try {
       const { data, error } = await this._db
         .from('channel_endpoints')
-        .select('company_id, proveedor, companies(slug)')
+        .select('company_id, proveedor, permite_atribucion_cruzada, companies(slug)')
         .eq('endpoint', endpoint)
         .eq('activo', true)
         .maybeSingle();
@@ -61,6 +64,9 @@ class ChannelRouter {
         company_id:   data.company_id,
         company_slug: data.companies?.slug || null,
         proveedor:    data.proveedor || 'twilio',
+        // Default conservador: un canal sin la columna migrada (o en false,
+        // su default real) nunca se trata como compartido.
+        permite_atribucion_cruzada: data.permite_atribucion_cruzada === true,
       };
 
       this._cache.set(endpoint, { ...result, cachedAt: Date.now() });

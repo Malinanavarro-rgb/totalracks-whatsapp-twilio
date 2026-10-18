@@ -215,7 +215,7 @@ describe('resolverContextoDeLead() — jerarquía completa', () => {
     });
     const resultado = await resolverContextoDeLead(db, {
       telefono: TELEFONO, reqBody: {}, proveedor: 'meta', mensajeTexto: 'Sí, cuánto cuesta',
-      companyIdFallback: COMPANY_TARA_OS,
+      companyIdFallback: COMPANY_TARA_OS, permiteAtribucionCruzada: true,
     });
     expect(resultado).toEqual(expect.objectContaining({ companyId: COMPANY_NORT, resueltoPor: 'contexto_persistido', esNuevaDecision: false }));
   });
@@ -233,7 +233,7 @@ describe('resolverContextoDeLead() — jerarquía completa', () => {
     };
     const resultado = await resolverContextoDeLead(db, {
       telefono: TELEFONO, reqBody, proveedor: 'meta', mensajeTexto: 'Hola',
-      companyIdFallback: COMPANY_TARA_OS,
+      companyIdFallback: COMPANY_TARA_OS, permiteAtribucionCruzada: true,
     });
     expect(resultado.companyId).toBe(COMPANY_NORT);
     expect(resultado.resueltoPor).toBe('referral_meta');
@@ -246,7 +246,7 @@ describe('resolverContextoDeLead() — jerarquía completa', () => {
     const reqBody = { entry: [{ changes: [{ value: { messages: [{ text: { body: 'Hola, información' } }] } }] }] };
     const resultado = await resolverContextoDeLead(db, {
       telefono: TELEFONO, reqBody, proveedor: 'meta', mensajeTexto: 'Hola, información',
-      companyIdFallback: COMPANY_TARA_OS,
+      companyIdFallback: COMPANY_TARA_OS, permiteAtribucionCruzada: true,
     });
     expect(resultado).toEqual(expect.objectContaining({ companyId: COMPANY_TARA_OS, resueltoPor: 'fallback_default' }));
   });
@@ -258,7 +258,7 @@ describe('resolverContextoDeLead() — jerarquía completa', () => {
     });
     const resultado = await resolverContextoDeLead(db, {
       telefono: TELEFONO, reqBody: {}, proveedor: 'meta', mensajeTexto: 'Hola, ¿está Alina? Le quería preguntar algo personal',
-      companyIdFallback: COMPANY_TARA_OS,
+      companyIdFallback: COMPANY_TARA_OS, permiteAtribucionCruzada: true,
     });
     expect(resultado.companyId).toBe(COMPANY_TARA_OS);
     expect(resultado.resueltoPor).toBe('fallback_default');
@@ -271,7 +271,7 @@ describe('resolverContextoDeLead() — jerarquía completa', () => {
     });
     const resultado = await resolverContextoDeLead(db, {
       telefono: TELEFONO, reqBody: {}, proveedor: 'meta', mensajeTexto: 'Hola',
-      companyIdFallback: COMPANY_TARA_OS,
+      companyIdFallback: COMPANY_TARA_OS, permiteAtribucionCruzada: true,
     });
     expect(resultado).toEqual(expect.objectContaining({ resueltoPor: 'fallback_default', esNuevaDecision: false }));
   });
@@ -283,7 +283,7 @@ describe('resolverContextoDeLead() — jerarquía completa', () => {
     });
     const resultado = await resolverContextoDeLead(db, {
       telefono: TELEFONO, reqBody: {}, proveedor: 'meta', mensajeTexto: 'Hola de nuevo',
-      companyIdFallback: COMPANY_TARA_OS,
+      companyIdFallback: COMPANY_TARA_OS, permiteAtribucionCruzada: true,
     });
     expect(resultado).toEqual(expect.objectContaining({ resueltoPor: 'fallback_default', esNuevaDecision: true }));
   });
@@ -295,7 +295,7 @@ describe('resolverContextoDeLead() — jerarquía completa', () => {
     });
     const resultado = await resolverContextoDeLead(db, {
       telefono: TELEFONO, reqBody: {}, proveedor: 'meta', mensajeTexto: 'Hola quiero info #tara_camp:nort-google-ago26',
-      companyIdFallback: COMPANY_TARA_OS,
+      companyIdFallback: COMPANY_TARA_OS, permiteAtribucionCruzada: true,
     });
     expect(resultado.companyId).toBe(COMPANY_NORT);
     expect(resultado.resueltoPor).toBe('token_campana');
@@ -309,10 +309,91 @@ describe('resolverContextoDeLead() — jerarquía completa', () => {
     });
     const resultado = await resolverContextoDeLead(db, {
       telefono: TELEFONO, reqBody: {}, proveedor: 'meta', mensajeTexto: 'Hola #tara_camp:token-inventado-por-mi',
-      companyIdFallback: COMPANY_TARA_OS,
+      companyIdFallback: COMPANY_TARA_OS, permiteAtribucionCruzada: true,
     });
     expect(resultado.companyId).toBe(COMPANY_TARA_OS);
     expect(resultado.resueltoPor).toBe('fallback_default');
+  });
+});
+
+describe('resolverContextoDeLead() — aislamiento multiempresa (canal dedicado)', () => {
+  // Reproduce el incidente real del 2026-10-17 (ver
+  // TARA_AUDITORIA_AISLAMIENTO_MULTIEMPRESA_V1.md): un teléfono con un hilo
+  // NO cerrado en OTRA empresa (aquí COMPANY_TARA_OS) escribió al número
+  // dedicado y exclusivo de Nort Energy (COMPANY_NORT) — y la conversación
+  // completa se atendió como si fuera para la otra empresa, ignorando que
+  // el endpoint receptor sí era exclusivo de Nort Energy.
+
+  test('incidente reproducido: canal dedicado (permiteAtribucionCruzada ausente) → NUNCA se pierde el company_id del endpoint, aunque exista un hilo abierto en otra empresa', async () => {
+    const db = crearMockDbPorTabla({
+      clientes: { data: [{ id: 177, company_id: COMPANY_TARA_OS }], error: null },
+      hilos:    { data: { id: 'hilo-tara-os', company_id: COMPANY_TARA_OS, cliente_id: 177 }, error: null },
+    });
+    const resultado = await resolverContextoDeLead(db, {
+      telefono: TELEFONO, reqBody: {}, proveedor: 'meta', mensajeTexto: 'soy de Ciudad Victoria',
+      companyIdFallback: COMPANY_NORT, // el endpoint SÍ es exclusivo de Nort Energy
+      // permiteAtribucionCruzada omitido — el caso normal de un canal dedicado
+    });
+    expect(resultado).toEqual({
+      companyId: COMPANY_NORT, businessContext: null, leadSource: null,
+      resueltoPor: 'canal_dedicado', esNuevaDecision: false, campaignData: null,
+    });
+  });
+
+  test('incidente reproducido, explícito: permiteAtribucionCruzada: false produce el mismo resultado seguro', async () => {
+    const db = crearMockDbPorTabla({
+      clientes: { data: [{ id: 177, company_id: COMPANY_TARA_OS }], error: null },
+      hilos:    { data: { id: 'hilo-tara-os', company_id: COMPANY_TARA_OS, cliente_id: 177 }, error: null },
+    });
+    const resultado = await resolverContextoDeLead(db, {
+      telefono: TELEFONO, reqBody: {}, proveedor: 'meta', mensajeTexto: 'soy de Ciudad Victoria',
+      companyIdFallback: COMPANY_NORT, permiteAtribucionCruzada: false,
+    });
+    expect(resultado.companyId).toBe(COMPANY_NORT);
+    expect(resultado.resueltoPor).toBe('canal_dedicado');
+  });
+
+  test('AISLAMIENTO: canal dedicado NUNCA consulta ninguna tabla — "sin acceso indiscriminado a datos de otras empresas"', async () => {
+    const db = crearMockDbPorTabla({
+      clientes: { data: [{ id: 177, company_id: COMPANY_TARA_OS }], error: null },
+      hilos:    { data: { id: 'hilo-tara-os', company_id: COMPANY_TARA_OS, cliente_id: 177 }, error: null },
+    });
+    await resolverContextoDeLead(db, {
+      telefono: TELEFONO, reqBody: {}, proveedor: 'meta', mensajeTexto: 'vengo de parte de Nort Energy', // incluso con mención explícita de otra empresa
+      companyIdFallback: COMPANY_NORT, permiteAtribucionCruzada: false,
+    });
+    expect(db.from).not.toHaveBeenCalled();
+  });
+
+  test('canal dedicado ignora incluso un referral de Meta verificable y un token de campaña válido — el endpoint manda', async () => {
+    const db = crearMockDbPorTabla({
+      campanas_landing: { data: { id: 'c1', company_id: COMPANY_TARA_OS, business_context: 'paneles_solares', activo: true }, error: null },
+    });
+    const reqBody = {
+      entry: [{ changes: [{ value: { messages: [{ referral: {
+        headline: 'Energía solar', body: 'Cotiza ya', source_url: 'https://fb.me/x', ctwa_clid: 'clid-1',
+      } }] } }] }],
+    };
+    const resultado = await resolverContextoDeLead(db, {
+      telefono: TELEFONO, reqBody, proveedor: 'meta', mensajeTexto: 'Hola #tara_camp:otra-empresa',
+      companyIdFallback: COMPANY_NORT, permiteAtribucionCruzada: false,
+    });
+    expect(resultado.companyId).toBe(COMPANY_NORT);
+    expect(db.from).not.toHaveBeenCalled();
+  });
+
+  test('canal COMPARTIDO (permiteAtribucionCruzada: true) conserva el comportamiento autorizado — sí evalúa la jerarquía', async () => {
+    const db = crearMockDbPorTabla({
+      clientes: { data: [{ id: 177, company_id: COMPANY_TARA_OS }], error: null },
+      hilos:    { data: { id: 'hilo-tara-os', company_id: COMPANY_TARA_OS, cliente_id: 177 }, error: null },
+    });
+    const resultado = await resolverContextoDeLead(db, {
+      telefono: TELEFONO, reqBody: {}, proveedor: 'meta', mensajeTexto: 'hola',
+      companyIdFallback: COMPANY_NORT, permiteAtribucionCruzada: true,
+    });
+    expect(resultado.companyId).toBe(COMPANY_TARA_OS); // nivel 1 sí puede reasignar en un canal compartido
+    expect(resultado.resueltoPor).toBe('contexto_persistido');
+    expect(db.from).toHaveBeenCalled();
   });
 });
 

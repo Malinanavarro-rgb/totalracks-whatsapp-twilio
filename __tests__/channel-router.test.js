@@ -24,11 +24,27 @@ const COMPANY_A = 'aaaaaaaa-0000-0000-0000-000000000001';
 describe('ChannelRouter', () => {
   describe('enrutar()', () => {
     test('resuelve un endpoint activo a company_id/company_slug/proveedor', async () => {
+      const db = crearMockDb({ data: { company_id: COMPANY_A, proveedor: 'twilio', permite_atribucion_cruzada: false, companies: { slug: 'total-racks' } }, error: null });
+      const router = new ChannelRouter(db);
+
+      const resultado = await router.enrutar('whatsapp:+14155238886');
+      expect(resultado).toEqual({ company_id: COMPANY_A, company_slug: 'total-racks', proveedor: 'twilio', permite_atribucion_cruzada: false });
+    });
+
+    test('propaga permite_atribucion_cruzada=true cuando el endpoint está marcado como compartido', async () => {
+      const db = crearMockDb({ data: { company_id: COMPANY_A, proveedor: 'meta', permite_atribucion_cruzada: true, companies: { slug: 'total-racks' } }, error: null });
+      const router = new ChannelRouter(db);
+
+      const resultado = await router.enrutar('PHONE_NUM_ID_COMPARTIDO');
+      expect(resultado.permite_atribucion_cruzada).toBe(true);
+    });
+
+    test('AISLAMIENTO: default a false (nunca true) si la fila no trae la columna — compatibilidad antes de aplicar la migración', async () => {
       const db = crearMockDb({ data: { company_id: COMPANY_A, proveedor: 'twilio', companies: { slug: 'total-racks' } }, error: null });
       const router = new ChannelRouter(db);
 
       const resultado = await router.enrutar('whatsapp:+14155238886');
-      expect(resultado).toEqual({ company_id: COMPANY_A, company_slug: 'total-racks', proveedor: 'twilio' });
+      expect(resultado.permite_atribucion_cruzada).toBe(false);
     });
 
     test('default proveedor a "twilio" si la fila no lo trae (compatibilidad con datos previos a la migración)', async () => {
@@ -67,6 +83,17 @@ describe('ChannelRouter', () => {
       await router.enrutar('whatsapp:+14155238886');
       await router.enrutar('whatsapp:+14155238886');
 
+      expect(db.from).toHaveBeenCalledTimes(1);
+    });
+
+    test('la caché también conserva permite_atribucion_cruzada en la segunda llamada', async () => {
+      const db = crearMockDb({ data: { company_id: COMPANY_A, permite_atribucion_cruzada: true, companies: { slug: 'total-racks' } }, error: null });
+      const router = new ChannelRouter(db);
+
+      await router.enrutar('whatsapp:+14155238886');
+      const resultado = await router.enrutar('whatsapp:+14155238886');
+
+      expect(resultado.permite_atribucion_cruzada).toBe(true);
       expect(db.from).toHaveBeenCalledTimes(1);
     });
   });

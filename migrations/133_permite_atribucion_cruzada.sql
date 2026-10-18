@@ -1,0 +1,56 @@
+-- ─────────────────────────────────────────────────────────────────────────────
+-- TARA Matrix™ — Migración 133
+-- Tabla: channel_endpoints — nueva columna permite_atribucion_cruzada
+--
+-- Propósito: aislamiento multiempresa (auditoría en
+-- TARA_AUDITORIA_AISLAMIENTO_MULTIEMPRESA_V1.md). Hasta ahora, la jerarquía
+-- de atribución de leads (modules/lead-atribucion.js) se evaluaba en TODO
+-- endpoint por igual, incluidos los dedicados/exclusivos de una sola
+-- empresa — permitiendo que el historial de otro teléfono en OTRA empresa
+-- le quitara la conversación a la empresa dueña real del número. Esta
+-- columna marca explícitamente qué endpoints pueden compartirse entre
+-- empresas (el caso diseñado originalmente, ej. un número informativo tipo
+-- "TARA-OS vs. Nort Energy") — el default es false: todo endpoint existente
+-- y cualquiera nuevo queda protegido salvo que se active a propósito.
+--
+-- IMPORTANTE — orden de despliegue: esta migración debe ejecutarse ANTES de
+-- desplegar el código que la usa (modules/channel-router.js ya hace
+-- SELECT de esta columna) — si el código se despliega primero, el SELECT
+-- fallaría contra la columna inexistente y ChannelRouter.enrutar()
+-- devolvería null para TODO endpoint, dejando caído el webhook completo
+-- (Twilio y Meta). Aplicar siempre: 1) esta migración, 2) después el push/
+-- deploy del código.
+--
+-- Ejecutar en: Supabase → SQL Editor → New Query
+-- ─────────────────────────────────────────────────────────────────────────────
+
+ALTER TABLE channel_endpoints
+  ADD COLUMN IF NOT EXISTS permite_atribucion_cruzada boolean NOT NULL DEFAULT false;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- NOTA: ningún endpoint existente se marca como compartido en esta
+-- migración — hoy, ninguno necesita estarlo (confirmado: la empresa
+-- "TARA-OS", slug 'tara-os', no tiene ninguna fila propia en
+-- channel_endpoints; el caso "un número que sirve a 2 empresas" descrito en
+-- el comentario original de lead-atribucion.js es el diseño previsto para
+-- un número futuro, no algo activo hoy). Si en el futuro se activa un
+-- número realmente compartido, marcarlo explícitamente así (ejemplo, no
+-- ejecutar sin confirmar el endpoint exacto):
+--
+--   UPDATE channel_endpoints SET permite_atribucion_cruzada = true
+--   WHERE endpoint = '<endpoint exacto del número compartido>';
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- VERIFICACIÓN — ejecutar después de aplicar la migración:
+-- ─────────────────────────────────────────────────────────────────────────────
+--
+-- SELECT column_name, data_type, column_default, is_nullable
+-- FROM information_schema.columns
+-- WHERE table_name = 'channel_endpoints' AND column_name = 'permite_atribucion_cruzada';
+--
+-- Resultado esperado: 1 fila — boolean, default 'false', NO (not nullable)
+--
+-- SELECT endpoint, company_id, permite_atribucion_cruzada FROM channel_endpoints;
+-- Resultado esperado: TODAS las filas existentes con permite_atribucion_cruzada = false
+-- ─────────────────────────────────────────────────────────────────────────────

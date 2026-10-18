@@ -19,6 +19,17 @@
  *   4. Mención explícita e inequívoca del nombre de la empresa en el texto.
  *   5. Fallback — el company_id que ya resolvió ChannelRouter (sin cambios).
  *
+ * AISLAMIENTO MULTIEMPRESA (Alina, 2026-10-17): esta jerarquía completa solo
+ * se evalúa cuando el endpoint receptor está marcado explícitamente como
+ * compartido (`channel_endpoints.permite_atribucion_cruzada = true`). Un
+ * canal dedicado y exclusivo de una empresa (el caso normal — cualquier
+ * empresa con su propio número) NUNCA debe perder su company_id por el
+ * historial de otra empresa con ese mismo teléfono — ver auditoría en
+ * TARA_AUDITORIA_AISLAMIENTO_MULTIEMPRESA_V1.md. `resolverContextoDeLead`
+ * exige el parámetro `permiteAtribucionCruzada` explícitamente en `true`
+ * para evaluar cualquier nivel — de lo contrario devuelve de inmediato el
+ * company_id ya resuelto por el endpoint, sin tocar ninguna tabla.
+ *
  * Regla de seguridad: una palabra suelta ("paneles", "solar", "Alina") NUNCA
  * cambia el contexto por sí sola — el nivel 4 solo dispara con el NOMBRE
  * completo de la empresa objetivo, y solo se evalúa después de que los
@@ -243,9 +254,23 @@ async function _tieneAtribucionPrevia(supabase, telefono) {
  * @param {'meta'|'twilio'} datos.proveedor
  * @param {string} datos.mensajeTexto
  * @param {string} datos.companyIdFallback - el company_id que ya resolvió ChannelRouter
+ * @param {boolean} datos.permiteAtribucionCruzada - viene de
+ *   channel_endpoints.permite_atribucion_cruzada para el endpoint receptor.
+ *   false (el caso normal, default de la columna) hace que la función
+ *   devuelva de inmediato companyIdFallback sin evaluar ningún nivel —
+ *   un canal dedicado nunca puede perder su empresa por esta vía.
  * @returns {Promise<{companyId: string, businessContext: string|null, leadSource: string, resueltoPor: string, esNuevaDecision: boolean, campaignData: Object|null}>}
  */
-async function resolverContextoDeLead(supabase, { telefono, reqBody, proveedor, mensajeTexto, companyIdFallback }) {
+async function resolverContextoDeLead(supabase, { telefono, reqBody, proveedor, mensajeTexto, companyIdFallback, permiteAtribucionCruzada }) {
+  // Canal dedicado (el caso normal): ningún nivel de esta jerarquía puede
+  // evaluarse — el company_id del endpoint queda firme, sin excepción.
+  if (!permiteAtribucionCruzada) {
+    return {
+      companyId: companyIdFallback, businessContext: null, leadSource: null,
+      resueltoPor: 'canal_dedicado', esNuevaDecision: false, campaignData: null,
+    };
+  }
+
   // Nivel 1 — contexto ya persistido
   const persistido = await buscarContextoPersistido(supabase, telefono);
   if (persistido) {
