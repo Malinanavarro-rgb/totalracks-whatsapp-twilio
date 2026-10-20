@@ -2458,7 +2458,7 @@ describe('Orchestrator — identificación obligatoria de contacto (nombre + mot
       const resultado = await orch.procesarMensaje(makeMessage({ content: 'Me llamo Roberto' }));
 
       expect(deps.crearOportunidad).not.toHaveBeenCalled();
-      expect(resultado.respuesta_texto).toMatch(/en qué te puedo ayudar/i);
+      expect(resultado.respuesta_texto).toMatch(/qué estás buscando|en qué puedo ayudarte/i);
     });
 
     it('cliente da PRIMERO el motivo (nombre todavía no): la acción NO se ejecuta, pregunta el nombre', async () => {
@@ -2480,7 +2480,7 @@ describe('Orchestrator — identificación obligatoria de contacto (nombre + mot
       const resultado = await orch.procesarMensaje(makeMessage({ content: '¿Cuánto cuesta cotizar?' }));
 
       expect(deps.crearOportunidad).not.toHaveBeenCalled();
-      expect(resultado.respuesta_texto).toMatch(/en qué te puedo ayudar/i); // ya tiene nombre, solo falta motivo
+      expect(resultado.respuesta_texto).toMatch(/qué estás buscando|en qué puedo ayudarte/i); // ya tiene nombre, solo falta motivo
     });
 
     it('cliente que NO quiere dar su nombre: la acción sigue bloqueada, pero la conversación general continúa sin forzar la pregunta si el modelo no propuso ninguna acción', async () => {
@@ -2518,7 +2518,7 @@ describe('Orchestrator — identificación obligatoria de contacto (nombre + mot
       const deps1 = makeDeps({ aiEngine: mockAI1, obtenerOCrearCliente: jest.fn().mockResolvedValue(clienteSinIdentificar()) });
       const orch1 = new Orchestrator(deps1);
       const r1 = await orch1.procesarMensaje(makeMessage({ content: 'Soy Roberto' }));
-      expect(r1.respuesta_texto).toMatch(/en qué te puedo ayudar/i);
+      expect(r1.respuesta_texto).toMatch(/qué estás buscando|en qué puedo ayudarte/i);
 
       // Turno 2: el cliente YA tiene nombre='Roberto' persistido (simulado vía
       // el cliente que devuelve obtenerOCrearCliente) y ahora da el motivo —
@@ -2862,7 +2862,7 @@ describe('Orchestrator — fuente única de identificación: captured_fields de 
     const resultado = await orch.procesarMensaje(makeMessage({ content: 'sí' }));
 
     expect(actionRunner.ejecutar).not.toHaveBeenCalled(); // sigue bloqueada — falta motivo
-    expect(resultado.respuesta_texto).toMatch(/en qué te puedo ayudar/i);
+    expect(resultado.respuesta_texto).toMatch(/qué estás buscando|en qué puedo ayudarte/i);
     expect(resultado.respuesta_texto).not.toMatch(/con quién tengo el gusto/i); // ya NO vuelve a preguntar el nombre
     expect(actualizarIdentificacion).toHaveBeenCalledWith(260, 'company-uuid-001', { nombre: 'Carlos González', motivo: null });
   });
@@ -3265,7 +3265,16 @@ describe('Orchestrator — Prioridad 7 (2026-10-17): interpretación determinist
     expect(resultado.respuesta_texto).toMatch(/importe es de un mes o de 2 meses/i);
   });
 
-  test('Sin datos_consumo_declarado (modelo no lo reportó — compatibilidad con respuestas antiguas) → sigue el flujo previo (datos_extraidos), nunca lanza', async () => {
+  test('Sin datos_consumo_declarado (modelo no lo reportó) en el nodo de consumo → NUNCA avanza en silencio con el valor crudo; pide aclaración de unidad (corrección incidente "Lucía", 2026-10-18)', async () => {
+    // Antes (compatibilidad con respuestas antiguas) este caso avanzaba con
+    // el valor crudo de datos_extraidos sin ninguna protección — exactamente
+    // el hueco real que permitió el incidente "Lucía no completa
+    // cotización": "3000 mensual" se guardó tal cual, sin que P7 lo
+    // interpretara, porque datos_consumo_declarado llegó vacío ese turno.
+    // Cambio de comportamiento AUTORIZADO explícitamente (Alina, 2026-10-18 /
+    // 2026-10-20): si el nodo actual es justo el que pregunta por
+    // consumo/importe, un número crudo sin unidad confirmada ya no se
+    // acepta en silencio solo porque la estructura vino vacía.
     const wfEngine = makeWorkflowEngine({
       obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
       obtenerNodoActual:   jest.fn().mockResolvedValue(nodoConsumoKwh),
@@ -3283,8 +3292,32 @@ describe('Orchestrator — Prioridad 7 (2026-10-17): interpretación determinist
     const deps = makeDeps({ workflowEngine: wfEngine, aiEngine });
     const orch = new Orchestrator(deps);
 
-    await expect(orch.procesarMensaje(makeMessage({ content: '450' }))).resolves.toBeDefined();
-    expect(wfEngine.avanzar).toHaveBeenCalledWith(sesionEnProceso, nodoConsumoKwh, '450');
+    const resultado = await orch.procesarMensaje(makeMessage({ content: '450' }));
+
+    expect(wfEngine.avanzar).not.toHaveBeenCalled();
+    expect(resultado.respuesta_texto).toMatch(/consumo en kWh, o el importe que pagas en pesos/i);
+  });
+
+  test('Sin datos_consumo_declarado y sin ningún número crudo reconocible → nunca lanza, sigue el flujo previo (ej. el cliente contestó con texto no numérico)', async () => {
+    const wfEngine = makeWorkflowEngine({
+      obtenerSesionActiva: jest.fn().mockResolvedValue(sesionEnProceso),
+      obtenerNodoActual:   jest.fn().mockResolvedValue(nodoConsumoKwh),
+      avanzar:             jest.fn().mockResolvedValue({ sesion: { ...sesionEnProceso, current_node: 'preguntar_importe_recibo' }, completado: false, siguiente_nodo: nodoSiguienteImporte }),
+    });
+    const aiEngine = {
+      procesar: jest.fn().mockResolvedValue({
+        respuesta_texto: 'Ok.', categoria_principal: 'Test', datos_extraidos: {},
+        datos_contacto: null,
+        intenciones: ['solicitud_cotizacion'], sentimiento: 'Neutral', etapa_sugerida: null,
+        acciones_propuestas: [], confianza: 0.9, tokens_entrada: 10, tokens_salida: 10,
+        modelo_utilizado: 'mock', proveedor_utilizado: 'mock', latencia_ms: 1,
+      }),
+    };
+    const deps = makeDeps({ workflowEngine: wfEngine, aiEngine });
+    const orch = new Orchestrator(deps);
+
+    await expect(orch.procesarMensaje(makeMessage({ content: 'no sé exacto' }))).resolves.toBeDefined();
+    expect(wfEngine.avanzar).toHaveBeenCalledWith(sesionEnProceso, nodoConsumoKwh, 'no sé exacto');
   });
 
   test('Valores contradictorios con un turno previo: un cliente que primero dio 500 kWh mensual y luego dice "en realidad son 3000 bimestrales" — el turno NUEVO gana, interpretado de forma determinista', async () => {

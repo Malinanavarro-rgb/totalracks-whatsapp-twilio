@@ -291,6 +291,37 @@ class WorkflowEngine {
   }
 
   /**
+   * Incidente "Lucía no completa cotización" (Alina, 2026-10-18, trade-off
+   * confirmado 2026-10-20): un workflow disparado por una intención
+   * comercial explícita (trigger 'intent', ej. solicitud_cotizacion) ya
+   * demuestra por sí mismo cuál es el motivo de la consulta del cliente —
+   * cuenta como motivo suficiente para la identificación obligatoria
+   * (Prioridad 3), sin volver a pedirlo como si no hubiera dicho nada.
+   * Devuelve null si el workflow no existe o no fue disparado por
+   * intención (nunca inventa un motivo para otro tipo de disparador).
+   *
+   * @param {string} workflowId
+   * @returns {Promise<string|null>}
+   */
+  async obtenerMotivoImplicito(workflowId) {
+    if (!workflowId) return null;
+
+    const { data, error } = await this._db
+      .from('workflows')
+      .select('nombre, trigger')
+      .eq('id', workflowId)
+      .maybeSingle();
+
+    if (error) {
+      console.warn('⚠️  WorkflowEngine.obtenerMotivoImplicito error:', error.message);
+      return null;
+    }
+    if (!data || data.trigger !== 'intent') return null;
+
+    return data.nombre || null;
+  }
+
+  /**
    * Bug #4 — Persiste en captured_fields los datos extraídos de un turno para
    * que estén disponibles en turnos futuros durante auto-advance.
    * Solo guarda campos que aún no existen en captured_fields (no sobrescribe

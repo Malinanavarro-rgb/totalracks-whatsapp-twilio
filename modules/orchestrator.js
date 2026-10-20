@@ -797,6 +797,25 @@ class Orchestrator {
               .catch(e => console.warn(`⚠️  preSalvarDatosExtraidos (consumo): ${e.message}`));
             return nodo.pregunta;
           }
+        } else if (!interpretado.requiereAclaracion) {
+          // Incidente real "Lucía no completa cotización" (Alina,
+          // 2026-10-18): si el modelo no llenó datos_consumo_declarado
+          // este turno (interpretado.campo === null, "nada que
+          // interpretar"), antes se caía sin protección al valor crudo de
+          // abajo — justo el bug que P7 debía cerrar. Pero ESTE nodo es
+          // exactamente el que pregunta por consumo/importe: el cliente SÍ
+          // está respondiendo esta pregunta. Un número crudo sin unidad
+          // confirmada nunca se acepta en silencio solo porque la
+          // estructura llegó vacía — misma pregunta de aclaración que ya
+          // expone el módulo, nunca redactada aparte. (El caso normal en
+          // producción es que el modelo SÍ llene datos_consumo_declarado
+          // para este nodo — ver prompt-builder.js — así que esta rama
+          // solo se activa cuando esa extracción realmente falló.)
+          const crudo = Number((aiOutput.datos_extraidos || {})[nodo.campo] ?? mensajeCliente);
+          if (Number.isFinite(crudo) && crudo > 0) {
+            const { PREGUNTA_ACLARACION_UNIDAD } = require('./consumo-electrico');
+            return PREGUNTA_ACLARACION_UNIDAD;
+          }
         }
       }
 
@@ -1003,6 +1022,23 @@ class Orchestrator {
    *
    * @returns {Promise<string>}
    */
+  /**
+   * Envoltura a prueba de fallos de WorkflowEngine.obtenerMotivoImplicito()
+   * — un stub de pruebas o un error de DB nunca debe tumbar el turno ni,
+   * más importante, desactivar el gate de identificación por accidente
+   * (si fallara sin este try/catch, la excepción se propagaría y el turno
+   * completo respondería con el texto libre del modelo SIN pasar por
+   * ningún gate — peor que el comportamiento anterior, nunca mejor).
+   */
+  async _obtenerMotivoImplicitoSeguro(workflowId) {
+    try {
+      return (await this._workflow.obtenerMotivoImplicito?.(workflowId)) || null;
+    } catch (e) {
+      console.warn(`⚠️  obtenerMotivoImplicito: ${e.message}`);
+      return null;
+    }
+  }
+
   async _finalizarWorkflow(nodo, sesionCompletada, workflowId, ctx, clienteRaw, aiOutput, company_id, sessionId) {
     if (!nodo?.acciones?.length) return aiOutput.respuesta_texto;
 
@@ -1021,6 +1057,22 @@ class Orchestrator {
     // no solo lo que el modelo reportó en el último turno — ver
     // _resolverIdentificacion arriba.
     const identificacion = _resolverIdentificacion(clienteRaw, aiOutput.datos_contacto, sesionCompletada?.captured_fields);
+
+    // Incidente real "Lucía no completa cotización" (Alina, 2026-10-18;
+    // trade-off confirmado 2026-10-20): un workflow disparado por una
+    // intención comercial explícita (ej. solicitud_cotizacion) YA
+    // demuestra el motivo de la consulta — antes se volvía a pedir con una
+    // pregunta ("¿en qué te puedo ayudar?") indistinguible de un reinicio
+    // de conversación, aunque los datos técnicos ya estuvieran completos.
+    // Cambio de comportamiento AUTORIZADO explícitamente hoy — antes
+    // (Prioridad 3, incidente "Carlos González", 2026-10-16) un motivo
+    // faltante SIEMPRE bloqueaba la acción comercial sin excepción; ese
+    // trade-off se revisó y se aceptó el costo (ver prueba actualizada en
+    // __tests__/integracion-identificacion-workflow.test.js). Este
+    // respaldo SOLO autoriza la acción (el gate de abajo) — nunca se
+    // persiste como si fuera texto literal del cliente (identificacion.motivo,
+    // usado arriba para actualizarIdentificacionAutomatica, queda sin cambios).
+    const motivoParaGate = identificacion.motivo || await this._obtenerMotivoImplicitoSeguro(workflowId);
 
     // Persiste de inmediato lo que ESTA resolución encontró (puede incluir
     // un nombre que solo vivía en captured_fields y que el paso 11.5 de
@@ -1045,7 +1097,7 @@ class Orchestrator {
     const bloqueadoPorIdentificacion = nodo.acciones.some(a =>
       !puedeEjecutarseAccionComercial({
         tipoAccion: a?.tipo, companyId: company_id, clienteId: clienteRaw?.id,
-        nombre: identificacion.nombre, motivoConsulta: identificacion.motivo,
+        nombre: identificacion.nombre, motivoConsulta: motivoParaGate,
       }).autorizada
     );
 
@@ -1177,7 +1229,13 @@ class Orchestrator {
       fecha:     '¿qué día te gustaría que fuera el técnico?',
       hora:      '¿en qué horario te queda bien?',
       nombre:    '¿con quién tengo el gusto?',
-      motivo:    '¿en qué te puedo ayudar?',
+      // Nunca indistinguible de un saludo/reinicio genérico (incidente
+      // "Lucía no completa cotización", Alina, 2026-10-18) — pide
+      // explícitamente el motivo de la consulta. En la práctica, cuando un
+      // workflow disparado por intención comercial está activo, ya no
+      // llega aquí (ver obtenerMotivoImplicito) — queda como último
+      // respaldo para conversación libre sin workflow.
+      motivo:    'para continuar, ¿me confirmas brevemente qué estás buscando o en qué puedo ayudarte?',
       // Requisito #3 adicional (Alina, 2026-10-16, auditado el mismo día):
       // identificación completa no equivale a tener los datos técnicos para
       // cotizar — estas preguntas reusan el texto real de los nodos del

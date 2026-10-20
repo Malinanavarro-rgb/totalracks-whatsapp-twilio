@@ -241,8 +241,10 @@ describe('Integración real — WhatsApp → Orchestrator → WorkflowEngine →
       salidaBase({ respuesta_texto: 'Claro, con gusto.', intenciones: ['solicitud_cotizacion'] }),                                   // "hola quiero cotizar paneles"
       salidaBase({ respuesta_texto: 'Mucho gusto, Carlos.', datos_extraidos: { nombre: 'Carlos González' } }),                       // "Carlos González"
       salidaBase({ respuesta_texto: 'Perfecto.', datos_extraidos: { ubicacion: 'Monterrey' } }),                                     // "Monterrey"
-      salidaBase({ respuesta_texto: 'Anotado.', datos_extraidos: { consumo_mensual_kwh: '450' } }),                                  // "450 kWh"
-      salidaBase({ respuesta_texto: 'Listo.', datos_extraidos: { importe_promedio_recibo: '1300' } }),                               // "1300 pesos"
+      salidaBase({ respuesta_texto: 'Anotado.', datos_extraidos: { consumo_mensual_kwh: '450' },
+        datos_consumo_declarado: { valor: 450, unidad: 'kwh', periodo: 'mensual', aproximado: false } }),                            // "450 kWh"
+      salidaBase({ respuesta_texto: 'Listo.', datos_extraidos: { importe_promedio_recibo: '1300' },
+        datos_consumo_declarado: { valor: 1300, unidad: 'mxn', periodo: 'mensual', aproximado: false } }),                           // "1300 pesos"
       salidaBase({ respuesta_texto: 'Entendido.', datos_extraidos: { pct_cobertura_deseado: '90' } }),                               // "90%"
       salidaBase({ respuesta_texto: 'Ok.', datos_extraidos: { tipo_alimentacion: 'monofasica' } }),                                  // "monofásica"
       salidaBase({ respuesta_texto: 'Va.', datos_extraidos: { voltaje_sitio: '220' } }),                                             // "220V" — completa el workflow, SIN motivo nunca dado
@@ -273,11 +275,22 @@ describe('Integración real — WhatsApp → Orchestrator → WorkflowEngine →
       nombre: 'Carlos González', ubicacion: 'Monterrey', consumo_mensual_kwh: '450',
     });
 
-    // Integridad de datos (punto 5): identificación válida requiere TAMBIÉN
-    // motivo — nunca se dio en esta conversación → la acción comercial
-    // bloqueada, CERO ejecuciones del motor de ingeniería (sin cotización
-    // prematura).
-    expect(actionRunner.ejecutar).not.toHaveBeenCalled();
+    // Cambio de comportamiento AUTORIZADO (Alina, incidente "Lucía no
+    // completa cotización", 2026-10-18; trade-off confirmado 2026-10-20):
+    // este workflow fue disparado por la intención comercial explícita
+    // "solicitud_cotizacion" — ESE disparo ya cuenta como motivo suficiente
+    // (WorkflowEngine.obtenerMotivoImplicito), aunque el cliente nunca haya
+    // dicho la palabra "motivo". Antes (Prioridad 3, "Carlos González",
+    // 2026-10-16) un motivo faltante bloqueaba SIEMPRE sin excepción — ese
+    // trade-off se revisó explícitamente y se aceptó el costo: ya no se
+    // vuelve a preguntar algo que el propio workflow ya demuestra.
+    expect(actionRunner.ejecutar).toHaveBeenCalledWith(
+      { tipo: 'ejecutar_motor_ingenieria', parametros: {} },
+      expect.objectContaining({ clienteRaw: expect.objectContaining({ id: cliente.id }) })
+    );
+    // El motivo NUNCA se persiste como si fuera texto literal del cliente
+    // (el fallback es solo para autorizar la acción, no para inventar
+    // datos) — motivo_consulta sigue vacío en la tabla clientes.
     expect(cliente.motivo_consulta).toBeFalsy();
 
     // No reinicio: el workflow sigue "completado" con TODO su progreso
@@ -287,9 +300,11 @@ describe('Integración real — WhatsApp → Orchestrator → WorkflowEngine →
     expect(sesionesDeEsteCliente).toHaveLength(1);
     expect(sesionesDeEsteCliente[0].current_node).toBe('preguntar_voltaje');
 
-    // Última respuesta: pregunta el motivo (único dato de IDENTIFICACIÓN que
-    // falta), nunca vuelve a pedir el nombre.
-    expect(respuestas[respuestas.length - 1]).toMatch(/en qué te puedo ayudar/i);
+    // Última respuesta: como el motor sí se autorizó a correr (actionRunner
+    // mock no devuelve ningún resultado reconocible), cae al texto libre
+    // normal del modelo para ese turno ("Va.") — nunca vuelve a preguntar
+    // nombre ni motivo.
+    expect(respuestas[respuestas.length - 1]).toBe('Va.');
   });
 
   test('Aislamiento multiempresa: 2 clientes con el MISMO teléfono en 2 empresas distintas nunca comparten identificación ni sesión de workflow', async () => {
@@ -316,5 +331,196 @@ describe('Integración real — WhatsApp → Orchestrator → WorkflowEngine →
     expect(clienteEmpresa1.nombre).toBe('Cliente Empresa 1');
     expect(clienteEmpresa2.nombre).toBe('Sin nombre'); // la empresa 2 nunca ve el nombre de la empresa 1
     expect(r2.respuesta_texto).not.toContain('Cliente Empresa 1');
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Incidente real "Lucía no completa cotización" (Alina, 2026-10-18) —
+// conversación real de Nort Energy, 18-oct-2026 16:11-16:15 UTC, cliente_id
+// 261. Reproduce el patrón exacto y confirma la corrección autorizada
+// 2026-10-20 (ver TARA_INCIDENTE_LUCIA_COTIZACION_DIAGNOSTICO_V1.md).
+// ═════════════════════════════════════════════════════════════════════════════
+
+describe('Incidente real "Lucía no completa cotización" (2026-10-18)', () => {
+  test('Último nodo técnico completado: el motor SÍ corre (motivo implícito del workflow), nunca responde con el saludo genérico', async () => {
+    const fakeDb = crearFakeSupabase();
+    fakeDb.__tablas.workflows = [workflowReal()];
+    fakeDb.__tablas.workflow_nodes = nodosRealesIngenieriaSolar();
+    const telefono = '+5218142850036';
+
+    const aiEngine = aiEngineConGuion([
+      salidaBase({ respuesta_texto: 'Buen día.', intenciones: ['solicitud_cotizacion'] }),                                    // "hola buen dia, quiero una cotizacion"
+      salidaBase({ respuesta_texto: 'Entendido.' }),                                                                          // "es para mi casa" (nombre no respondido de verdad — gap conocido, ver test de abajo)
+      salidaBase({ respuesta_texto: 'Ok.', datos_extraidos: { ubicacion: 'Ciudad Victoria' } }),                              // "es en cd victoria"
+      salidaBase({ respuesta_texto: 'Ok.', datos_extraidos: { consumo_mensual_kwh: '400' },
+        datos_consumo_declarado: { valor: 400, unidad: 'kwh', periodo: 'mensual', aproximado: false } }),                     // consumo ya aclarado
+      salidaBase({ respuesta_texto: 'Ok.', datos_extraidos: { importe_promedio_recibo: '1800' },
+        datos_consumo_declarado: { valor: 1800, unidad: 'mxn', periodo: 'mensual', aproximado: false } }),                    // importe
+      salidaBase({ respuesta_texto: 'Ok.', datos_extraidos: { pct_cobertura_deseado: '90' } }),                               // "90"
+      salidaBase({ respuesta_texto: 'Ok.', datos_extraidos: { tipo_alimentacion: 'monofasica' } }),                           // "monofasica"
+      salidaBase({ respuesta_texto: 'Va.', datos_extraidos: { voltaje_sitio: '220' } }),                                      // "220" — completa el workflow
+    ]);
+    const actionRunner = { ejecutar: jest.fn() };
+    const orch = montarOrchestratorReal(fakeDb, { aiEngine, actionRunner });
+
+    const mensajes = ['hola buen dia, quiero una cotizacion', 'es para mi casa', 'es en cd victoria', '3000 mensual (ya aclarado a 400 kwh)', '1800', '90', 'monofasica', '220'];
+    let ultima;
+    for (const contenido of mensajes) {
+      ultima = await orch.procesarMensaje(makeMessage(telefono, contenido));
+    }
+
+    expect(actionRunner.ejecutar).toHaveBeenCalledWith(
+      { tipo: 'ejecutar_motor_ingenieria', parametros: {} },
+      expect.anything()
+    );
+    expect(ultima.respuesta_texto).not.toMatch(/en qué (te puedo ayudar|puedo ayudarte)/i);
+
+    const sesion = fakeDb.__tablas.workflow_sessions[0];
+    expect(sesion.status).toBe('completado');
+    expect(sesion.current_node).toBe('preguntar_voltaje');
+  });
+
+  test('Consumo ambiguo: "3000 mensual" sin unidad reportada por el modelo → pide aclaración, NUNCA se guarda en silencio (el bug real del incidente)', async () => {
+    const fakeDb = crearFakeSupabase();
+    fakeDb.__tablas.workflows = [workflowReal()];
+    fakeDb.__tablas.workflow_nodes = nodosRealesIngenieriaSolar();
+    const telefono = '+5218142850036';
+
+    const aiEngine = aiEngineConGuion([
+      salidaBase({ respuesta_texto: 'Buen día.', intenciones: ['solicitud_cotizacion'] }),
+      salidaBase({ respuesta_texto: 'Entendido.' }),
+      salidaBase({ respuesta_texto: 'Ok.', datos_extraidos: { ubicacion: 'Ciudad Victoria' } }),
+      // "3000 mensual" — el modelo extrae el número a datos_extraidos pero
+      // NO llena datos_consumo_declarado (reproduce el turno real del
+      // incidente, confirmado por captured_fields sin "_fuente").
+      salidaBase({ respuesta_texto: 'Ok.', datos_extraidos: { consumo_mensual_kwh: '3000' } }),
+    ]);
+    const orch = montarOrchestratorReal(fakeDb, { aiEngine, actionRunner: { ejecutar: jest.fn() } });
+
+    await orch.procesarMensaje(makeMessage(telefono, 'hola buen dia, quiero una cotizacion'));
+    await orch.procesarMensaje(makeMessage(telefono, 'es para mi casa'));
+    await orch.procesarMensaje(makeMessage(telefono, 'es en cd victoria'));
+    const r = await orch.procesarMensaje(makeMessage(telefono, '3000 mensual'));
+
+    expect(r.respuesta_texto).toMatch(/consumo en kWh, o el importe que pagas en pesos/i);
+
+    const sesion = fakeDb.__tablas.workflow_sessions[0];
+    expect(sesion.current_node).toBe('preguntar_consumo_kwh'); // NUNCA avanzó con el valor ambiguo
+    expect(sesion.captured_fields.consumo_mensual_kwh).toBeUndefined();
+  });
+
+  test('Solicitud repetida de cotización tras completar el workflow: no entra en loop del saludo genérico', async () => {
+    const fakeDb = crearFakeSupabase();
+    fakeDb.__tablas.workflows = [workflowReal()];
+    fakeDb.__tablas.workflow_nodes = nodosRealesIngenieriaSolar();
+    const telefono = '+5218142850036';
+
+    const aiEngine = aiEngineConGuion([
+      salidaBase({ respuesta_texto: 'Buen día.', intenciones: ['solicitud_cotizacion'] }),
+      salidaBase({ respuesta_texto: 'Ok.', datos_extraidos: { ubicacion: 'Ciudad Victoria' } }),
+      salidaBase({ respuesta_texto: 'Ok.', datos_extraidos: { consumo_mensual_kwh: '400' }, datos_consumo_declarado: { valor: 400, unidad: 'kwh', periodo: 'mensual', aproximado: false } }),
+      salidaBase({ respuesta_texto: 'Ok.', datos_extraidos: { importe_promedio_recibo: '1800' }, datos_consumo_declarado: { valor: 1800, unidad: 'mxn', periodo: 'mensual', aproximado: false } }),
+      salidaBase({ respuesta_texto: 'Ok.', datos_extraidos: { pct_cobertura_deseado: '90' } }),
+      salidaBase({ respuesta_texto: 'Ok.', datos_extraidos: { tipo_alimentacion: 'monofasica' } }),
+      salidaBase({ respuesta_texto: 'Va.', datos_extraidos: { voltaje_sitio: '220' } }),
+      salidaBase({ respuesta_texto: 'Con gusto, ya tengo tus datos.', intenciones: ['solicitud_cotizacion'] }), // "quiero la cotizacion" (repetida)
+    ]);
+    const actionRunner = { ejecutar: jest.fn() };
+    const orch = montarOrchestratorReal(fakeDb, { aiEngine, actionRunner });
+
+    const mensajes = ['hola, quiero una cotizacion', 'cd victoria', '400 kwh', '1800', '90', 'monofasica', '220', 'quiero la cotizacion'];
+    let ultima;
+    for (const contenido of mensajes) ultima = await orch.procesarMensaje(makeMessage(telefono, contenido));
+
+    // El workflow ya estaba completado — tieneSesionCompletadaReciente evita
+    // reabrirlo; la repetición cae a conversación libre normal, nunca repite
+    // el saludo genérico de "faltan_datos".
+    expect(ultima.respuesta_texto).not.toMatch(/en qué (te puedo ayudar|puedo ayudarte)/i);
+    const sesionesDeEsteCliente = fakeDb.__tablas.workflow_sessions.filter(s => s.cliente_id === fakeDb.__tablas.clientes.find(c => c.telefono === telefono).id);
+    expect(sesionesDeEsteCliente).toHaveLength(1); // nunca se creó una segunda sesión
+  });
+
+  test('Ingeniería bloqueada: el motor corrió pero el cálculo quedó bloqueado → la respuesta refleja el estado real, nunca cifras inventadas', async () => {
+    const fakeDb = crearFakeSupabase();
+    fakeDb.__tablas.workflows = [workflowReal()];
+    fakeDb.__tablas.workflow_nodes = nodosRealesIngenieriaSolar();
+    const telefono = '+5218142850036';
+
+    const aiEngine = aiEngineConGuion([
+      salidaBase({ respuesta_texto: 'Buen día.', intenciones: ['solicitud_cotizacion'] }),
+      salidaBase({ respuesta_texto: 'Ok.', datos_extraidos: { ubicacion: 'Ciudad Victoria' } }),
+      salidaBase({ respuesta_texto: 'Ok.', datos_extraidos: { consumo_mensual_kwh: '400' }, datos_consumo_declarado: { valor: 400, unidad: 'kwh', periodo: 'mensual', aproximado: false } }),
+      salidaBase({ respuesta_texto: 'Ok.', datos_extraidos: { importe_promedio_recibo: '1800' }, datos_consumo_declarado: { valor: 1800, unidad: 'mxn', periodo: 'mensual', aproximado: false } }),
+      salidaBase({ respuesta_texto: 'Ok.', datos_extraidos: { pct_cobertura_deseado: '90' } }),
+      salidaBase({ respuesta_texto: 'Ok.', datos_extraidos: { tipo_alimentacion: 'monofasica' } }),
+      salidaBase({ respuesta_texto: 'El modelo nunca debería decir esto: ~10 kWp.', datos_extraidos: { voltaje_sitio: '220' } }),
+    ]);
+    const actionRunner = { ejecutar: jest.fn().mockResolvedValue({
+      estado_calculo: 'bloqueado', motor: 'paneles_solares',
+      alertas: [{ tipo: 'area_insuficiente', severidad: 'bloqueo' }],
+    }) };
+    const orch = montarOrchestratorReal(fakeDb, { aiEngine, actionRunner });
+
+    const mensajes = ['hola, quiero una cotizacion', 'cd victoria', '400 kwh', '1800', '90', 'monofasica', '220'];
+    let ultima;
+    for (const contenido of mensajes) ultima = await orch.procesarMensaje(makeMessage(telefono, contenido));
+
+    expect(actionRunner.ejecutar).toHaveBeenCalled();
+    // Prioridad 5 (2026-10-17): el texto libre del modelo NUNCA gobierna
+    // cuando el motor ya corrió — aquí usa el texto honesto real del
+    // cálculo bloqueado, nunca "~10 kWp" ni ninguna cifra inventada.
+    expect(ultima.respuesta_texto).not.toMatch(/kWp/i);
+  });
+
+  test('Ingeniería completada: el motor corrió y el cálculo es exitoso → la respuesta usa las cifras REALES del cálculo', async () => {
+    const fakeDb = crearFakeSupabase();
+    fakeDb.__tablas.workflows = [workflowReal()];
+    fakeDb.__tablas.workflow_nodes = nodosRealesIngenieriaSolar();
+    const telefono = '+5218142850036';
+
+    const aiEngine = aiEngineConGuion([
+      salidaBase({ respuesta_texto: 'Buen día.', intenciones: ['solicitud_cotizacion'] }),
+      salidaBase({ respuesta_texto: 'Ok.', datos_extraidos: { ubicacion: 'Ciudad Victoria' } }),
+      salidaBase({ respuesta_texto: 'Ok.', datos_extraidos: { consumo_mensual_kwh: '400' }, datos_consumo_declarado: { valor: 400, unidad: 'kwh', periodo: 'mensual', aproximado: false } }),
+      salidaBase({ respuesta_texto: 'Ok.', datos_extraidos: { importe_promedio_recibo: '1800' }, datos_consumo_declarado: { valor: 1800, unidad: 'mxn', periodo: 'mensual', aproximado: false } }),
+      salidaBase({ respuesta_texto: 'Ok.', datos_extraidos: { pct_cobertura_deseado: '90' } }),
+      salidaBase({ respuesta_texto: 'Ok.', datos_extraidos: { tipo_alimentacion: 'monofasica' } }),
+      salidaBase({ respuesta_texto: 'Debería decir otra cosa.', datos_extraidos: { voltaje_sitio: '220' } }),
+    ]);
+    const actionRunner = { ejecutar: jest.fn().mockResolvedValue({
+      estado_calculo: 'completo', motor: 'paneles_solares',
+      resultados: { numero_paneles: { valor: 8 }, potencia_instalada_kwp: 4.4, cobertura_pct: 90 },
+    }) };
+    const orch = montarOrchestratorReal(fakeDb, { aiEngine, actionRunner });
+
+    const mensajes = ['hola, quiero una cotizacion', 'cd victoria', '400 kwh', '1800', '90', 'monofasica', '220'];
+    let ultima;
+    for (const contenido of mensajes) ultima = await orch.procesarMensaje(makeMessage(telefono, contenido));
+
+    expect(ultima.respuesta_texto).toContain('8 paneles');
+    expect(ultima.respuesta_texto).toMatch(/4\.4 kWp/);
+  });
+
+  test('GAP CONOCIDO, NO CORREGIDO (pendiente de autorización — punto 3 del diagnóstico): el nodo preguntar_nombre acepta cualquier texto no vacío, aunque claramente no sea un nombre', async () => {
+    const fakeDb = crearFakeSupabase();
+    fakeDb.__tablas.workflows = [workflowReal()];
+    fakeDb.__tablas.workflow_nodes = nodosRealesIngenieriaSolar();
+    const telefono = '+5218142850036';
+
+    const aiEngine = aiEngineConGuion([
+      salidaBase({ respuesta_texto: 'Buen día.', intenciones: ['solicitud_cotizacion'] }),
+      salidaBase({ respuesta_texto: 'Ok.' }), // "es para mi casa" — no es un nombre, el modelo tampoco lo extrajo como tal
+    ]);
+    const orch = montarOrchestratorReal(fakeDb, { aiEngine, actionRunner: { ejecutar: jest.fn() } });
+
+    await orch.procesarMensaje(makeMessage(telefono, 'hola buen dia, quiero una cotizacion'));
+    await orch.procesarMensaje(makeMessage(telefono, 'es para mi casa'));
+
+    const sesion = fakeDb.__tablas.workflow_sessions[0];
+    // Esto es el gap documentado, no una aserción deseada: el nodo
+    // "preguntar_nombre" no valida el formato de la respuesta — captura el
+    // texto crudo tal cual. Si en el futuro se autoriza e implementa el
+    // punto 3 (validación de nombre), esta prueba debe actualizarse.
+    expect(sesion.captured_fields.nombre).toBe('es para mi casa');
   });
 });
